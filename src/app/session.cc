@@ -1,0 +1,562 @@
+#include "app/session.hh"
+#include "chain/target.hh"
+#include "mine/gpu.hh"
+#include "base/clock.hh"
+#include "base/memory.hh"
+#include "base/strings.hh"
+#include "base/text.hh"
+
+namespace app {
+
+	static mine::limits limits_of ( const ui::preferences& settings ) {
+
+		mine::limits out;
+
+		out.threads = settings.cpu ? settings.threads : 0;
+		out.cpu_percent = settings.cpu_limit;
+		out.priority = static_cast < base::thread_priority > ( base::min ( settings.priority, static_cast < uint8_t > ( 2 ) ) );
+		out.choice = static_cast < mine::kernel > ( base::min ( settings.kernel, static_cast < uint8_t > ( 2 ) ) );
+		out.gpu = settings.gpu;
+		out.gpu_percent = settings.gpu_limit;
+		out.gpu_intensity = settings.intensity;
+		out.adapter = settings.adapter;
+
+		return out;
+
+	}
+
+	static uint8_t phase_of ( pool::link_state state ) {
+
+		switch ( state ) {
+
+			case pool::LINK_CONNECTING:
+				return ui::PHASE_CONNECTING;
+
+			case pool::LINK_SUBSCRIBING:
+			case pool::LINK_AUTHORIZING:
+				return ui::PHASE_SIGNING_IN;
+
+			case pool::LINK_READY:
+				return ui::PHASE_READY;
+
+			case pool::LINK_WAITING:
+				return ui::PHASE_RETRYING;
+
+			case pool::LINK_REFUSED:
+				return ui::PHASE_REFUSED;
+
+			default:
+				return ui::PHASE_OFF;
+
+		}
+
+	}
+
+	static uint8_t gpu_phase_of ( mine::gpu_state state ) {
+
+		if ( state == mine::GPU_STARTING )
+			return ui::GPU_STARTING;
+
+		if ( state == mine::GPU_RUNNING )
+			return ui::GPU_WORKING;
+
+		return state == mine::GPU_FAILED ? ui::GPU_BROKEN : ui::GPU_IDLE;
+
+	}
+
+	static const wchar_t* mode_name ( uint8_t mode ) {
+
+		if ( mode == ui::MODE_BENCHMARK )
+			return L"benchmark";
+
+		return mode == ui::MODE_GENESIS ? L"genesis search" : L"pool mining";
+
+	}
+
+	session::session ( ) {
+
+		shown = new ui::snapshot;
+		base::detect ( cpu );
+		base::copy_text ( shown->cpu_name, base::count_of ( shown->cpu_name ), cpu.label );
+		shown->cores = cpu.cores;
+		shown->threads = cpu.threads;
+		shown->sha = cpu.sha && cpu.sse41 && cpu.ssse3;
+
+		mine::adapter_info adapters [ ui::adapter_room ];
+
+		shown->adapter_count = mine::list_adapters ( adapters, ui::adapter_room );
+
+		for ( int32_t i = 0; i < shown->adapter_count; i++ )
+			base::copy_text ( shown->adapters [ i ], base::count_of ( shown->adapters [ i ] ), adapters [ i ].name );
+
+		base::copy_text ( shown->status, base::count_of ( shown->status ), L"Ready" );
+
+	}
+
+	session::~session ( ) {
+
+		stop ( );
+		delete shown;
+
+	}
+
+	bool session::start ( const ui::preferences& settings ) {
+
+		stop ( );
+
+		ui::snapshot& view = *shown;
+
+		mode = settings.mode;
+		adapter = settings.adapter;
+		kernel = settings.kernel;
+		view.mode = mode;
+		view.rate = 0.0;
+		view.average = 0.0;
+		view.peak = 0.0;
+		view.uptime = 0.0;
+		view.best = 0.0;
+		view.hashes = 0;
+		view.accepted = 0;
+		view.rejected = 0;
+		view.stale = 0;
+		view.faults = 0;
+		view.history_count = 0;
+		view.history_serial++;
+		view.cpu_rate = 0.0;
+		view.cpu_hashes = 0;
+		view.lane_count = 0;
+		view.gpu_rate = 0.0;
+		view.gpu_hashes = 0;
+		view.gpu_state = ui::GPU_IDLE;
+		view.gpu_name [ 0 ] = 0;
+		view.link = ui::PHASE_OFF;
+		view.difficulty = 0.0;
+		view.latency = 0.0;
+		view.has_job = false;
+		view.job [ 0 ] = 0;
+		view.progress = 0.0;
+		view.remaining = 0.0;
+		view.solved = false;
+		view.nonce = 0;
+		view.from = 0;
+		view.share_count = 0;
+		view.share_serial++;
+		view.paused = false;
+		view.pause_reason [ 0 ] = 0;
+
+		mine::feeder* feed = &benchmark;
+
+		if ( mode == ui::MODE_POOL ) {
+
+			pool::settings link;
+
+			base::copy_text ( link.address, base::count_of ( link.address ), settings.address );
+			base::copy_text ( link.worker, base::count_of ( link.worker ), settings.worker );
+			base::copy_text ( link.password, base::count_of ( link.password ), settings.password );
+			client.start ( link );
+			feed = &client;
+
+		} else if ( mode == ui::MODE_GENESIS ) {
+
+			genesis.reset ( genesis_from );
+			feed = &genesis;
+
+		}
+
+		engine.start ( feed, limits_of ( settings ) );
+		active = true;
+		paused = false;
+		started = base::seconds ( );
+		last_sample = started;
+		last_tick = started;
+		last_total = 0;
+		last_gpu = 0;
+		base::zero ( lane_last, sizeof ( lane_last ) );
+		view.running = true;
+		view.lane_count = static_cast < int32_t > ( engine.lanes ( ) );
+		view.active_threads = engine.threads ( );
+		view.extensions = engine.uses_extensions ( );
+
+		base::text line;
+
+		line.add ( L"Started " ).add ( mode_name ( mode ) );
+
+		if ( settings.cpu && settings.threads )
+			line.add ( L" on " ).number ( base::min ( settings.threads, engine.lanes ( ) ) ).add ( settings.threads == 1 ? L" thread" : L" threads" ).add ( view.extensions ? L" (SHA extensions)" : L" (portable kernel)" );
+
+		if ( settings.gpu )
+			line.add ( settings.cpu && settings.threads ? L" and the GPU" : L" on the GPU" );
+
+		log ( ui::LEVEL_INFO, line.get ( ) );
+		describe ( settings );
+
+		return true;
+
+	}
+
+	void session::stop ( ) {
+
+		if ( !active )
+			return;
+
+		double ran = base::seconds ( ) - started;
+		uint64_t total = engine.hashes ( );
+
+		engine.stop ( );
+		client.stop ( );
+		drain_pool ( );
+		active = false;
+		shown->running = false;
+		shown->paused = false;
+		shown->rate = 0.0;
+		shown->cpu_rate = 0.0;
+		shown->gpu_rate = 0.0;
+		shown->gpu_state = ui::GPU_IDLE;
+		shown->link = ui::PHASE_OFF;
+
+		for ( int32_t i = 0; i < shown->lane_count; i++ )
+			shown->lane_rates [ i ] = 0.0f;
+
+		base::text line;
+
+		line.add ( L"Stopped after " ).duration ( ran ).add ( L", " ).compact ( static_cast < double > ( total ) ).add ( L" hashes" );
+		log ( ui::LEVEL_INFO, line.get ( ) );
+		base::copy_text ( shown->status, base::count_of ( shown->status ), L"Ready" );
+
+	}
+
+	void session::apply ( const ui::preferences& settings ) {
+
+		if ( active && ( settings.mode != mode || settings.adapter != adapter || settings.kernel != kernel ) ) {
+
+			start ( settings );
+
+			return;
+
+		}
+
+		if ( active ) {
+
+			engine.apply ( limits_of ( settings ) );
+			shown->extensions = engine.uses_extensions ( );
+
+		}
+
+		describe ( settings );
+
+	}
+
+	void session::log ( uint8_t level, const wchar_t* text ) {
+
+		ui::snapshot& view = *shown;
+
+		if ( view.log_count == ui::log_room ) {
+
+			base::move ( view.logs, view.logs + 1, sizeof ( ui::log_row ) * ( ui::log_room - 1 ) );
+			view.log_count--;
+
+		}
+
+		ui::log_row& row = view.logs [ view.log_count++ ];
+
+		row.time = base::local_time ( );
+		row.level = level;
+		base::copy_text ( row.text, base::count_of ( row.text ), text );
+		view.log_serial++;
+
+	}
+
+	void session::clear_log ( ) {
+
+		shown->log_count = 0;
+		shown->log_serial++;
+
+	}
+
+	void session::drain_pool ( ) {
+
+		pool::event item;
+		ui::snapshot& view = *shown;
+
+		while ( client.next_event ( item ) ) {
+
+			uint8_t level = ui::LEVEL_INFO;
+
+			if ( item.kind == pool::EVENT_WARNING || item.kind == pool::EVENT_REJECTED )
+				level = ui::LEVEL_WARNING;
+			else if ( item.kind == pool::EVENT_ERROR )
+				level = ui::LEVEL_ERROR;
+			else if ( item.kind == pool::EVENT_ACCEPTED )
+				level = ui::LEVEL_GOOD;
+
+			if ( item.kind == pool::EVENT_ACCEPTED || item.kind == pool::EVENT_REJECTED ) {
+
+				if ( view.share_count == ui::share_room ) {
+
+					base::move ( view.shares, view.shares + 1, sizeof ( ui::share_row ) * ( ui::share_room - 1 ) );
+					view.share_count--;
+
+				}
+
+				ui::share_row& row = view.shares [ view.share_count++ ];
+
+				row.time = item.time;
+				row.accepted = item.kind == pool::EVENT_ACCEPTED;
+				row.difficulty = item.difficulty;
+				row.latency = item.latency;
+				row.nonce = item.nonce;
+				row.reason [ 0 ] = 0;
+
+				if ( !row.accepted ) {
+
+					const wchar_t* reason = item.text;
+
+					for ( int32_t i = 0; item.text [ i ]; i++ ) {
+
+						if ( item.text [ i ] == L':' && item.text [ i + 1 ] == L' ' )
+							reason = item.text + i + 2;
+
+					}
+
+					base::copy_text ( row.reason, base::count_of ( row.reason ), reason == item.text ? L"Rejected" : reason );
+
+				}
+
+				view.share_serial++;
+
+				if ( row.accepted )
+					continue;
+
+			}
+
+			log ( level, item.text );
+			view.logs [ view.log_count - 1 ].time = item.time;
+
+		}
+
+	}
+
+	void session::finish_genesis ( ) {
+
+		ui::snapshot& view = *shown;
+		uint64_t space = mine::nonce_space - genesis.start ( );
+
+		if ( genesis.solved ( ) ) {
+
+			sample ( base::seconds ( ) );
+
+			double ran = base::seconds ( ) - started;
+			chain::header real;
+
+			chain::genesis ( real );
+			view.solved = true;
+			view.nonce = genesis.nonce ( );
+			view.progress = base::min ( static_cast < double > ( genesis.nonce ( ) - genesis.start ( ) + 1 ) / static_cast < double > ( space ), 1.0 );
+			view.remaining = 0.0;
+			base::copy ( view.block_hash, genesis.digest ( ), 32 );
+			engine.stop ( );
+			active = false;
+			view.running = false;
+			view.rate = 0.0;
+			view.gpu_state = ui::GPU_IDLE;
+
+			base::text line;
+
+			line.add ( L"Found nonce " ).number ( view.nonce ).add ( L" in " ).duration ( ran );
+			line.add ( view.nonce == real.nonce ( ) ? L", the same nonce Satoshi found on January 3, 2009" : L", which differs from the real block" );
+			log ( view.nonce == real.nonce ( ) ? ui::LEVEL_GOOD : ui::LEVEL_ERROR, line.get ( ) );
+			base::copy_text ( view.status, base::count_of ( view.status ), L"Genesis block found" );
+
+			return;
+
+		}
+
+		if ( engine.hashes ( ) >= space ) {
+
+			engine.stop ( );
+			active = false;
+			view.running = false;
+			log ( ui::LEVEL_WARNING, L"No nonce in the range met the genesis target" );
+			base::copy_text ( view.status, base::count_of ( view.status ), L"Search finished without a match" );
+
+		}
+
+	}
+
+	void session::sample ( double now ) {
+
+		ui::snapshot& view = *shown;
+		uint64_t total = engine.hashes ( );
+
+		view.uptime = now - started;
+		view.hashes = total;
+
+		if ( now - last_sample >= 1.0 ) {
+
+			double span = now - last_sample;
+			float rate = static_cast < float > ( static_cast < double > ( total - last_total ) / span );
+
+			if ( view.history_count == ui::history_room ) {
+
+				base::move ( view.history, view.history + 1, sizeof ( float ) * ( ui::history_room - 1 ) );
+				view.history_count--;
+
+			}
+
+			view.history [ view.history_count++ ] = rate;
+			view.history_serial++;
+
+			double cpu_total = 0.0;
+
+			for ( int32_t i = 0; i < view.lane_count && i < ui::lane_room; i++ ) {
+
+				uint64_t done = engine.lane_hashes ( static_cast < uint32_t > ( i ) );
+
+				view.lane_rates [ i ] = static_cast < float > ( static_cast < double > ( done - lane_last [ i ] ) / span );
+				cpu_total += view.lane_rates [ i ];
+				lane_last [ i ] = done;
+
+			}
+
+			uint64_t gpu_total = engine.gpu_hashes ( );
+
+			view.cpu_rate = cpu_total;
+			view.gpu_rate = static_cast < double > ( gpu_total - last_gpu ) / span;
+			last_gpu = gpu_total;
+			last_total = total;
+			last_sample = now;
+
+			int32_t window = base::min ( view.history_count, 5 );
+			double sum = 0.0;
+
+			for ( int32_t i = view.history_count - window; i < view.history_count; i++ )
+				sum += view.history [ i ];
+
+			view.rate = window ? sum / window : 0.0;
+			view.peak = base::max ( view.peak, static_cast < double > ( rate ) );
+
+		}
+
+		view.gpu_hashes = engine.gpu_hashes ( );
+		view.cpu_hashes = 0;
+
+		for ( uint32_t i = 0; i < engine.lanes ( ); i++ )
+			view.cpu_hashes += engine.lane_hashes ( i );
+
+		view.average = view.uptime > 0.5 ? static_cast < double > ( total ) / view.uptime : 0.0;
+		view.best = engine.best ( ) == ~0ull ? 0.0 : chain::difficulty_of ( engine.best ( ) );
+		view.faults = engine.gpu_errors ( );
+		view.gpu_state = gpu_phase_of ( engine.gpu_status ( ) );
+		view.active_threads = engine.threads ( );
+		base::copy_text ( view.gpu_name, base::count_of ( view.gpu_name ), engine.gpu_name ( ) );
+
+		if ( mode == ui::MODE_POOL ) {
+
+			pool::status link;
+
+			client.read ( link );
+			view.link = phase_of ( link.state );
+			view.difficulty = link.difficulty;
+			view.latency = link.latency;
+			view.accepted = link.accepted;
+			view.rejected = link.rejected;
+			view.stale = link.stale;
+			view.has_job = link.has_job;
+			view.version = link.version;
+			view.bits = link.bits;
+			view.time = link.time;
+			view.branches = link.branches;
+			view.coinbase_size = link.coinbase_size;
+			base::copy ( view.previous, link.previous, 32 );
+			base::copy_text ( view.job, base::count_of ( view.job ), link.job );
+
+		}
+
+		if ( mode == ui::MODE_GENESIS ) {
+
+			double space = static_cast < double > ( mine::nonce_space - genesis.start ( ) );
+
+			view.from = genesis.start ( );
+			view.progress = base::min ( static_cast < double > ( total ) / space, 1.0 );
+			view.remaining = view.rate > 0.0 ? ( space - static_cast < double > ( total ) ) / view.rate : 0.0;
+
+		}
+
+	}
+
+	void session::describe ( const ui::preferences& settings ) {
+
+		ui::snapshot& view = *shown;
+		base::text line;
+
+		if ( !active )
+			line.add ( view.solved ? L"Genesis block found" : L"Ready" );
+		else if ( paused )
+			line.add ( view.pause_reason );
+		else if ( mode == ui::MODE_BENCHMARK )
+			line.add ( L"Benchmarking sha256d" );
+		else if ( mode == ui::MODE_GENESIS )
+			line.add ( L"Searching for the genesis block's nonce" );
+		else if ( view.link == ui::PHASE_READY )
+			line.add ( L"Mining on " ).add ( settings.address );
+		else if ( view.link == ui::PHASE_SIGNING_IN )
+			line.add ( L"Signing in to " ).add ( settings.address );
+		else if ( view.link == ui::PHASE_RETRYING )
+			line.add ( L"Waiting to reconnect to " ).add ( settings.address );
+		else if ( view.link == ui::PHASE_REFUSED )
+			line.add ( L"The pool refused the worker" );
+		else
+			line.add ( L"Connecting to " ).add ( settings.address );
+
+		base::copy_text ( view.status, base::count_of ( view.status ), line.get ( ) );
+
+	}
+
+	bool session::tick ( double now, const ui::preferences& settings ) {
+
+		uint64_t logs = shown->log_serial;
+		uint64_t shares = shown->share_serial;
+		bool changed = false;
+
+		drain_pool ( );
+
+		if ( active ) {
+
+			const wchar_t* reason = nullptr;
+
+			if ( settings.pause_active && base::idle_seconds ( ) < static_cast < double > ( settings.idle_minutes ) * 60.0 )
+				reason = L"Paused while the computer is in use";
+			else if ( settings.pause_battery && base::on_battery ( ) )
+				reason = L"Paused on battery power";
+
+			if ( ( reason != nullptr ) != paused ) {
+
+				paused = reason != nullptr;
+				engine.set_paused ( paused );
+				shown->paused = paused;
+				base::copy_text ( shown->pause_reason, base::count_of ( shown->pause_reason ), reason ? reason : L"" );
+				log ( ui::LEVEL_INFO, paused ? reason : L"Resumed" );
+				changed = true;
+
+			}
+
+			if ( now - last_tick >= 0.25 ) {
+
+				sample ( now );
+				last_tick = now;
+				changed = true;
+
+			}
+
+			if ( mode == ui::MODE_GENESIS )
+				finish_genesis ( );
+
+			describe ( settings );
+
+		}
+
+		return changed || logs != shown->log_serial || shares != shown->share_serial;
+
+	}
+
+}

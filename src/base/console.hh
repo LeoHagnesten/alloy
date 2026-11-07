@@ -2,10 +2,12 @@
 
 #include "base/base.hh"
 
-namespace console {
+namespace base {
 
-	void write ( const wchar_t* text );
+	void attach_console ( );
 
-	void line ( const wchar_t* text );
+	void print ( const wchar_t* text );
+
+	void print_line ( const wchar_t* text );
 
 }

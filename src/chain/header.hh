@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/base.hh"
+#include "hash/sha256.hh"
 
 namespace chain {
 
@@ -13,6 +13,18 @@ namespace chain {
 		uint32_t field ( uint32_t offset ) const;
 
 		void set_field ( uint32_t offset, uint32_t value );
+
+		uint8_t* previous ( ) {
+
+			return bytes + 4;
+
+		}
+
+		uint8_t* merkle_root ( ) {
+
+			return bytes + 36;
+
+		}
 
 		uint32_t version ( ) const {
 
@@ -38,6 +50,24 @@ namespace chain {
 
 		}
 
+		void set_version ( uint32_t value ) {
+
+			set_field ( 0, value );
+
+		}
+
+		void set_time ( uint32_t value ) {
+
+			set_field ( 68, value );
+
+		}
+
+		void set_bits ( uint32_t value ) {
+
+			set_field ( 72, value );
+
+		}
+
 		void set_nonce ( uint32_t value ) {
 
 			set_field ( 76, value );
@@ -50,23 +80,18 @@ namespace chain {
 
 	public:
 
-		void prepare ( const header& source );
+		void prepare ( const header& source, hash::compressor kernel );
 
 		void hash ( uint32_t nonce, uint8_t* out ) const;
 
 	private:
 
+		hash::compressor compress = hash::sha256_block;
 		uint32_t midstate [ 8 ] = { };
 		uint8_t second [ 64 ] = { };
 
 	};
 
 	void genesis ( header& out );
-
-	void target_of ( uint32_t bits, uint8_t* out );
-
-	bool meets ( const uint8_t* digest, uint32_t bits );
-
-	uint32_t leading_zero_bits ( const uint8_t* digest );
 
 }

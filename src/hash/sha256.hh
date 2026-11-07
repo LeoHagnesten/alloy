@@ -8,7 +8,13 @@ namespace hash {
 
 	extern const uint32_t sha256_start [ 8 ];
 
+	extern const uint32_t sha256_rounds [ 64 ];
+
+	using compressor = void ( * ) ( uint32_t* state, const uint8_t* block );
+
 	void sha256_block ( uint32_t* state, const uint8_t* block );
+
+	void sha256_block_extensions ( uint32_t* state, const uint8_t* block );
 
 	void sha256_digest ( const uint32_t* state, uint8_t* out );
 

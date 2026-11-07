@@ -1,42 +1,80 @@
 #include "base/console.hh"
+#include "base/strings.hh"
 #include <windows.h>
 
-namespace console {
+namespace base {
 
-	static SRWLOCK lock = SRWLOCK_INIT;
+	static SRWLOCK console_lock = SRWLOCK_INIT;
+	static HANDLE console_out = nullptr;
 
-	void write ( const wchar_t* text ) {
+	static void emit ( const wchar_t* text ) {
 
-		HANDLE out = GetStdHandle ( STD_OUTPUT_HANDLE );
 		DWORD mode = 0;
 		DWORD done = 0;
-		int32_t size = base::length ( text );
+		int32_t size = length ( text );
 
-		if ( !out || out == INVALID_HANDLE_VALUE || !size )
+		if ( !size )
 			return;
 
-		AcquireSRWLockExclusive ( &lock );
+		if ( GetConsoleMode ( console_out, &mode ) ) {
 
-		if ( GetConsoleMode ( out, &mode ) )
-			WriteConsoleW ( out, text, static_cast < DWORD > ( size ), &done, nullptr );
-		else {
+			WriteConsoleW ( console_out, text, static_cast < DWORD > ( size ), &done, nullptr );
 
-			char bytes [ 2048 ];
-			int32_t length = WideCharToMultiByte ( CP_UTF8, 0, text, size, bytes, sizeof ( bytes ), nullptr, nullptr );
-
-			if ( length > 0 )
-				WriteFile ( out, bytes, static_cast < DWORD > ( length ), &done, nullptr );
+			return;
 
 		}
 
-		ReleaseSRWLockExclusive ( &lock );
+		char bytes [ 4096 ];
+		int32_t count = narrow ( bytes, sizeof ( bytes ), text );
+
+		if ( count > 0 )
+			WriteFile ( console_out, bytes, static_cast < DWORD > ( count ), &done, nullptr );
 
 	}
 
-	void line ( const wchar_t* text ) {
+	void attach_console ( ) {
 
-		write ( text );
-		write ( L"\r\n" );
+		HANDLE inherited = GetStdHandle ( STD_OUTPUT_HANDLE );
+
+		if ( inherited && inherited != INVALID_HANDLE_VALUE ) {
+
+			console_out = inherited;
+
+			return;
+
+		}
+
+		if ( AttachConsole ( ATTACH_PARENT_PROCESS ) ) {
+
+			console_out = CreateFileW ( L"CONOUT$", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr );
+
+			if ( console_out == INVALID_HANDLE_VALUE )
+				console_out = nullptr;
+
+		}
+
+	}
+
+	void print ( const wchar_t* text ) {
+
+		if ( !console_out )
+			return;
+
+		AcquireSRWLockExclusive ( &console_lock );
+		emit ( text );
+		ReleaseSRWLockExclusive ( &console_lock );
+
+	}
+
+	void print_line ( const wchar_t* text ) {
+
+		if ( !console_out )
+			return;
+
+		AcquireSRWLockExclusive ( &console_lock );
+		emit ( text );
+		emit ( L"\r\n" );
+		ReleaseSRWLockExclusive ( &console_lock );
 
 	}
 

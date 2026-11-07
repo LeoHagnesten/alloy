@@ -1,4 +1,6 @@
 #include "hash/sha256.hh"
+#include "base/bits.hh"
+#include "base/memory.hh"
 
 namespace hash {
 
@@ -8,7 +10,7 @@ namespace hash {
 
 	};
 
-	static const uint32_t rounds [ 64 ] = {
+	const uint32_t sha256_rounds [ 64 ] = {
 
 		0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5, 0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
 		0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3, 0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
@@ -21,29 +23,19 @@ namespace hash {
 
 	};
 
-	static inline uint32_t turn ( uint32_t value, uint32_t count ) {
-
-		return value >> count | value << ( 32 - count );
-
-	}
-
-	static inline uint32_t load_big ( const uint8_t* at ) {
-
-		return static_cast < uint32_t > ( at [ 0 ] ) << 24 | static_cast < uint32_t > ( at [ 1 ] ) << 16 | static_cast < uint32_t > ( at [ 2 ] ) << 8 | at [ 3 ];
-
-	}
-
 	void sha256_block ( uint32_t* state, const uint8_t* block ) {
+
+		using base::rotate_right;
 
 		uint32_t words [ 64 ];
 
 		for ( int32_t i = 0; i < 16; i++ )
-			words [ i ] = load_big ( block + i * 4 );
+			words [ i ] = base::load_big ( block + i * 4 );
 
 		for ( int32_t i = 16; i < 64; i++ ) {
 
-			uint32_t low = turn ( words [ i - 15 ], 7 ) ^ turn ( words [ i - 15 ], 18 ) ^ words [ i - 15 ] >> 3;
-			uint32_t high = turn ( words [ i - 2 ], 17 ) ^ turn ( words [ i - 2 ], 19 ) ^ words [ i - 2 ] >> 10;
+			uint32_t low = rotate_right ( words [ i - 15 ], 7 ) ^ rotate_right ( words [ i - 15 ], 18 ) ^ words [ i - 15 ] >> 3;
+			uint32_t high = rotate_right ( words [ i - 2 ], 17 ) ^ rotate_right ( words [ i - 2 ], 19 ) ^ words [ i - 2 ] >> 10;
 
 			words [ i ] = words [ i - 16 ] + low + words [ i - 7 ] + high;
 
@@ -60,10 +52,10 @@ namespace hash {
 
 		for ( int32_t i = 0; i < 64; i++ ) {
 
-			uint32_t big_sum = turn ( e, 6 ) ^ turn ( e, 11 ) ^ turn ( e, 25 );
+			uint32_t big_sum = rotate_right ( e, 6 ) ^ rotate_right ( e, 11 ) ^ rotate_right ( e, 25 );
 			uint32_t choose = ( e & f ) ^ ( ~e & g );
-			uint32_t first = h + big_sum + choose + rounds [ i ] + words [ i ];
-			uint32_t small_sum = turn ( a, 2 ) ^ turn ( a, 13 ) ^ turn ( a, 22 );
+			uint32_t first = h + big_sum + choose + sha256_rounds [ i ] + words [ i ];
+			uint32_t small_sum = rotate_right ( a, 2 ) ^ rotate_right ( a, 13 ) ^ rotate_right ( a, 22 );
 			uint32_t majority = ( a & b ) ^ ( a & c ) ^ ( b & c );
 			uint32_t second = small_sum + majority;
 
@@ -91,14 +83,8 @@ namespace hash {
 
 	void sha256_digest ( const uint32_t* state, uint8_t* out ) {
 
-		for ( int32_t i = 0; i < 8; i++ ) {
-
-			out [ i * 4 ] = static_cast < uint8_t > ( state [ i ] >> 24 );
-			out [ i * 4 + 1 ] = static_cast < uint8_t > ( state [ i ] >> 16 );
-			out [ i * 4 + 2 ] = static_cast < uint8_t > ( state [ i ] >> 8 );
-			out [ i * 4 + 3 ] = static_cast < uint8_t > ( state [ i ] );
-
-		}
+		for ( int32_t i = 0; i < 8; i++ )
+			base::store_big ( out + i * 4, state [ i ] );
 
 	}
 

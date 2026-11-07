@@ -19,22 +19,18 @@ namespace base {
 
 	}
 
-	void* allocate ( size_t size );
+	template < typename type >
+	constexpr type clamp ( type value, type low, type high ) {
 
-	void release ( void* memory );
+		return value < low ? low : ( value > high ? high : value );
 
-	void fill ( void* target, uint8_t value, size_t size );
+	}
 
-	void copy ( void* target, const void* source, size_t size );
+	template < typename type, size_t count >
+	constexpr int32_t count_of ( const type ( & ) [ count ] ) {
 
-	bool same ( const void* a, const void* b, size_t size );
+		return static_cast < int32_t > ( count );
 
-	int32_t length ( const wchar_t* text );
-
-	bool same_text ( const wchar_t* a, const wchar_t* b );
-
-	bool read_hex ( const char* text, uint8_t* out, size_t count );
-
-	uint64_t read_number ( const wchar_t* text );
+	}
 
 }

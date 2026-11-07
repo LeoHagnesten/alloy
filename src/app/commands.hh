@@ -4,10 +4,22 @@
 
 namespace app {
 
-	uint32_t run ( wchar_t** arguments, int32_t count );
+	bool is_command ( wchar_t** arguments, int32_t count );
 
-	uint32_t bench ( const wchar_t* algorithm, uint32_t seconds, uint32_t threads );
+	uint32_t run_command ( wchar_t** arguments, int32_t count );
 
-	uint32_t genesis ( uint32_t from, uint32_t threads );
+	uint32_t open_window ( );
+
+#ifdef ALLOY_DEBUG
+
+	uint32_t capture ( const wchar_t* folder, uint32_t warmup, bool clips );
+
+	uint32_t export_icon ( const wchar_t* path );
+
+	uint32_t export_logo ( const wchar_t* path, uint32_t size );
+
+	uint32_t smoke_window ( const wchar_t* shot );
+
+#endif
 
 }

@@ -12,9 +12,19 @@ namespace tests {
 
 	void section ( const wchar_t* name );
 
+	bool hex_is ( const uint8_t* bytes, size_t count, const char* expected );
+
+	void base_tests ( );
+
 	void hash_tests ( );
 
 	void chain_tests ( );
+
+	void mining_tests ( );
+
+	void pool_tests ( );
+
+	void motion_tests ( );
 
 }
 
