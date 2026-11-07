@@ -3,6 +3,7 @@
 #include "tests/harness.hh"
 #include "pool/job.hh"
 #include "base/bits.hh"
+#include "base/gif.hh"
 #include "base/json.hh"
 #include "base/math.hh"
 #include "base/png.hh"
@@ -85,6 +86,33 @@ namespace tests {
 		int32_t size = png.size ( );
 
 		check ( encoded && size > 57 && png [ 0 ] == 0x89 && png [ 1 ] == 'P' && base::load_big ( png.data ( ) + size - 4 ) == 0xAE426082, L"PNG files start with the signature and end with the standard IEND checksum" );
+
+		static const uint32_t flats [ ] = { 0x121417, 0x0D0F11, 0x1B1E22, 0x3DB39A, 0xE5E8EA, 0xE8EAEC };
+		uint8_t* frame = new uint8_t [ 128 * 128 * 4 ];
+		base::gif_writer* gif = new base::gif_writer;
+
+		for ( int32_t i = 0; i < 128 * 128; i++ ) {
+
+			uint32_t color = i < 128 * 96 ? flats [ i / 2048 ] : static_cast < uint32_t > ( i * 2654435761u ) & 0xFFFFFF;
+
+			frame [ i * 4 ] = static_cast < uint8_t > ( color >> 16 );
+			frame [ i * 4 + 1 ] = static_cast < uint8_t > ( color >> 8 );
+			frame [ i * 4 + 2 ] = static_cast < uint8_t > ( color );
+			frame [ i * 4 + 3 ] = 255;
+
+		}
+
+		bool exact = gif->open ( 128, 128 );
+
+		gif->learn ( frame );
+		gif->seal ( );
+
+		for ( uint32_t color : flats )
+			exact = exact && gif->shade_of ( color ) == color;
+
+		check ( exact && gif->frame ( frame, 2 ), L"GIF frames keep the interface's flat colours exactly, not rounded to 15 bits" );
+		delete gif;
+		delete [ ] frame;
 
 	}
 

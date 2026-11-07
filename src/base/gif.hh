@@ -32,14 +32,17 @@ namespace base {
 
 		}
 
+		uint32_t shade_of ( uint32_t rgb ) const;
+
 	private:
 
 		void write_codes ( const uint8_t* indices, int32_t count );
 
+		uint8_t nearest ( uint32_t color ) const;
+
 		int32_t wide = 0;
 		int32_t tall = 0;
-		uint32_t* histogram = nullptr;
-		uint8_t* lookup = nullptr;
+		uint32_t* table = nullptr;
 		uint8_t* previous = nullptr;
 		uint8_t* current = nullptr;
 		uint8_t* region = nullptr;

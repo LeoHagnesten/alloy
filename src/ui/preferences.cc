@@ -46,10 +46,22 @@ namespace ui {
 
 		};
 
+		static const wchar_t* const datasets [ ] = { L"Full, 2 GB", L"Light, 256 MB" };
+		static const wchar_t* const address_tips [ ] = {
+
+			L"The pool's stratum address as host:port. Run Alloy.exe --test-pool to get a local one on 127.0.0.1:3333.",
+			L"The scrypt pool's address as host:port. Alloy.exe --test-pool --algorithm scrypt --port 3334 starts a local one.",
+			L"The Monero pool's address as host:port. Alloy.exe --test-pool --algorithm randomx --port 3335 starts a local one.",
+
+		};
+
 		section ( L"POOL" );
-		field ( surface, row ( L"Pool address", L"The pool's stratum address as host:port. Run Alloy.exe --test-pool to get a local one on 127.0.0.1:3333.", 300.0f, 30.0f ), SETTING_ADDRESS, false, now );
-		field ( surface, row ( L"Worker", L"Who the pool credits for your shares. Most pools want your wallet or username, a dot, then a name for this PC.", 300.0f, 30.0f ), SETTING_WORKER, false, now );
+		value.add ( L"for " ).add ( chain::algorithm_name ( settings.algorithm ) );
+		surface.text ( value.get ( ), render::FONT_SMALL, render::box { x, y - 40.0f, wide, 16.0f }, colors.faint, render::ALIGN_RIGHT );
+		field ( surface, row ( L"Pool address", address_tips [ settings.algorithm % chain::ALGORITHM_COUNT ], 300.0f, 30.0f ), SETTING_ADDRESS, false, now );
+		field ( surface, row ( L"Worker", settings.algorithm == chain::ALGORITHM_RANDOMX ? L"Monero pools want your wallet address here. Some take a dot and a name for this PC after it." : L"Who the pool credits for your shares. Most pools want your wallet or username, a dot, then a name for this PC.", 300.0f, 30.0f ), SETTING_WORKER, false, now );
 		field ( surface, row ( L"Password", L"Most pools ignore this. Leave it as x unless yours says otherwise.", 300.0f, 30.0f ), SETTING_PASSWORD, true, now );
+		value.clear ( );
 
 		section ( L"PROCESSOR" );
 		toggle ( surface, row ( L"Mine on the processor", L"Hash on the CPU as well. You can switch this while mining.", 36.0f, 20.0f ), SETTING_CPU, settings.cpu, true, now );
@@ -60,10 +72,11 @@ namespace ui {
 		value.number ( settings.cpu_limit ).put ( L'%' );
 		slider ( surface, row ( L"Usage limit", L"Threads take short breaks so the CPU averages this much load. Lower runs cooler and quieter.", 300.0f, 30.0f ), SETTING_CPU_LIMIT, static_cast < float > ( settings.cpu_limit - 10 ) / 90.0f, value.get ( ), true, now );
 		segmented ( surface, row ( L"Priority", L"Idle only runs when nothing else wants the CPU. Low hardly gets in the way of anything. Normal competes with your apps.", 252.0f, 30.0f ), priorities, 3, settings.priority, CONTROL_CHOICE, SETTING_PRIORITY * 16, true, now );
-		segmented ( surface, row ( L"Hash kernel", view.sha ? L"Auto uses the CPU's SHA instructions, about three times faster than the portable code. Portable is there to compare against." : L"This CPU has no SHA instructions, so Auto runs the portable code.", 324.0f, 30.0f ), kernels, 3, settings.kernel, CONTROL_CHOICE, SETTING_KERNEL * 16, true, now );
+		segmented ( surface, row ( L"Hash kernel", view.sha ? L"Only matters for SHA-256d. Auto uses the CPU's SHA instructions, about three times faster than the portable code." : L"Only matters for SHA-256d. This CPU has no SHA instructions, so Auto runs the portable code.", 324.0f, 30.0f ), kernels, 3, settings.kernel, CONTROL_CHOICE, SETTING_KERNEL * 16, true, now );
+		segmented ( surface, row ( L"RandomX dataset", L"Full hashes about three times faster but keeps 2 GB of memory busy. Light gets by on 256 MB.", 252.0f, 30.0f ), datasets, 2, settings.full_dataset ? 0 : 1, CONTROL_CHOICE, SETTING_DATASET * 16, true, now );
 
 		section ( L"GRAPHICS" );
-		toggle ( surface, row ( L"Mine on the graphics card", has_card ? L"Runs Alloy's own shader on the graphics card. Every hit it reports gets checked again on the CPU." : L"No Direct3D 11 graphics card was found.", 36.0f, 20.0f ), SETTING_GPU, settings.gpu && has_card, has_card, now );
+		toggle ( surface, row ( L"Mine on the graphics card", has_card ? L"Runs Alloy's own shaders for SHA-256d and scrypt. RandomX stays on the CPU. Every hit the card reports gets checked again on the CPU." : L"No Direct3D 11 graphics card was found.", 36.0f, 20.0f ), SETTING_GPU, settings.gpu && has_card, has_card, now );
 
 		if ( view.adapter_count > 1 ) {
 
@@ -85,7 +98,7 @@ namespace ui {
 		value.clear ( );
 		value.number ( settings.intensity );
 		tip.clear ( );
-		tip.add ( L"Each batch is 2^" ).number ( settings.intensity ).add ( L", or " ).compact ( static_cast < double > ( 1u << settings.intensity ) ).add ( L" hashes. Higher gets a little more speed, lower keeps scrolling and video smooth while you mine." );
+		tip.add ( L"A SHA-256d batch is 2^" ).number ( settings.intensity ).add ( L", or " ).compact ( static_cast < double > ( 1u << settings.intensity ) ).add ( L" hashes. Higher is a little faster, lower keeps video smooth. Scrypt batches are sized by memory." );
 		slider ( surface, row ( L"Intensity", tip.get ( ), 300.0f, 30.0f ), SETTING_INTENSITY, static_cast < float > ( settings.intensity - 16 ) / 10.0f, value.get ( ), has_card, now );
 		value.clear ( );
 		value.number ( settings.gpu_limit ).put ( L'%' );
@@ -113,7 +126,7 @@ namespace ui {
 		segmented ( surface, row ( L"Theme", L"System follows the light or dark setting in Windows.", 252.0f, 30.0f ), themes, 3, settings.theme, CONTROL_CHOICE, SETTING_THEME * 16, true, now );
 
 		section ( L"ABOUT" );
-		surface.text ( L"Alloy 0.2", render::FONT_BODY, row ( L"Version", L"SHA-256, the pool client, the GPU shader and this window are all written from scratch.", 200.0f, 30.0f ), colors.muted, render::ALIGN_RIGHT );
+		surface.text ( L"Alloy 0.3", render::FONT_BODY, row ( L"Version", L"SHA-256, scrypt, RandomX, both pool protocols, the shaders and this window are all written from scratch.", 200.0f, 30.0f ), colors.muted, render::ALIGN_RIGHT );
 
 		y += 24.0f;
 		scroll_limit [ SCROLL_SETTINGS ] = base::max ( 0.0f, y - area.bottom ( ) );

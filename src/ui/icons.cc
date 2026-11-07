@@ -143,6 +143,42 @@ namespace ui {
 				segment ( 3.5f, 12.5f, 3.5f, 14.0f );
 				break;
 
+			case ICON_EYE:
+			case ICON_HIDDEN: {
+
+				float points [ 34 ];
+				int32_t count = 0;
+
+				for ( int32_t i = 0; i <= 8; i++ ) {
+
+					float t = static_cast < float > ( i ) / 8.0f;
+					float lean = 2.0f * t - 1.0f;
+
+					points [ count++ ] = at ( 1.5f + 13.0f * t, false );
+					points [ count++ ] = at ( 8.0f - 4.6f * ( 1.0f - lean * lean ), true );
+
+				}
+
+				for ( int32_t i = 7; i >= 0; i-- ) {
+
+					float t = static_cast < float > ( i ) / 8.0f;
+					float lean = 2.0f * t - 1.0f;
+
+					points [ count++ ] = at ( 1.5f + 13.0f * t, false );
+					points [ count++ ] = at ( 8.0f + 4.6f * ( 1.0f - lean * lean ), true );
+
+				}
+
+				surface.polyline ( points, count / 2, tint, stroke );
+				surface.ring ( at ( 8.0f, false ), at ( 8.0f, true ), 2.1f * unit, tint, stroke );
+
+				if ( kind == ICON_HIDDEN )
+					segment ( 2.5f, 13.5f, 13.5f, 2.5f );
+
+				break;
+
+			}
+
 		}
 
 	}

@@ -13,6 +13,7 @@ namespace base {
 		bool ssse3 = false;
 		bool sse41 = false;
 		bool sha = false;
+		bool aes = false;
 		bool avx2 = false;
 
 	};

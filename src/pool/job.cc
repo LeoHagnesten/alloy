@@ -77,6 +77,79 @@ namespace pool {
 
 	}
 
+	uint64_t read_blob_target ( const char* text, int32_t size ) {
+
+		uint8_t bytes [ 8 ] = { };
+
+		if ( ( size != 8 && size != 16 ) || !base::read_hex ( text, size, bytes, static_cast < size_t > ( size / 2 ) ) )
+			return 0;
+
+		if ( size == 16 )
+			return base::load_little64 ( bytes );
+
+		uint64_t narrow = base::load_little ( bytes );
+
+		return narrow ? ~0ull / ( 0xFFFFFFFFull / narrow ) : 0;
+
+	}
+
+	uint64_t blob_target_for ( double difficulty ) {
+
+		if ( !( difficulty > 1.0 ) )
+			return ~0ull;
+
+		double value = 18446744073709551615.0 / difficulty;
+
+		return value >= 18446744073709551615.0 ? ~0ull : static_cast < uint64_t > ( value );
+
+	}
+
+	double blob_difficulty ( uint64_t target ) {
+
+		return target ? 18446744073709551615.0 / static_cast < double > ( target ) : 0.0;
+
+	}
+
+	bool parse_blob_job ( const base::json& message, int32_t node, blob_job& out ) {
+
+		int32_t size = 0;
+		int32_t blob = message.member ( node, "blob" );
+		int32_t target = message.member ( node, "target" );
+		int32_t seed = message.member ( node, "seed_hash" );
+
+		out = blob_job { };
+		message.text ( message.member ( node, "job_id" ), out.id, sizeof ( out.id ) );
+
+		if ( !read_bytes ( message, blob, out.blob, blob_room, out.blob_size ) || out.blob_size < blob_nonce_at + 4 )
+			return false;
+
+		if ( message.kind ( target ) == base::JSON_STRING )
+			out.target = read_blob_target ( message.raw ( target ), message.raw_size ( target ) );
+
+		if ( !out.target )
+			return false;
+
+		if ( !read_bytes ( message, seed, out.seed, 32, size ) || size != 32 )
+			return false;
+
+		out.height = static_cast < uint64_t > ( message.number ( message.member ( node, "height" ) ) );
+
+		return out.id [ 0 ] != 0;
+
+	}
+
+	void write_blob_job ( base::line& out, const blob_job& work ) {
+
+		uint8_t target [ 8 ];
+
+		base::store_little64 ( target, work.target );
+		out.add ( "{\"blob\":\"" ).hex ( work.blob, static_cast < size_t > ( work.blob_size ), false ).add ( "\",\"job_id\":" );
+		base::add_json_string ( out, work.id );
+		out.add ( ",\"target\":\"" ).hex ( target, 8, false ).add ( "\",\"height\":" ).number ( work.height );
+		out.add ( ",\"seed_hash\":\"" ).hex ( work.seed, 32, false ).add ( "\",\"algo\":\"rx/0\"}" );
+
+	}
+
 	void counter_bytes ( uint64_t value, uint8_t* out, int32_t size ) {
 
 		for ( int32_t i = 0; i < size; i++ )

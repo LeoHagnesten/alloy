@@ -20,6 +20,8 @@ namespace ui {
 		ICON_CLEAR,
 		ICON_PROCESSOR,
 		ICON_GRAPHICS,
+		ICON_EYE,
+		ICON_HIDDEN,
 
 	};
 

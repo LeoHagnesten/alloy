@@ -7,14 +7,21 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include "sha256d.h"
+#include "scrypt_start.h"
+#include "scrypt_mix.h"
+#include "scrypt_finish.h"
 
 namespace mine {
+
+	static constexpr uint32_t scrypt_lane_bytes = 131072;
+	static constexpr uint32_t scrypt_state_bytes = 192;
 
 	struct work_constants {
 
 		uint32_t midstate [ 8 ];
 		uint32_t tail [ 4 ];
 		uint32_t limits [ 4 ];
+		uint32_t head [ 16 ];
 
 	};
 
@@ -100,8 +107,12 @@ namespace mine {
 
 		DXGI_ADAPTER_DESC1 description;
 
-		if ( SUCCEEDED ( chosen->GetDesc1 ( &description ) ) )
+		if ( SUCCEEDED ( chosen->GetDesc1 ( &description ) ) ) {
+
 			base::copy_text ( label, base::count_of ( label ), description.Description );
+			video_memory = description.DedicatedVideoMemory;
+
+		}
 
 		static const D3D_FEATURE_LEVEL levels [ ] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
 		bool ok = SUCCEEDED ( D3D11CreateDevice ( chosen, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_SINGLETHREADED, levels, 2, D3D11_SDK_VERSION, &device, nullptr, &context ) );
@@ -164,22 +175,138 @@ namespace mine {
 		if ( context )
 			context->ClearState ( );
 
+		drop ( state_view );
+		drop ( states );
+		drop ( table_view );
+		drop ( table );
 		drop ( view );
 		drop ( readback );
 		drop ( results );
 		drop ( constants );
+
+		for ( ID3D11ComputeShader*& stage : scrypt_stages )
+			drop ( stage );
+
 		drop ( shader );
 		drop ( context );
 		drop ( device );
+		scrypt_room = 0;
+		scrypt_failed = false;
 
 	}
 
-	bool gpu_device::dispatch ( const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, bool sampling ) {
+	bool gpu_device::prepare_scrypt ( ) {
 
-		if ( !device )
+		if ( state_view )
+			return true;
+
+		if ( scrypt_failed || !device )
 			return false;
 
-		uint32_t groups = base::max ( ( count + 255 ) / 256, 1u );
+		bool ok = SUCCEEDED ( device->CreateComputeShader ( scrypt_start_code, sizeof ( scrypt_start_code ), nullptr, &scrypt_stages [ 0 ] ) );
+
+		ok = ok && SUCCEEDED ( device->CreateComputeShader ( scrypt_mix_code, sizeof ( scrypt_mix_code ), nullptr, &scrypt_stages [ 1 ] ) );
+		ok = ok && SUCCEEDED ( device->CreateComputeShader ( scrypt_finish_code, sizeof ( scrypt_finish_code ), nullptr, &scrypt_stages [ 2 ] ) );
+
+		uint64_t budget = video_memory ? video_memory / 4 : 512ull << 20;
+
+		for ( uint32_t lanes = 16384; ok && lanes >= 1024 && !table_view; lanes /= 2 ) {
+
+			if ( static_cast < uint64_t > ( lanes ) * scrypt_lane_bytes > budget && lanes > 1024 )
+				continue;
+
+			D3D11_BUFFER_DESC layout = { };
+
+			layout.ByteWidth = lanes * scrypt_lane_bytes;
+			layout.Usage = D3D11_USAGE_DEFAULT;
+			layout.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+			layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+			layout.StructureByteStride = 16;
+
+			if ( FAILED ( device->CreateBuffer ( &layout, nullptr, &table ) ) )
+				continue;
+
+			D3D11_UNORDERED_ACCESS_VIEW_DESC shape = { };
+
+			shape.Format = DXGI_FORMAT_UNKNOWN;
+			shape.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+			shape.Buffer.NumElements = lanes * ( scrypt_lane_bytes / 16 );
+
+			if ( FAILED ( device->CreateUnorderedAccessView ( table, &shape, &table_view ) ) ) {
+
+				drop ( table );
+
+				continue;
+
+			}
+
+			scrypt_room = lanes;
+
+		}
+
+		if ( ok && table_view ) {
+
+			D3D11_BUFFER_DESC layout = { };
+
+			layout.ByteWidth = scrypt_room * scrypt_state_bytes;
+			layout.Usage = D3D11_USAGE_DEFAULT;
+			layout.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+			layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+			layout.StructureByteStride = 16;
+			ok = SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &states ) );
+
+			D3D11_UNORDERED_ACCESS_VIEW_DESC shape = { };
+
+			shape.Format = DXGI_FORMAT_UNKNOWN;
+			shape.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+			shape.Buffer.NumElements = scrypt_room * ( scrypt_state_bytes / 16 );
+			ok = ok && SUCCEEDED ( device->CreateUnorderedAccessView ( states, &shape, &state_view ) );
+
+		}
+
+		if ( !ok || !table_view || !state_view ) {
+
+			drop ( state_view );
+			drop ( states );
+			drop ( table_view );
+			drop ( table );
+
+			for ( ID3D11ComputeShader*& stage : scrypt_stages )
+				drop ( stage );
+
+			scrypt_room = 0;
+			scrypt_failed = true;
+
+			return false;
+
+		}
+
+		return true;
+
+	}
+
+	uint32_t gpu_device::capacity ( uint8_t algorithm ) {
+
+		if ( algorithm == chain::ALGORITHM_SCRYPT )
+			return prepare_scrypt ( ) ? scrypt_room : 0;
+
+		return algorithm == chain::ALGORITHM_SHA256D && device ? 1u << 28 : 0;
+
+	}
+
+	bool gpu_device::dispatch ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, bool sampling ) {
+
+		bool scrypt = algorithm == chain::ALGORITHM_SCRYPT;
+
+		if ( !device || algorithm == chain::ALGORITHM_RANDOMX || ( scrypt && !prepare_scrypt ( ) ) )
+			return false;
+
+		uint32_t width = scrypt ? 64 : 256;
+
+		if ( scrypt )
+			count = base::min ( count, scrypt_room );
+
+		uint32_t groups = base::max ( ( count + width - 1 ) / width, 1u );
 		uint32_t across = base::min ( groups, 4096u );
 		uint32_t down = ( groups + across - 1 ) / across;
 		work_constants values = { };
@@ -194,7 +321,10 @@ namespace mine {
 		values.tail [ 3 ] = first;
 		values.limits [ 0 ] = threshold;
 		values.limits [ 1 ] = sampling ? 1 : 0;
-		values.limits [ 2 ] = across * 256;
+		values.limits [ 2 ] = across * width;
+
+		for ( int32_t i = 0; i < 16; i++ )
+			values.head [ i ] = base::load_big ( header.bytes + i * 4 );
 
 		D3D11_MAPPED_SUBRESOURCE mapped;
 
@@ -206,11 +336,27 @@ namespace mine {
 
 		static const UINT zeros [ 4 ] = { };
 
+		ID3D11UnorderedAccessView* views [ 3 ] = { view, table_view, state_view };
+
 		context->ClearUnorderedAccessViewUint ( view, zeros );
-		context->CSSetShader ( shader, nullptr, 0 );
 		context->CSSetConstantBuffers ( 0, 1, &constants );
-		context->CSSetUnorderedAccessViews ( 0, 1, &view, nullptr );
-		context->Dispatch ( across, down, 1 );
+		context->CSSetUnorderedAccessViews ( 0, scrypt ? 3 : 1, views, nullptr );
+
+		if ( !scrypt ) {
+
+			context->CSSetShader ( shader, nullptr, 0 );
+			context->Dispatch ( across, down, 1 );
+
+			return true;
+
+		}
+
+		for ( ID3D11ComputeShader* stage : scrypt_stages ) {
+
+			context->CSSetShader ( stage, nullptr, 0 );
+			context->Dispatch ( across, down, 1 );
+
+		}
 
 		return true;
 
@@ -233,13 +379,13 @@ namespace mine {
 
 	}
 
-	bool gpu_device::search ( const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, uint32_t* found, uint32_t room, uint32_t& found_count ) {
+	bool gpu_device::search ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, uint32_t* found, uint32_t room, uint32_t& found_count ) {
 
 		uint32_t words [ 32 ];
 
 		found_count = 0;
 
-		if ( !dispatch ( header, first, count, threshold, false ) || !read ( words, 32 ) )
+		if ( !dispatch ( algorithm, header, first, count, threshold, false ) || !read ( words, 32 ) )
 			return false;
 
 		found_count = base::min ( base::min ( words [ 0 ], 31u ), room );
@@ -251,11 +397,14 @@ namespace mine {
 
 	}
 
-	bool gpu_device::sample ( const chain::header& header, uint32_t first, uint32_t count, uint32_t* tops ) {
+	bool gpu_device::sample ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t* tops ) {
 
 		count = base::min ( count, sample_room );
 
-		return dispatch ( header, first, count, 0, true ) && read ( tops, count );
+		if ( algorithm == chain::ALGORITHM_SCRYPT )
+			count = base::min ( count, capacity ( algorithm ) );
+
+		return count && dispatch ( algorithm, header, first, count, 0, true ) && read ( tops, count );
 
 	}
 

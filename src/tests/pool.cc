@@ -84,7 +84,8 @@ namespace tests {
 
 	}
 
-	static bool wait_until ( app::session& run, const ui::preferences& settings, double limit, bool ( *done ) ( const ui::snapshot& ) ) {
+	template < typename condition >
+	static bool wait_until ( app::session& run, const ui::preferences& settings, double limit, condition done ) {
 
 		double began = base::seconds ( );
 
@@ -100,6 +101,88 @@ namespace tests {
 		}
 
 		return false;
+
+	}
+
+	static int32_t count_logs ( const ui::snapshot& view, const wchar_t* prefix ) {
+
+		int32_t found = 0;
+
+		for ( int32_t i = 0; i < view.log_count; i++ )
+			found += base::starts_with ( view.logs [ i ].text, prefix ) ? 1 : 0;
+
+		return found;
+
+	}
+
+	static void mine_on ( uint8_t algorithm, double difficulty, uint32_t reseed, bool gpu, uint32_t wanted, double limit ) {
+
+		pool::test_server* server = new pool::test_server;
+		pool::server_settings config;
+		base::text note;
+
+		config.algorithm = algorithm;
+		config.port = 0;
+		config.difficulty = difficulty;
+		config.job_seconds = 3;
+		config.reseed_jobs = reseed;
+
+		if ( !server->start ( config ) ) {
+
+			check ( false, L"the test pool starts" );
+			delete server;
+
+			return;
+
+		}
+
+		double began = base::seconds ( );
+
+		while ( !server->ready ( ) && base::seconds ( ) - began < 10.0 )
+			base::sleep ( 10 );
+
+		app::session* run = new app::session;
+		ui::preferences settings;
+		base::writer < wchar_t, 64 > address;
+
+		address.add ( L"127.0.0.1:" ).number ( server->port ( ) );
+		settings.algorithm = algorithm;
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
+		settings.mode = ui::MODE_POOL;
+		settings.threads = algorithm == chain::ALGORITHM_RANDOMX ? run->processor ( ).threads : base::min ( run->processor ( ).threads, 4u );
+		settings.gpu = gpu;
+		settings.full_dataset = true;
+		run->start ( settings );
+
+		bool flowing = wait_until ( *run, settings, limit, [ & ] ( const ui::snapshot& view ) {
+
+			bool reseeded = !reseed || ( count_logs ( view, L"The RandomX seed changed" ) > 0 && view.dataset == ui::DATASET_FULL );
+
+			return view.accepted >= wanted && count_logs ( view, L"New job " ) >= ( reseed ? 3 : 2 ) && view.link == ui::PHASE_READY && reseeded;
+
+		} );
+
+		const ui::snapshot& view = run->view ( );
+		uint32_t accepted = view.accepted;
+		uint32_t rejected = view.rejected;
+		uint32_t stale = view.stale;
+		double rate = view.rate;
+		bool gpu_used = view.gpu_hashes > 0;
+
+		run->stop ( );
+		note.add ( chain::algorithm_name ( algorithm ) ).add ( L" mines on its test pool" );
+
+		if ( algorithm == chain::ALGORITHM_RANDOMX )
+			note.add ( reseed ? L" through a seed change" : L"" ).add ( L" with the full dataset" );
+		else if ( gpu )
+			note.add ( L" with the CPU and GPU" );
+
+		note.add ( L": " ).number ( accepted ).add ( L" accepted, " ).number ( rejected ).add ( L" rejected, " ).number ( stale ).add ( L" stale at " ).scaled ( rate, L"H/s" );
+		check ( flowing && rejected == 0 && server->accepted ( ) >= accepted && server->rejected ( ) == 0 && ( !gpu || gpu_used ), note.get ( ) );
+
+		delete run;
+		server->stop ( );
+		delete server;
 
 	}
 
@@ -197,7 +280,7 @@ namespace tests {
 		base::writer < wchar_t, 64 > address;
 
 		address.add ( L"127.0.0.1:" ).number ( server->port ( ) );
-		base::copy_text ( settings.address, base::count_of ( settings.address ), address.get ( ) );
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
 		settings.mode = ui::MODE_POOL;
 		settings.threads = base::min ( run->processor ( ).threads, 4u );
 		settings.gpu = false;
@@ -227,7 +310,7 @@ namespace tests {
 		check ( server->accepted ( ) >= accepted + 1, L"the pool's own count covers every share the miner saw accepted" );
 
 		run->clear_log ( );
-		base::copy_text ( settings.address, base::count_of ( settings.address ), L"127.0.0.1:1" );
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), L"127.0.0.1:1" );
 		run->start ( settings );
 
 		bool retrying = wait_until ( *run, settings, 8.0, [ ] ( const ui::snapshot& view ) {
@@ -239,7 +322,7 @@ namespace tests {
 		run->stop ( );
 		check ( retrying, L"an unreachable pool backs off and retries" );
 
-		base::copy_text ( settings.address, base::count_of ( settings.address ), L"no port here" );
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), L"no port here" );
 		run->start ( settings );
 
 		bool refused = wait_until ( *run, settings, 3.0, [ ] ( const ui::snapshot& view ) {
@@ -254,6 +337,9 @@ namespace tests {
 		delete run;
 		server->stop ( );
 		delete server;
+
+		mine_on ( chain::ALGORITHM_SCRYPT, 2.0, 0, true, 8, 25.0 );
+		mine_on ( chain::ALGORITHM_RANDOMX, 100.0, 2, false, 8, 45.0 );
 
 	}
 

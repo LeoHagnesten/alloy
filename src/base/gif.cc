@@ -1,11 +1,17 @@
 #include "base/gif.hh"
 #include "base/bits.hh"
+#include "base/memory.hh"
+#include "base/sort.hh"
 
 namespace base {
 
+	static constexpr uint32_t color_space = 1u << 24;
+	static constexpr uint32_t mapped = 0x80000000u;
+	static constexpr int32_t exact_slots = 176;
+
 	struct swatch {
 
-		uint16_t color;
+		uint32_t color;
 		uint32_t count;
 
 	};
@@ -17,15 +23,15 @@ namespace base {
 
 	};
 
-	static uint32_t channel ( uint16_t color, int32_t axis ) {
+	static uint32_t channel ( uint32_t color, int32_t axis ) {
 
-		return color >> ( 10 - axis * 5 ) & 31;
+		return color >> ( 16 - axis * 8 ) & 255;
 
 	}
 
-	static uint8_t widen_channel ( uint32_t value ) {
+	static uint32_t pack ( const uint8_t* at ) {
 
-		return static_cast < uint8_t > ( value << 3 | value >> 2 );
+		return static_cast < uint32_t > ( at [ 0 ] ) << 16 | static_cast < uint32_t > ( at [ 1 ] ) << 8 | at [ 2 ];
 
 	}
 
@@ -35,7 +41,7 @@ namespace base {
 
 		for ( int32_t a = 0; a < 3; a++ ) {
 
-			uint32_t low = 31;
+			uint32_t low = 255;
 			uint32_t high = 0;
 
 			for ( int32_t i = range.start; i < range.end; i++ ) {
@@ -62,8 +68,7 @@ namespace base {
 
 	gif_writer::~gif_writer ( ) {
 
-		release ( histogram );
-		release ( lookup );
+		release_pages ( table );
 		release ( previous );
 		release ( current );
 		release ( region );
@@ -76,16 +81,24 @@ namespace base {
 
 		wide = width;
 		tall = height;
-		histogram = static_cast < uint32_t* > ( allocate ( 32768 * sizeof ( uint32_t ) ) );
-		lookup = static_cast < uint8_t* > ( allocate ( 32768 ) );
+
+		if ( !table )
+			table = static_cast < uint32_t* > ( allocate_pages ( color_space * sizeof ( uint32_t ) ) );
+		else
+			zero ( table, color_space * sizeof ( uint32_t ) );
+
+		release ( previous );
+		release ( current );
+		release ( region );
 		previous = static_cast < uint8_t* > ( allocate ( pixels ) );
 		current = static_cast < uint8_t* > ( allocate ( pixels ) );
 		region = static_cast < uint8_t* > ( allocate ( pixels ) );
 		bytes.clear ( );
 		written = 0;
 		last_delay = -1;
+		colors = 0;
 
-		return histogram && lookup && previous && current && region;
+		return table && previous && current && region;
 
 	}
 
@@ -93,13 +106,45 @@ namespace base {
 
 		size_t pixels = static_cast < size_t > ( wide ) * static_cast < size_t > ( tall );
 
-		for ( size_t i = 0; i < pixels; i++ ) {
+		for ( size_t i = 0; i < pixels; i++ )
+			table [ pack ( rgba + i * 4 ) ]++;
 
-			const uint8_t* at = rgba + i * 4;
+	}
 
-			histogram [ ( at [ 0 ] >> 3 ) << 10 | ( at [ 1 ] >> 3 ) << 5 | at [ 2 ] >> 3 ]++;
+	uint8_t gif_writer::nearest ( uint32_t color ) const {
+
+		int32_t r = static_cast < int32_t > ( channel ( color, 0 ) );
+		int32_t g = static_cast < int32_t > ( channel ( color, 1 ) );
+		int32_t b = static_cast < int32_t > ( channel ( color, 2 ) );
+		int32_t best = 0;
+		int32_t best_distance = 0x7FFFFFFF;
+
+		for ( int32_t i = 0; i < colors; i++ ) {
+
+			int32_t dr = r - palette [ i * 3 ];
+			int32_t dg = g - palette [ i * 3 + 1 ];
+			int32_t db = b - palette [ i * 3 + 2 ];
+			int32_t distance = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+
+			if ( distance < best_distance ) {
+
+				best_distance = distance;
+				best = i;
+
+			}
 
 		}
+
+		return static_cast < uint8_t > ( best );
+
+	}
+
+	uint32_t gif_writer::shade_of ( uint32_t rgb ) const {
+
+		uint32_t entry = table ? table [ rgb & ( color_space - 1 ) ] : 0;
+		uint32_t index = entry & mapped ? entry & 255 : nearest ( rgb );
+
+		return static_cast < uint32_t > ( palette [ index * 3 ] ) << 16 | static_cast < uint32_t > ( palette [ index * 3 + 1 ] ) << 8 | palette [ index * 3 + 2 ];
 
 	}
 
@@ -107,19 +152,35 @@ namespace base {
 
 		list < swatch > items;
 
-		for ( uint32_t i = 0; i < 32768; i++ ) {
+		for ( uint32_t i = 0; i < color_space; i++ ) {
 
-			if ( histogram [ i ] )
-				items.push ( swatch { static_cast < uint16_t > ( i ), histogram [ i ] } );
+			if ( table [ i ] )
+				items.push ( swatch { i, table [ i ] } );
+
+		}
+
+		sort ( items.data ( ), items.size ( ), [ ] ( const swatch& a, const swatch& b ) {
+
+			return a.count > b.count || ( a.count == b.count && a.color < b.color );
+
+		} );
+
+		int32_t exact = items.size ( ) <= 256 ? items.size ( ) : exact_slots;
+
+		for ( int32_t i = 0; i < exact; i++ ) {
+
+			for ( int32_t a = 0; a < 3; a++ )
+				palette [ i * 3 + a ] = static_cast < uint8_t > ( channel ( items [ i ].color, a ) );
 
 		}
 
 		bucket buckets [ 256 ];
-		int32_t count = 1;
+		int32_t count = items.size ( ) > exact ? 1 : 0;
+		int32_t room = 256 - exact;
 
-		buckets [ 0 ] = bucket { 0, items.size ( ) };
+		buckets [ 0 ] = bucket { exact, items.size ( ) };
 
-		while ( count < 256 ) {
+		while ( count > 0 && count < room ) {
 
 			int32_t chosen = -1;
 			int32_t chosen_axis = 0;
@@ -146,7 +207,7 @@ namespace base {
 			bucket range = buckets [ chosen ];
 			int32_t size = range.end - range.start;
 			swatch* sorted = static_cast < swatch* > ( allocate ( sizeof ( swatch ) * static_cast < size_t > ( size ) ) );
-			int32_t starts [ 33 ] = { };
+			int32_t starts [ 257 ] = { };
 			uint64_t population = 0;
 
 			for ( int32_t i = range.start; i < range.end; i++ ) {
@@ -156,7 +217,7 @@ namespace base {
 
 			}
 
-			for ( int32_t i = 1; i < 33; i++ )
+			for ( int32_t i = 1; i < 257; i++ )
 				starts [ i ] += starts [ i - 1 ];
 
 			for ( int32_t i = range.start; i < range.end; i++ )
@@ -183,54 +244,30 @@ namespace base {
 
 		}
 
-		colors = max ( count, 2 );
-
 		for ( int32_t i = 0; i < count; i++ ) {
 
 			uint64_t sums [ 3 ] = { };
 			uint64_t weight = 0;
+			int32_t slot = exact + i;
 
 			for ( int32_t k = buckets [ i ].start; k < buckets [ i ].end; k++ ) {
 
 				for ( int32_t a = 0; a < 3; a++ )
-					sums [ a ] += static_cast < uint64_t > ( widen_channel ( channel ( items [ k ].color, a ) ) ) * items [ k ].count;
+					sums [ a ] += static_cast < uint64_t > ( channel ( items [ k ].color, a ) ) * items [ k ].count;
 
 				weight += items [ k ].count;
 
 			}
 
 			for ( int32_t a = 0; a < 3; a++ )
-				palette [ i * 3 + a ] = static_cast < uint8_t > ( weight ? sums [ a ] / weight : 0 );
+				palette [ slot * 3 + a ] = static_cast < uint8_t > ( weight ? ( sums [ a ] + weight / 2 ) / weight : 0 );
 
 		}
 
-		for ( uint32_t color = 0; color < 32768; color++ ) {
+		colors = max ( exact + count, 2 );
 
-			int32_t r = widen_channel ( color >> 10 & 31 );
-			int32_t g = widen_channel ( color >> 5 & 31 );
-			int32_t b = widen_channel ( color & 31 );
-			int32_t best = 0;
-			int32_t best_distance = 0x7FFFFFFF;
-
-			for ( int32_t i = 0; i < colors; i++ ) {
-
-				int32_t dr = r - palette [ i * 3 ];
-				int32_t dg = g - palette [ i * 3 + 1 ];
-				int32_t db = b - palette [ i * 3 + 2 ];
-				int32_t distance = dr * dr * 3 + dg * dg * 4 + db * db * 2;
-
-				if ( distance < best_distance ) {
-
-					best_distance = distance;
-					best = i;
-
-				}
-
-			}
-
-			lookup [ color ] = static_cast < uint8_t > ( best );
-
-		}
+		for ( int32_t i = 0; i < items.size ( ); i++ )
+			table [ items [ i ].color ] = mapped | ( i < exact ? static_cast < uint32_t > ( i ) : nearest ( items [ i ].color ) );
 
 		static const uint8_t signature [ ] = { 'G', 'I', 'F', '8', '9', 'a' };
 		uint8_t screen [ 7 ] = { static_cast < uint8_t > ( wide ), static_cast < uint8_t > ( wide >> 8 ), static_cast < uint8_t > ( tall ), static_cast < uint8_t > ( tall >> 8 ), 0xF7, 0, 0 };
@@ -249,9 +286,17 @@ namespace base {
 
 		for ( size_t i = 0; i < pixels; i++ ) {
 
-			const uint8_t* at = rgba + i * 4;
+			uint32_t color = pack ( rgba + i * 4 );
+			uint32_t entry = table [ color ];
 
-			current [ i ] = lookup [ ( at [ 0 ] >> 3 ) << 10 | ( at [ 1 ] >> 3 ) << 5 | at [ 2 ] >> 3 ];
+			if ( !( entry & mapped ) ) {
+
+				entry = mapped | nearest ( color );
+				table [ color ] = entry;
+
+			}
+
+			current [ i ] = static_cast < uint8_t > ( entry );
 
 		}
 

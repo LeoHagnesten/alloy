@@ -23,9 +23,11 @@ namespace chain {
 
 	}
 
-	void target_for ( double difficulty, uint8_t* out ) {
+	void target_for ( double difficulty, uint8_t* out, uint8_t kind ) {
 
-		if ( !( difficulty > 0.0 ) || difficulty < 1.0 / 65536.0 ) {
+		double top = unit_top ( kind );
+
+		if ( !( difficulty > 0.0 ) || difficulty * 18446744073709551616.0 <= top ) {
 
 			base::fill ( out, 0xFF, 32 );
 
@@ -33,10 +35,10 @@ namespace chain {
 
 		}
 
-		double value = 65535.0 / difficulty;
+		double value = top / difficulty;
 		double scale = 1.0;
 
-		for ( int32_t i = 0; i < 208; i++ )
+		for ( int32_t i = 0; i < 192; i++ )
 			value *= 2.0;
 
 		for ( int32_t i = 0; i < 224; i++ )
@@ -56,6 +58,13 @@ namespace chain {
 			scale /= 4294967296.0;
 
 		}
+
+	}
+
+	void target_of_top ( uint64_t top, uint8_t* out ) {
+
+		base::zero ( out, 24 );
+		base::store_little64 ( out + 24, top );
 
 	}
 
@@ -112,12 +121,14 @@ namespace chain {
 
 	}
 
-	double difficulty_of ( uint64_t top ) {
+	double difficulty_of ( uint64_t top, uint8_t kind ) {
+
+		double one = unit_top ( kind );
 
 		if ( !top )
-			return difficulty_one * 18446744073709551616.0;
+			return one * 18446744073709551616.0;
 
-		return difficulty_one / static_cast < double > ( top );
+		return one / static_cast < double > ( top );
 
 	}
 

@@ -13,6 +13,8 @@ namespace net {
 
 namespace pool {
 
+	static constexpr const char* agent = "alloy/0.3";
+
 	enum link_state : uint8_t {
 
 		LINK_OFF,
@@ -49,6 +51,7 @@ namespace pool {
 
 	struct settings {
 
+		uint8_t algorithm = chain::ALGORITHM_SHA256D;
 		wchar_t address [ 256 ] = { };
 		wchar_t worker [ 128 ] = { };
 		wchar_t password [ 128 ] = { };
@@ -72,6 +75,9 @@ namespace pool {
 		bool has_job = false;
 		uint8_t previous [ 32 ] = { };
 		wchar_t job [ 64 ] = { };
+		uint64_t height = 0;
+		int32_t blob_size = 0;
+		uint8_t seed [ 32 ] = { };
 
 	};
 
@@ -111,6 +117,7 @@ namespace pool {
 			uint32_t time = 0;
 			uint32_t nonce = 0;
 			double difficulty = 0.0;
+			uint8_t result [ 32 ] = { };
 
 		};
 
@@ -131,7 +138,25 @@ namespace pool {
 
 		bool handle ( const char* text, int32_t size );
 
+		void subscribe ( );
+
+		void login ( );
+
+		bool handle_blob ( const base::json& message );
+
+		void take_blob_job ( const base::json& message, int32_t node );
+
+		void keep_alive ( );
+
+		void settle ( uint32_t number, bool accepted, const wchar_t* reason );
+
 		void submit_shares ( );
+
+		bool blob_mode ( ) const {
+
+			return config.algorithm == chain::ALGORITHM_RANDOMX;
+
+		}
 
 		void note ( event_kind kind, const wchar_t* text, double difficulty = 0.0, double latency = 0.0, uint32_t nonce = 0 );
 
@@ -148,6 +173,9 @@ namespace pool {
 		base::lock state_lock;
 		status shown;
 		pool::job current;
+		blob_job blob_current;
+		char login_id [ 128 ] = { };
+		double last_keepalive = 0.0;
 		session_nonce nonce;
 		double difficulty = 1.0;
 		double next_difficulty = 1.0;

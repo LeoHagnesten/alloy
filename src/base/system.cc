@@ -120,6 +120,7 @@ namespace base {
 			cpuid ( 1, 0, regs );
 			out.ssse3 = regs [ 2 ] >> 9 & 1;
 			out.sse41 = regs [ 2 ] >> 19 & 1;
+			out.aes = regs [ 2 ] >> 25 & 1;
 
 		}
 

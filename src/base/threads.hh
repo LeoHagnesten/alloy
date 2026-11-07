@@ -19,6 +19,8 @@ namespace base {
 
 	void join_thread ( void* thread );
 
+	bool thread_finished ( void* thread );
+
 	void set_thread_priority ( thread_priority level );
 
 	void yield ( );

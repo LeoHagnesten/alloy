@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chain/algorithm.hh"
 #include "chain/header.hh"
 #include "base/json.hh"
 
@@ -34,9 +35,33 @@ namespace pool {
 
 	};
 
+	static constexpr int32_t blob_room = 256;
+	static constexpr int32_t blob_nonce_at = 39;
+
+	struct blob_job {
+
+		char id [ 64 ] = { };
+		uint8_t blob [ blob_room ] = { };
+		int32_t blob_size = 0;
+		uint64_t target = 0;
+		uint8_t seed [ 32 ] = { };
+		uint64_t height = 0;
+
+	};
+
 	bool parse_notify ( const base::json& message, int32_t params, job& out );
 
 	void write_notify ( base::line& out, const job& work );
+
+	bool parse_blob_job ( const base::json& message, int32_t node, blob_job& out );
+
+	void write_blob_job ( base::line& out, const blob_job& work );
+
+	uint64_t read_blob_target ( const char* text, int32_t size );
+
+	uint64_t blob_target_for ( double difficulty );
+
+	double blob_difficulty ( uint64_t target );
 
 	void counter_bytes ( uint64_t value, uint8_t* out, int32_t size );
 

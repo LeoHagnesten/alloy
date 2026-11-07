@@ -94,4 +94,6 @@ namespace chain {
 
 	void genesis ( header& out );
 
+	void litecoin_genesis ( header& out );
+
 }

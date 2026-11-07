@@ -1,4 +1,6 @@
 #include "pool/server.hh"
+#include "randomx/machine.hh"
+#include "hash/scrypt.hh"
 #include "chain/target.hh"
 #include "net/socket.hh"
 #include "base/bits.hh"
@@ -24,48 +26,73 @@ namespace pool {
 		uint64_t seen [ seen_room ] = { };
 		int32_t seen_count = 0;
 		wchar_t worker [ 64 ] = { };
+		char session [ 24 ] = { };
 
 	};
 
 	struct job_book {
 
 		job jobs [ kept_jobs ];
+		blob_job blobs [ kept_jobs ];
 		uint32_t made = 0;
 
-		const job& newest ( ) const {
+		uint32_t newest_slot ( ) const {
 
-			return jobs [ ( made - 1 ) % kept_jobs ];
+			return ( made - 1 ) % kept_jobs;
 
 		}
 
-		const job* find ( const char* id ) const {
+		int32_t find ( const char* id, bool blob ) const {
 
 			for ( uint32_t i = 0; i < kept_jobs && i < made; i++ ) {
 
-				if ( base::same_text ( jobs [ i ].id, id ) )
-					return &jobs [ i ];
+				if ( base::same_text ( blob ? blobs [ i ].id : jobs [ i ].id, id ) )
+					return static_cast < int32_t > ( i );
 
 			}
 
-			return nullptr;
+			return -1;
 
 		}
 
 	};
 
-	static void make_job ( job_book& book ) {
+	struct pool_state {
 
+		server_settings config;
+		job_book book;
+		uint8_t target [ 32 ] = { };
+		uint64_t blob_target = 0;
+		uint8_t seed [ 32 ] = { };
+		uint32_t seeds = 0;
+		randomx::cache* cache = nullptr;
+		randomx::machine* machine = nullptr;
+		void* scratch = nullptr;
+		volatile uint32_t* good = nullptr;
+		volatile uint32_t* bad = nullptr;
+
+	};
+
+	static void name_job ( char* out, int32_t room, uint32_t number ) {
+
+		base::writer < char, 16 > name;
+
+		name.number ( number );
+		base::copy_text ( out, room, name.get ( ) );
+
+	}
+
+	static void make_stratum_job ( pool_state& state ) {
+
+		job_book& book = state.book;
 		uint32_t height = 840000 + book.made;
 		job& work = book.jobs [ book.made % kept_jobs ];
-		base::writer < char, 16 > name;
 		uint8_t seed [ 16 ];
 		uint8_t digest [ 32 ];
 
-		book.made++;
 		work = job { };
-		name.number ( book.made );
-		base::copy_text ( work.id, sizeof ( work.id ), name.get ( ) );
-		base::store_little ( seed, book.made );
+		name_job ( work.id, sizeof ( work.id ), book.made + 1 );
+		base::store_little ( seed, book.made + 1 );
 		base::store_little ( seed + 4, base::unix_time ( ) );
 		base::copy ( seed + 8, "alloypoo", 8 );
 		hash::sha256_twice ( seed, 16, work.previous );
@@ -105,7 +132,6 @@ namespace pool {
 		base::copy ( work.tail, tail.data ( ), static_cast < size_t > ( tail.size ( ) ) );
 		work.head_size = head.size ( );
 		work.tail_size = tail.size ( );
-
 		work.branch_count = 3;
 
 		for ( int32_t i = 0; i < work.branch_count; i++ ) {
@@ -116,9 +142,59 @@ namespace pool {
 		}
 
 		work.version = 0x20000000;
-		work.bits = 0x1703A30C;
+		work.bits = state.config.algorithm == chain::ALGORITHM_SCRYPT ? 0x1A01CD2D : 0x1703A30C;
 		work.time = base::unix_time ( );
 		work.clean = true;
+
+	}
+
+	static void make_blob_job ( pool_state& state ) {
+
+		job_book& book = state.book;
+		blob_job& work = book.blobs [ book.made % kept_jobs ];
+		uint32_t time = base::unix_time ( );
+		uint8_t seed [ 16 ];
+
+		if ( !state.seeds || ( state.config.reseed_jobs && book.made && book.made % state.config.reseed_jobs == 0 ) ) {
+
+			uint8_t words [ 8 ];
+
+			base::store_little ( words, state.seeds++ );
+			base::copy ( words + 4, "seed", 4 );
+			hash::sha256_twice ( words, 8, state.seed );
+
+		}
+
+		work = blob_job { };
+		name_job ( work.id, sizeof ( work.id ), book.made + 1 );
+		work.blob [ 0 ] = 16;
+		work.blob [ 1 ] = 16;
+
+		for ( int32_t i = 0; i < 5; i++ )
+			work.blob [ 2 + i ] = static_cast < uint8_t > ( ( time >> ( i * 7 ) ) & 0x7F ) | ( i < 4 ? 0x80 : 0 );
+
+		base::store_little ( seed, book.made + 1 );
+		base::store_little ( seed + 4, time );
+		base::copy ( seed + 8, "alloyxmr", 8 );
+		hash::sha256_twice ( seed, 16, work.blob + 7 );
+		seed [ 15 ] = 0x5A;
+		hash::sha256_twice ( seed, 16, work.blob + 43 );
+		work.blob [ 75 ] = 1;
+		work.blob_size = 76;
+		work.target = state.blob_target;
+		base::copy ( work.seed, state.seed, 32 );
+		work.height = 3200000 + book.made;
+
+	}
+
+	static void make_job ( pool_state& state ) {
+
+		if ( state.config.algorithm == chain::ALGORITHM_RANDOMX )
+			make_blob_job ( state );
+		else
+			make_stratum_job ( state );
+
+		state.book.made++;
 
 	}
 
@@ -154,15 +230,353 @@ namespace pool {
 
 	}
 
-	static void send_work ( peer& client, const job_book& book, double difficulty ) {
+	static void reply_blob ( peer& client, const base::json& message, int32_t id, const char* result, int32_t code, const char* reason ) {
 
 		base::line out;
 
-		out.add ( "{\"id\":null,\"method\":\"mining.set_difficulty\",\"params\":[" ).decimal ( difficulty, 6 ).add ( "]}" );
+		out.add ( "{\"id\":" );
+		echo_id ( out, message, id );
+		out.add ( ",\"jsonrpc\":\"2.0\"" );
+
+		if ( result )
+			out.add ( ",\"error\":null,\"result\":" ).add ( result ).put ( '}' );
+		else {
+
+			out.add ( ",\"error\":{\"code\":" ).number ( static_cast < uint64_t > ( code ) ).add ( ",\"message\":" );
+			base::add_json_string ( out, reason );
+			out.add ( "}}" );
+
+		}
+
+		client.link.send_line ( out.get ( ) );
+
+	}
+
+	static void send_work ( peer& client, const pool_state& state ) {
+
+		base::line out;
+		const job_book& book = state.book;
+
+		if ( state.config.algorithm == chain::ALGORITHM_RANDOMX ) {
+
+			out.add ( "{\"jsonrpc\":\"2.0\",\"method\":\"job\",\"params\":" );
+			write_blob_job ( out, book.blobs [ book.newest_slot ( ) ] );
+			out.put ( '}' );
+			client.link.send_line ( out.get ( ) );
+
+			return;
+
+		}
+
+		out.add ( "{\"id\":null,\"method\":\"mining.set_difficulty\",\"params\":[" ).decimal ( state.config.difficulty, 6 ).add ( "]}" );
 		client.link.send_line ( out.get ( ) );
 		out.clear ( );
-		write_notify ( out, book.newest ( ) );
+		write_notify ( out, book.jobs [ book.newest_slot ( ) ] );
 		client.link.send_line ( out.get ( ) );
+
+	}
+
+	static bool remember ( peer& client, uint64_t key ) {
+
+		for ( int32_t k = 0; k < base::min ( client.seen_count, seen_room ); k++ ) {
+
+			if ( client.seen [ k ] == key )
+				return false;
+
+		}
+
+		client.seen [ client.seen_count++ % seen_room ] = key;
+
+		return true;
+
+	}
+
+	static uint64_t share_key ( const uint8_t* parts, size_t size ) {
+
+		uint64_t key = 1469598103934665603ull;
+
+		for ( size_t i = 0; i < size; i++ )
+			key = ( key ^ parts [ i ] ) * 1099511628211ull;
+
+		return key;
+
+	}
+
+	static void tally ( pool_state& state, bool accepted ) {
+
+		base::atomic_add ( accepted ? *state.good : *state.bad, 1u );
+
+	}
+
+	static void announce ( const pool_state& state, const peer& client, const uint8_t* digest ) {
+
+		if ( !state.config.verbose )
+			return;
+
+		base::text note;
+
+		note.add ( L"  share from " ).add ( client.worker ).add ( L", difficulty " ).decimal ( chain::difficulty_of ( chain::top_bits ( digest ), state.config.algorithm ), 3 ).add ( L", hash " ).hex ( digest, 32, true );
+		base::print_line ( note.get ( ) );
+
+	}
+
+	static void handle_stratum ( pool_state& state, peer& client, const base::json& message ) {
+
+		int32_t id = message.member ( 0, "id" );
+		int32_t method = message.member ( 0, "method" );
+		int32_t params = message.member ( 0, "params" );
+
+		if ( message.text_is ( method, "mining.subscribe" ) ) {
+
+			base::line result;
+
+			result.add ( "[[[\"mining.set_difficulty\",\"alloy\"],[\"mining.notify\",\"alloy\"]],\"" ).hex ( client.nonce.first, 4, false ).add ( "\",4]" );
+			reply ( client, message, id, result.get ( ), 0, nullptr );
+
+			return;
+
+		}
+
+		if ( message.text_is ( method, "mining.authorize" ) ) {
+
+			char worker [ 64 ];
+
+			message.text ( message.item ( params, 0 ), worker, sizeof ( worker ) );
+			base::widen ( client.worker, base::count_of ( client.worker ), worker );
+			client.authorized = true;
+			reply ( client, message, id, "true", 0, nullptr );
+			send_work ( client, state );
+
+			return;
+
+		}
+
+		if ( message.text_is ( method, "mining.extranonce.subscribe" ) ) {
+
+			reply ( client, message, id, "true", 0, nullptr );
+
+			return;
+
+		}
+
+		if ( !message.text_is ( method, "mining.submit" ) ) {
+
+			reply ( client, message, id, nullptr, 20, "Unknown method" );
+
+			return;
+
+		}
+
+		char job_id [ 64 ];
+		uint8_t second [ 8 ];
+		uint32_t time = 0;
+		uint32_t nonce = 0;
+		int32_t second_node = message.item ( params, 2 );
+		int32_t time_node = message.item ( params, 3 );
+		int32_t nonce_node = message.item ( params, 4 );
+
+		message.text ( message.item ( params, 1 ), job_id, sizeof ( job_id ) );
+
+		int32_t slot = state.book.find ( job_id, false );
+
+		if ( !client.authorized ) {
+
+			reply ( client, message, id, nullptr, 24, "Unauthorized worker" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( slot < 0 ) {
+
+			reply ( client, message, id, nullptr, 21, "Job not found" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( !base::read_hex ( message.raw ( second_node ), message.raw_size ( second_node ), second, 4 ) || !base::read_hex32 ( message.raw ( time_node ), message.raw_size ( time_node ), time ) || !base::read_hex32 ( message.raw ( nonce_node ), message.raw_size ( nonce_node ), nonce ) ) {
+
+			reply ( client, message, id, nullptr, 20, "Malformed share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		uint8_t parts [ 16 ];
+
+		base::copy ( parts, second, 4 );
+		base::store_little ( parts + 4, time );
+		base::store_little ( parts + 8, nonce );
+		base::store_little ( parts + 12, static_cast < uint32_t > ( slot ) );
+
+		if ( !remember ( client, share_key ( parts, sizeof ( parts ) ) ) ) {
+
+			reply ( client, message, id, nullptr, 22, "Duplicate share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		chain::header header;
+		uint8_t digest [ 32 ];
+
+		build_header ( state.book.jobs [ slot ], client.nonce, second, time, header );
+		header.set_nonce ( nonce );
+
+		if ( state.config.algorithm == chain::ALGORITHM_SCRYPT )
+			hash::scrypt_header ( header.bytes, digest, state.scratch );
+		else
+			hash::sha256_twice ( header.bytes, chain::header_size, digest );
+
+		if ( !chain::meets ( digest, state.target ) ) {
+
+			reply ( client, message, id, nullptr, 23, "Low difficulty share" );
+			tally ( state, false );
+
+			if ( state.config.verbose )
+				base::print_line ( L"  rejected a share below the target" );
+
+			return;
+
+		}
+
+		reply ( client, message, id, "true", 0, nullptr );
+		tally ( state, true );
+		announce ( state, client, digest );
+
+	}
+
+	static void handle_blob ( pool_state& state, peer& client, const base::json& message ) {
+
+		int32_t id = message.member ( 0, "id" );
+		int32_t method = message.member ( 0, "method" );
+		int32_t params = message.member ( 0, "params" );
+
+		if ( message.text_is ( method, "login" ) ) {
+
+			char worker [ 64 ];
+			base::line result;
+
+			message.text ( message.member ( params, "login" ), worker, sizeof ( worker ) );
+			base::widen ( client.worker, base::count_of ( client.worker ), worker );
+			client.authorized = true;
+			result.add ( "{\"id\":\"" ).add ( client.session ).add ( "\",\"job\":" );
+			write_blob_job ( result, state.book.blobs [ state.book.newest_slot ( ) ] );
+			result.add ( ",\"extensions\":[\"keepalive\"],\"status\":\"OK\"}" );
+			reply_blob ( client, message, id, result.get ( ), 0, nullptr );
+
+			return;
+
+		}
+
+		if ( message.text_is ( method, "keepalived" ) ) {
+
+			reply_blob ( client, message, id, "{\"status\":\"KEEPALIVED\"}", 0, nullptr );
+
+			return;
+
+		}
+
+		if ( !message.text_is ( method, "submit" ) ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Unknown method" );
+
+			return;
+
+		}
+
+		char job_id [ 64 ];
+		uint8_t nonce [ 4 ];
+		uint8_t claimed [ 32 ];
+		int32_t nonce_node = message.member ( params, "nonce" );
+		int32_t result_node = message.member ( params, "result" );
+
+		message.text ( message.member ( params, "job_id" ), job_id, sizeof ( job_id ) );
+
+		int32_t slot = state.book.find ( job_id, true );
+
+		if ( !client.authorized || !message.text_is ( message.member ( params, "id" ), client.session ) ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Unauthenticated" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( slot < 0 ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Block expired" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( message.raw_size ( nonce_node ) != 8 || message.raw_size ( result_node ) != 64 || !base::read_hex ( message.raw ( nonce_node ), 8, nonce, 4 ) || !base::read_hex ( message.raw ( result_node ), 64, claimed, 32 ) ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Malformed share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		uint8_t parts [ 8 ];
+
+		base::copy ( parts, nonce, 4 );
+		base::store_little ( parts + 4, static_cast < uint32_t > ( slot ) );
+
+		if ( !remember ( client, share_key ( parts, sizeof ( parts ) ) ) ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Duplicate share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		blob_job& work = state.book.blobs [ slot ];
+		uint8_t blob [ blob_room ];
+		uint8_t digest [ 32 ];
+
+		if ( !state.cache->matches ( work.seed, 32 ) )
+			state.cache->build ( work.seed, 32 );
+
+		base::copy ( blob, work.blob, static_cast < size_t > ( work.blob_size ) );
+		base::copy ( blob + blob_nonce_at, nonce, 4 );
+		state.machine->open ( state.cache, nullptr );
+		state.machine->hash ( blob, static_cast < size_t > ( work.blob_size ), digest );
+
+		if ( !base::same ( digest, claimed, 32 ) ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Invalid result" );
+			tally ( state, false );
+
+			if ( state.config.verbose )
+				base::print_line ( L"  rejected a share whose hash didn't check out" );
+
+			return;
+
+		}
+
+		if ( chain::top_bits ( digest ) >= work.target ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Low difficulty share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		reply_blob ( client, message, id, "{\"status\":\"OK\"}", 0, nullptr );
+		tally ( state, true );
+		announce ( state, client, digest );
 
 	}
 
@@ -187,6 +601,8 @@ namespace pool {
 		good = 0;
 		bad = 0;
 		connected = 0;
+		made = 0;
+		listening = 0;
 		thread = base::start_thread ( &main, this );
 
 		return true;
@@ -219,15 +635,35 @@ namespace pool {
 
 		net::listener& listener = *static_cast < net::listener* > ( socket );
 		peer* peers = new peer [ max_peers ];
-		job_book* book = new job_book;
+		pool_state* state = new pool_state;
 		base::json* message = new base::json;
 		char* text = new char [ net::line_room ];
 		uint32_t sessions = 0;
-		double last_job = base::seconds ( );
-		uint8_t target [ 32 ];
+		bool blob = config.algorithm == chain::ALGORITHM_RANDOMX;
 
-		make_job ( *book );
-		chain::target_for ( config.difficulty, target );
+		state->config = config;
+		state->good = &good;
+		state->bad = &bad;
+		state->blob_target = blob_target_for ( config.difficulty );
+		chain::target_for ( config.difficulty, state->target, config.algorithm );
+
+		if ( config.algorithm == chain::ALGORITHM_SCRYPT )
+			state->scratch = base::allocate ( hash::scrypt_scratch_bytes );
+
+		make_job ( *state );
+
+		if ( blob ) {
+
+			state->cache = new randomx::cache;
+			state->machine = new randomx::machine;
+			state->cache->build ( state->seed, 32 );
+
+		}
+
+		base::atomic_store ( made, state->book.made );
+		base::atomic_store ( listening, 1u );
+
+		double last_job = base::seconds ( );
 
 		while ( !base::atomic_load ( quit ) ) {
 
@@ -240,6 +676,8 @@ namespace pool {
 				if ( client.used || !listener.accept ( client.link, 0 ) )
 					continue;
 
+				base::writer < char, 24 > name;
+
 				sessions++;
 				client.used = true;
 				client.authorized = false;
@@ -247,6 +685,8 @@ namespace pool {
 				client.nonce = session_nonce { };
 				client.nonce.first_size = 4;
 				base::store_big ( client.nonce.first, 0xA1100000 + sessions );
+				name.add ( "alloy-" ).number ( sessions );
+				base::copy_text ( client.session, sizeof ( client.session ), name.get ( ) );
 				base::atomic_add ( connected, 1u );
 				busy = true;
 
@@ -269,130 +709,10 @@ namespace pool {
 					if ( !message->parse ( text, size ) )
 						continue;
 
-					int32_t id = message->member ( 0, "id" );
-					int32_t method = message->member ( 0, "method" );
-					int32_t params = message->member ( 0, "params" );
-
-					if ( message->text_is ( method, "mining.subscribe" ) ) {
-
-						base::line result;
-
-						result.add ( "[[[\"mining.set_difficulty\",\"alloy\"],[\"mining.notify\",\"alloy\"]],\"" ).hex ( client.nonce.first, 4, false ).add ( "\",4]" );
-						reply ( client, *message, id, result.get ( ), 0, nullptr );
-
-					} else if ( message->text_is ( method, "mining.authorize" ) ) {
-
-						char worker [ 64 ];
-
-						message->text ( message->item ( params, 0 ), worker, sizeof ( worker ) );
-						base::widen ( client.worker, base::count_of ( client.worker ), worker );
-						client.authorized = true;
-						reply ( client, *message, id, "true", 0, nullptr );
-						send_work ( client, *book, config.difficulty );
-
-					} else if ( message->text_is ( method, "mining.extranonce.subscribe" ) )
-						reply ( client, *message, id, "true", 0, nullptr );
-					else if ( message->text_is ( method, "mining.submit" ) ) {
-
-						char job_id [ 64 ];
-						uint8_t second [ 8 ];
-						uint32_t time = 0;
-						uint32_t nonce = 0;
-						int32_t second_node = message->item ( params, 2 );
-						int32_t time_node = message->item ( params, 3 );
-						int32_t nonce_node = message->item ( params, 4 );
-
-						message->text ( message->item ( params, 1 ), job_id, sizeof ( job_id ) );
-
-						const job* work = book->find ( job_id );
-
-						if ( !client.authorized ) {
-
-							reply ( client, *message, id, nullptr, 24, "Unauthorized worker" );
-							base::atomic_add ( bad, 1u );
-
-							continue;
-
-						}
-
-						if ( !work ) {
-
-							reply ( client, *message, id, nullptr, 21, "Job not found" );
-							base::atomic_add ( bad, 1u );
-
-							continue;
-
-						}
-
-						if ( !base::read_hex ( message->raw ( second_node ), message->raw_size ( second_node ), second, 4 ) || !base::read_hex32 ( message->raw ( time_node ), message->raw_size ( time_node ), time ) || !base::read_hex32 ( message->raw ( nonce_node ), message->raw_size ( nonce_node ), nonce ) ) {
-
-							reply ( client, *message, id, nullptr, 20, "Malformed share" );
-							base::atomic_add ( bad, 1u );
-
-							continue;
-
-						}
-
-						uint64_t key = 1469598103934665603ull;
-						uint8_t parts [ 16 ];
-
-						base::copy ( parts, second, 4 );
-						base::store_little ( parts + 4, time );
-						base::store_little ( parts + 8, nonce );
-						base::store_little ( parts + 12, static_cast < uint32_t > ( work - book->jobs ) );
-
-						for ( uint8_t part : parts )
-							key = ( key ^ part ) * 1099511628211ull;
-
-						bool repeated = false;
-
-						for ( int32_t k = 0; k < base::min ( client.seen_count, seen_room ); k++ )
-							repeated = repeated || client.seen [ k ] == key;
-
-						if ( repeated ) {
-
-							reply ( client, *message, id, nullptr, 22, "Duplicate share" );
-							base::atomic_add ( bad, 1u );
-
-							continue;
-
-						}
-
-						client.seen [ client.seen_count++ % seen_room ] = key;
-
-						chain::header header;
-						uint8_t digest [ 32 ];
-
-						build_header ( *work, client.nonce, second, time, header );
-						header.set_nonce ( nonce );
-						hash::sha256_twice ( header.bytes, chain::header_size, digest );
-
-						if ( !chain::meets ( digest, target ) ) {
-
-							reply ( client, *message, id, nullptr, 23, "Low difficulty share" );
-							base::atomic_add ( bad, 1u );
-
-							if ( config.verbose )
-								base::print_line ( L"  rejected a share below the target" );
-
-							continue;
-
-						}
-
-						reply ( client, *message, id, "true", 0, nullptr );
-						base::atomic_add ( good, 1u );
-
-						if ( config.verbose ) {
-
-							base::text note;
-
-							note.add ( L"  share from " ).add ( client.worker ).add ( L", difficulty " ).decimal ( chain::difficulty_of ( chain::top_bits ( digest ) ), 3 ).add ( L", hash " ).hex ( digest, 32, true );
-							base::print_line ( note.get ( ) );
-
-						}
-
-					} else
-						reply ( client, *message, id, nullptr, 20, "Unknown method" );
+					if ( blob )
+						handle_blob ( *state, client, *message );
+					else
+						handle_stratum ( *state, client, *message );
 
 				}
 
@@ -409,13 +729,14 @@ namespace pool {
 
 			if ( base::seconds ( ) - last_job >= static_cast < double > ( config.job_seconds ) ) {
 
-				make_job ( *book );
+				make_job ( *state );
+				base::atomic_store ( made, state->book.made );
 				last_job = base::seconds ( );
 
 				for ( int32_t i = 0; i < max_peers; i++ ) {
 
 					if ( peers [ i ].used && peers [ i ].authorized )
-						send_work ( peers [ i ], *book, config.difficulty );
+						send_work ( peers [ i ], *state );
 
 				}
 
@@ -439,9 +760,12 @@ namespace pool {
 
 		}
 
+		base::release ( state->scratch );
+		delete state->machine;
+		delete state->cache;
 		delete [ ] text;
 		delete message;
-		delete book;
+		delete state;
 		delete [ ] peers;
 
 	}

@@ -41,6 +41,7 @@
     <FxCompile Include="src\**\*.hlsl" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="src\**\*.hlsli" />
     <None Include="assets\alloy.manifest" />
   </ItemGroup>
   <ItemGroup>

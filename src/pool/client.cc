@@ -1,13 +1,12 @@
 #include "pool/client.hh"
 #include "chain/target.hh"
 #include "net/socket.hh"
+#include "base/bits.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
 
 namespace pool {
-
-	static constexpr const char* agent = "alloy/0.2";
 
 	bool client::start ( const settings& value ) {
 
@@ -92,15 +91,32 @@ namespace pool {
 		if ( !have_job || !authorized )
 			return false;
 
-		uint8_t second [ extranonce_room ];
-
-		counter_bytes ( index, second, nonce.second_size );
-		build_header ( current, nonce, second, current.time, out.header );
-		chain::target_for ( difficulty, out.target );
+		out.algorithm = config.algorithm;
 		out.index = index;
 		out.job = serial;
 		out.first = 0;
 		out.end = mine::nonce_space;
+
+		if ( blob_mode ( ) ) {
+
+			if ( index )
+				return false;
+
+			base::copy ( out.blob, blob_current.blob, static_cast < size_t > ( blob_current.blob_size ) );
+			out.blob_size = static_cast < uint32_t > ( blob_current.blob_size );
+			out.nonce_at = blob_nonce_at;
+			base::copy ( out.seed, blob_current.seed, 32 );
+			chain::target_of_top ( blob_current.target, out.target );
+
+			return true;
+
+		}
+
+		uint8_t second [ extranonce_room ];
+
+		counter_bytes ( index, second, nonce.second_size );
+		build_header ( current, nonce, second, current.time, out.header );
+		chain::target_for ( difficulty, out.target, config.algorithm );
 
 		return true;
 
@@ -118,7 +134,8 @@ namespace pool {
 			item.second = from.index;
 			item.time = from.header.time ( );
 			item.nonce = nonce_value;
-			item.difficulty = chain::difficulty_of ( chain::top_bits ( digest ) );
+			item.difficulty = chain::difficulty_of ( chain::top_bits ( digest ), config.algorithm );
+			base::copy ( item.result, digest, 32 );
 
 		}
 
@@ -161,7 +178,7 @@ namespace pool {
 		known_job& slot = recent [ recent_next++ % base::count_of ( recent ) ];
 
 		slot.serial = serial;
-		base::copy_text ( slot.id, sizeof ( slot.id ), current.id );
+		base::copy_text ( slot.id, sizeof ( slot.id ), blob_mode ( ) ? blob_current.id : current.id );
 		slot.time = current.time;
 		slot.difficulty = difficulty;
 
@@ -253,21 +270,24 @@ namespace pool {
 			have_job = false;
 			authorized = false;
 			nonce = session_nonce { };
+			login_id [ 0 ] = 0;
 			base::atomic_add ( serial, 1u );
-			shown.state = LINK_SUBSCRIBING;
+			shown.state = blob_mode ( ) ? LINK_AUTHORIZING : LINK_SUBSCRIBING;
 
 		}
 
 		link = connection;
 		parser = new base::json;
 
-		base::line request;
-
-		request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( agent ).add ( "\"]}" );
-		connection->send_line ( request.get ( ) );
+		if ( blob_mode ( ) )
+			login ( );
+		else
+			subscribe ( );
 
 		char* text = new char [ net::line_room ];
 		double heard = base::seconds ( );
+
+		last_keepalive = heard;
 
 		while ( !base::atomic_load ( quit ) && connection->is_open ( ) && !refused ) {
 
@@ -281,6 +301,9 @@ namespace pool {
 			}
 
 			submit_shares ( );
+
+			if ( blob_mode ( ) )
+				keep_alive ( );
 
 			if ( base::seconds ( ) - heard > 300.0 ) {
 
@@ -309,6 +332,15 @@ namespace pool {
 
 	}
 
+	void client::subscribe ( ) {
+
+		base::line request;
+
+		request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( agent ).add ( "\"]}" );
+		link->send_line ( request.get ( ) );
+
+	}
+
 	bool client::handle ( const char* text, int32_t size ) {
 
 		base::json& message = *parser;
@@ -321,6 +353,9 @@ namespace pool {
 			return false;
 
 		}
+
+		if ( blob_mode ( ) )
+			return handle_blob ( message );
 
 		int32_t method = message.member ( 0, "method" );
 		int32_t params = message.member ( 0, "params" );
@@ -568,13 +603,21 @@ namespace pool {
 
 		}
 
+		settle ( number, message.truth ( result ), wide_reason );
+
+		return true;
+
+	}
+
+	void client::settle ( uint32_t number, bool accepted, const wchar_t* reason ) {
+
 		for ( pending_submit& slot : submits ) {
 
 			if ( slot.id != number || !number )
 				continue;
 
-			bool accepted = message.truth ( result );
 			double latency = ( base::seconds ( ) - slot.sent ) * 1000.0;
+			base::text line;
 
 			{
 
@@ -592,16 +635,14 @@ namespace pool {
 			if ( accepted )
 				line.add ( L"Share accepted" );
 			else
-				line.add ( L"Share rejected" ).add ( wide_reason [ 0 ] ? L": " : L"" ).add ( wide_reason );
+				line.add ( L"Share rejected" ).add ( reason [ 0 ] ? L": " : L"" ).add ( reason );
 
 			note ( accepted ? EVENT_ACCEPTED : EVENT_REJECTED, line.get ( ), slot.difficulty, latency, slot.nonce );
 			slot = pending_submit { };
 
-			return true;
+			return;
 
 		}
-
-		return true;
 
 	}
 
@@ -654,19 +695,34 @@ namespace pool {
 			if ( !known )
 				continue;
 
-			counter_bytes ( item.second, second, second_size );
-			base::write_hex ( second_hex, second, static_cast < size_t > ( second_size ) );
-
-			char worker [ 256 ];
 			base::line request;
 			uint32_t request_id = next_id++;
 
-			base::narrow ( worker, sizeof ( worker ), config.worker );
-			request.add ( "{\"id\":" ).number ( request_id ).add ( ",\"method\":\"mining.submit\",\"params\":[" );
-			base::add_json_string ( request, worker );
-			request.put ( ',' );
-			base::add_json_string ( request, id );
-			request.add ( ",\"" ).add ( second_hex ).add ( "\",\"" ).hex32 ( item.time ).add ( "\",\"" ).hex32 ( item.nonce ).add ( "\"]}" );
+			if ( blob_mode ( ) ) {
+
+				uint8_t nonce_bytes [ 4 ];
+
+				base::store_little ( nonce_bytes, item.nonce );
+				request.add ( "{\"id\":" ).number ( request_id ).add ( ",\"jsonrpc\":\"2.0\",\"method\":\"submit\",\"params\":{\"id\":" );
+				base::add_json_string ( request, login_id );
+				request.add ( ",\"job_id\":" );
+				base::add_json_string ( request, id );
+				request.add ( ",\"nonce\":\"" ).hex ( nonce_bytes, 4, false ).add ( "\",\"result\":\"" ).hex ( item.result, 32, false ).add ( "\"}}" );
+
+			} else {
+
+				char worker [ 256 ];
+
+				counter_bytes ( item.second, second, second_size );
+				base::write_hex ( second_hex, second, static_cast < size_t > ( second_size ) );
+				base::narrow ( worker, sizeof ( worker ), config.worker );
+				request.add ( "{\"id\":" ).number ( request_id ).add ( ",\"method\":\"mining.submit\",\"params\":[" );
+				base::add_json_string ( request, worker );
+				request.put ( ',' );
+				base::add_json_string ( request, id );
+				request.add ( ",\"" ).add ( second_hex ).add ( "\",\"" ).hex32 ( item.time ).add ( "\",\"" ).hex32 ( item.nonce ).add ( "\"]}" );
+
+			}
 
 			pending_submit* slot = &submits [ request_id % base::count_of ( submits ) ];
 

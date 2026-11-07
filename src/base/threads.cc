@@ -19,6 +19,12 @@ namespace base {
 
 	}
 
+	bool thread_finished ( void* thread ) {
+
+		return !thread || WaitForSingleObject ( thread, 0 ) == WAIT_OBJECT_0;
+
+	}
+
 	void set_thread_priority ( thread_priority level ) {
 
 		static constexpr int levels [ ] = { THREAD_PRIORITY_IDLE, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_ABOVE_NORMAL };

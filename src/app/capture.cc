@@ -282,8 +282,8 @@ namespace app {
 		base::writer < wchar_t, 64 > address;
 
 		address.add ( L"127.0.0.1:" ).number ( server->port ( ) );
-		base::copy_text ( self->settings.address, base::count_of ( self->settings.address ), address.get ( ) );
-		base::copy_text ( self->settings.worker, base::count_of ( self->settings.worker ), L"alloy.studio" );
+		base::copy_text ( self->settings.pool ( ).address, base::count_of ( self->settings.pool ( ).address ), address.get ( ) );
+		base::copy_text ( self->settings.pool ( ).worker, base::count_of ( self->settings.pool ( ).worker ), L"alloy.studio" );
 		shoot ( *self, L"idle-dark.png" );
 
 		base::print_line ( L"  mining against the test pool to fill the chart" );

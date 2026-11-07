@@ -8,6 +8,8 @@ namespace app {
 	static bool frozen = false;
 
 	static const char* const mode_names [ ] = { "pool", "benchmark", "genesis" };
+	static const char* const algorithm_names [ ] = { "sha256d", "scrypt", "randomx" };
+	static const char* const dataset_names [ ] = { "light", "full" };
 	static const char* const theme_names [ ] = { "system", "dark", "light" };
 	static const char* const priority_names [ ] = { "idle", "low", "normal" };
 	static const char* const kernel_names [ ] = { "auto", "extensions", "portable" };
@@ -78,20 +80,40 @@ namespace app {
 
 			if ( equals < stop ) {
 
-				char key [ 32 ];
+				char whole [ 48 ];
 				char value [ 512 ];
 
-				base::copy_span ( key, sizeof ( key ), text + at, equals - at );
+				base::copy_span ( whole, sizeof ( whole ), text + at, equals - at );
 				base::copy_span ( value, sizeof ( value ), text + equals + 1, stop - equals - 1 );
+
+				ui::pool_profile* profile = &out.pools [ chain::ALGORITHM_SHA256D ];
+				const char* key = whole;
+
+				for ( int32_t i = 0; whole [ i ]; i++ ) {
+
+					if ( whole [ i ] != '.' )
+						continue;
+
+					whole [ i ] = 0;
+					profile = &out.pools [ pick ( algorithm_names, whole, 0 ) ];
+					key = whole + i + 1;
+
+					break;
+
+				}
 
 				if ( base::same_text ( key, "mode" ) )
 					out.mode = pick ( mode_names, value, out.mode );
+				else if ( base::same_text ( key, "algorithm" ) )
+					out.algorithm = pick ( algorithm_names, value, out.algorithm );
+				else if ( base::same_text ( key, "dataset" ) )
+					out.full_dataset = pick ( dataset_names, value, 1 ) == 1;
 				else if ( base::same_text ( key, "address" ) )
-					base::widen ( out.address, base::count_of ( out.address ), value );
+					base::widen ( profile->address, base::count_of ( profile->address ), value );
 				else if ( base::same_text ( key, "worker" ) )
-					base::widen ( out.worker, base::count_of ( out.worker ), value );
+					base::widen ( profile->worker, base::count_of ( profile->worker ), value );
 				else if ( base::same_text ( key, "password" ) )
-					base::widen ( out.password, base::count_of ( out.password ), value );
+					base::widen ( profile->password, base::count_of ( profile->password ), value );
 				else if ( base::same_text ( key, "cpu" ) )
 					out.cpu = yes ( value );
 				else if ( base::same_text ( key, "threads" ) )
@@ -140,12 +162,22 @@ namespace app {
 		char text [ 512 ];
 
 		out.add ( "mode=" ).add ( mode_names [ value.mode % 3 ] ).add ( "\r\n" );
-		base::narrow ( text, sizeof ( text ), value.address );
-		out.add ( "address=" ).add ( text ).add ( "\r\n" );
-		base::narrow ( text, sizeof ( text ), value.worker );
-		out.add ( "worker=" ).add ( text ).add ( "\r\n" );
-		base::narrow ( text, sizeof ( text ), value.password );
-		out.add ( "password=" ).add ( text ).add ( "\r\n" );
+		out.add ( "algorithm=" ).add ( algorithm_names [ value.algorithm % 3 ] ).add ( "\r\n" );
+		out.add ( "dataset=" ).add ( dataset_names [ value.full_dataset ? 1 : 0 ] ).add ( "\r\n" );
+
+		for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ ) {
+
+			const ui::pool_profile& profile = value.pools [ i ];
+
+			base::narrow ( text, sizeof ( text ), profile.address );
+			out.add ( algorithm_names [ i ] ).add ( ".address=" ).add ( text ).add ( "\r\n" );
+			base::narrow ( text, sizeof ( text ), profile.worker );
+			out.add ( algorithm_names [ i ] ).add ( ".worker=" ).add ( text ).add ( "\r\n" );
+			base::narrow ( text, sizeof ( text ), profile.password );
+			out.add ( algorithm_names [ i ] ).add ( ".password=" ).add ( text ).add ( "\r\n" );
+
+		}
+
 		out.add ( "cpu=" ).add ( value.cpu ? "yes" : "no" ).add ( "\r\n" );
 		out.add ( "threads=" ).number ( value.threads ).add ( "\r\n" );
 		out.add ( "cpu_limit=" ).number ( value.cpu_limit ).add ( "\r\n" );

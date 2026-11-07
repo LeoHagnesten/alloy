@@ -10,6 +10,12 @@ namespace base {
 
 	}
 
+	constexpr uint32_t rotate_left ( uint32_t value, uint32_t count ) {
+
+		return value << count | value >> ( 32 - count );
+
+	}
+
 	constexpr uint32_t swap_bytes ( uint32_t value ) {
 
 		return value >> 24 | ( value >> 8 & 0xFF00 ) | ( value << 8 & 0xFF0000 ) | value << 24;
@@ -49,6 +55,13 @@ namespace base {
 		at [ 1 ] = static_cast < uint8_t > ( value >> 8 );
 		at [ 2 ] = static_cast < uint8_t > ( value >> 16 );
 		at [ 3 ] = static_cast < uint8_t > ( value >> 24 );
+
+	}
+
+	inline void store_little64 ( uint8_t* at, uint64_t value ) {
+
+		store_little ( at, static_cast < uint32_t > ( value ) );
+		store_little ( at + 4, static_cast < uint32_t > ( value >> 32 ) );
 
 	}
 

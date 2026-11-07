@@ -10,6 +10,10 @@ namespace base {
 
 	void release ( void* memory );
 
+	void* allocate_pages ( size_t size );
+
+	void release_pages ( void* memory );
+
 	void fill ( void* target, uint8_t value, size_t size );
 
 	void zero ( void* target, size_t size );

@@ -39,6 +39,27 @@ namespace base {
 
 	}
 
+	static wchar_t folded ( wchar_t value ) {
+
+		return value >= L'A' && value <= L'Z' ? static_cast < wchar_t > ( value + 32 ) : value;
+
+	}
+
+	bool same_folded ( const wchar_t* a, const wchar_t* b ) {
+
+		int32_t i = 0;
+
+		for ( ; a [ i ] && b [ i ]; i++ ) {
+
+			if ( folded ( a [ i ] ) != folded ( b [ i ] ) )
+				return false;
+
+		}
+
+		return a [ i ] == b [ i ];
+
+	}
+
 	bool same_text ( const char* a, const char* b ) {
 
 		int32_t i = 0;

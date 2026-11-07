@@ -82,6 +82,7 @@ namespace app {
 		base::processor cpu;
 		bool active = false;
 		uint8_t mode = ui::MODE_POOL;
+		uint8_t algorithm = chain::ALGORITHM_SHA256D;
 		uint32_t adapter = 0;
 		uint8_t kernel = 0;
 		double started = 0.0;

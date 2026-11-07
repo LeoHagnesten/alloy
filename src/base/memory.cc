@@ -25,6 +25,19 @@ namespace base {
 
 	}
 
+	void* allocate_pages ( size_t size ) {
+
+		return VirtualAlloc ( nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+
+	}
+
+	void release_pages ( void* memory ) {
+
+		if ( memory )
+			VirtualFree ( memory, 0, MEM_RELEASE );
+
+	}
+
 	void fill ( void* target, uint8_t value, size_t size ) {
 
 		__asm__ volatile ( "rep stosb" : "+D" ( target ), "+c" ( size ) : "a" ( value ) : "memory" );

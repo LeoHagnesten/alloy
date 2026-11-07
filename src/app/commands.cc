@@ -11,7 +11,7 @@
 
 namespace tests {
 
-	uint32_t run_all ( );
+	uint32_t run_all ( const wchar_t* only );
 
 }
 
@@ -24,6 +24,8 @@ namespace app {
 		const wchar_t* action = nullptr;
 		const wchar_t* algorithm = L"sha256d";
 		const wchar_t* target = L"";
+		const wchar_t* user = nullptr;
+		const wchar_t* pass = nullptr;
 		uint32_t seconds = 10;
 		bool timed = false;
 		uint32_t from = 0;
@@ -53,14 +55,15 @@ namespace app {
 
 	static void usage ( ) {
 
-		base::print_line ( L"Alloy 0.2, a Bitcoin miner written from scratch" );
+		base::print_line ( L"Alloy 0.3, a SHA-256d, scrypt and RandomX miner written from scratch" );
 		base::print_line ( L"" );
 		base::print_line ( L"  Alloy.exe                                   open the window" );
-		base::print_line ( L"  Alloy.exe --bench [sha256d] [--seconds n]   measure the hashrate" );
-		base::print_line ( L"  Alloy.exe --genesis [--from nonce]          rediscover the genesis block's nonce" );
+		base::print_line ( L"  Alloy.exe --bench [algorithm] [--seconds n] measure the hashrate" );
+		base::print_line ( L"  Alloy.exe --genesis [--from nonce]          rediscover the Bitcoin genesis block's nonce" );
 		base::print_line ( L"  Alloy.exe --mine host:port [--user name] [--pass word] [--seconds n]" );
 		base::print_line ( L"  Alloy.exe --test-pool [--port n] [--difficulty d] [--job-seconds n] [--seconds n]" );
 		base::print_line ( L"" );
+		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx  --dataset full|light" );
 		base::print_line ( L"  Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n" );
 		base::print_line ( L"  Limits    --cpu-limit percent  --gpu-limit percent  --intensity 16-26" );
 		base::print_line ( L"  Kernel    --kernel auto|extensions|portable  --priority idle|low|normal" );
@@ -93,33 +96,55 @@ namespace app {
 
 	static uint32_t bench ( command_line& line ) {
 
-		if ( !base::same_text ( line.algorithm, L"sha256d" ) ) {
-
-			base::text note;
-
-			note.add ( L"alloy: " ).add ( line.algorithm ).add ( L" isn't written yet. Only sha256d runs so far." );
-			base::print_line ( note.get ( ) );
-
-			return 1;
-
-		}
-
 		session* run = new session;
 		const ui::snapshot& view = run->view ( );
 		base::text note;
+		uint8_t algorithm = line.settings.algorithm;
+		bool gpu = line.settings.gpu && algorithm != chain::ALGORITHM_RANDOMX;
 
 		line.settings.mode = ui::MODE_BENCHMARK;
 		run->start ( line.settings );
-		note.add ( L"sha256d" );
+		note.add ( chain::algorithm_name ( algorithm ) );
 
-		if ( line.settings.cpu )
-			note.add ( L" on " ).number ( view.active_threads ).add ( view.active_threads == 1 ? L" thread" : L" threads" ).add ( view.extensions ? L" with SHA extensions" : L" with the portable kernel" );
+		if ( line.settings.cpu ) {
 
-		if ( line.settings.gpu )
+			note.add ( L" on " ).number ( view.active_threads ).add ( view.active_threads == 1 ? L" thread" : L" threads" );
+
+			if ( algorithm == chain::ALGORITHM_SHA256D )
+				note.add ( view.extensions ? L" with SHA extensions" : L" with the portable kernel" );
+			else if ( algorithm == chain::ALGORITHM_RANDOMX )
+				note.add ( line.settings.full_dataset ? L" with the full dataset" : L" in light mode" );
+
+		}
+
+		if ( gpu )
 			note.add ( line.settings.cpu ? L" plus the GPU" : L" on the GPU" );
 
 		note.add ( L", " ).number ( line.seconds ).add ( L" seconds" );
 		base::print_line ( note.get ( ) );
+
+		if ( algorithm == chain::ALGORITHM_RANDOMX ) {
+
+			uint8_t shown = ui::DATASET_NONE;
+			double waited = base::seconds ( );
+
+			while ( base::seconds ( ) - waited < 120.0 ) {
+
+				run->tick ( base::seconds ( ), line.settings );
+
+				if ( view.dataset != shown && view.dataset != ui::DATASET_BUILDING && view.dataset != ui::DATASET_NONE )
+					break;
+
+				base::sleep ( 20 );
+
+			}
+
+			note.clear ( );
+			note.add ( L"  dataset ready in " ).decimal ( view.dataset_seconds, 1 ).add ( L" s" );
+			base::print_line ( note.get ( ) );
+			run->start ( line.settings );
+
+		}
 
 		double began = base::seconds ( );
 		uint64_t samples = view.history_serial;
@@ -134,7 +159,7 @@ namespace app {
 				note.clear ( );
 				note.add ( L"  " ).scaled ( view.history [ view.history_count - 1 ], L"H/s" );
 
-				if ( line.settings.gpu && line.settings.cpu )
+				if ( gpu && line.settings.cpu )
 					note.add ( L"   cpu " ).scaled ( view.cpu_rate, L"H/s" ).add ( L"   gpu " ).scaled ( view.gpu_rate, L"H/s" );
 
 				base::print_line ( note.get ( ) );
@@ -158,7 +183,7 @@ namespace app {
 
 		base::print_line ( note.get ( ) );
 
-		if ( line.settings.gpu ) {
+		if ( gpu ) {
 
 			note.clear ( );
 
@@ -184,10 +209,12 @@ namespace app {
 		const ui::snapshot& view = run->view ( );
 		base::text note;
 
+		bool litecoin = line.settings.algorithm == chain::ALGORITHM_SCRYPT;
+
 		line.settings.mode = ui::MODE_GENESIS;
 		run->set_genesis_start ( line.from );
 		run->start ( line.settings );
-		note.add ( L"Searching for the Bitcoin genesis block's nonce from " ).number ( line.from );
+		note.add ( litecoin ? L"Searching for the Litecoin genesis block's nonce with scrypt from " : L"Searching for the Bitcoin genesis block's nonce from " ).number ( line.from );
 		base::print_line ( note.get ( ) );
 
 		uint64_t samples = view.history_serial;
@@ -222,14 +249,22 @@ namespace app {
 
 		chain::header real;
 
-		chain::genesis ( real );
+		if ( litecoin )
+			chain::litecoin_genesis ( real );
+		else
+			chain::genesis ( real );
+
 		note.clear ( );
 		note.add ( L"Found nonce " ).number ( view.nonce ).add ( L" in " ).decimal ( view.uptime, 1 ).add ( L" s" );
 		base::print_line ( note.get ( ) );
 		note.clear ( );
-		note.add ( L"Block hash " ).hex ( view.block_hash, 32, true );
+		note.add ( litecoin ? L"Proof of work " : L"Block hash " ).hex ( view.block_hash, 32, true );
 		base::print_line ( note.get ( ) );
-		base::print_line ( view.nonce == real.nonce ( ) ? L"That's the nonce Satoshi found on January 3, 2009." : L"That nonce differs from the real block's, so the hash code has a bug." );
+
+		if ( view.nonce != real.nonce ( ) )
+			base::print_line ( L"That nonce differs from the real block's, so the hash code has a bug." );
+		else
+			base::print_line ( litecoin ? L"That's the nonce in Litecoin's first block, October 7, 2011." : L"That's the nonce Satoshi found on January 3, 2009." );
 
 		uint32_t code = view.nonce == real.nonce ( ) ? 0 : 1;
 
@@ -246,7 +281,7 @@ namespace app {
 		uint64_t printed = 0;
 
 		line.settings.mode = ui::MODE_POOL;
-		base::copy_text ( line.settings.address, base::count_of ( line.settings.address ), line.target );
+		base::copy_text ( line.settings.pool ( ).address, base::count_of ( line.settings.pool ( ).address ), line.target );
 		run->start ( line.settings );
 
 		double began = base::seconds ( );
@@ -293,6 +328,7 @@ namespace app {
 		pool::test_server* server = new pool::test_server;
 		base::text note;
 
+		config.algorithm = line.settings.algorithm;
 		config.port = static_cast < uint16_t > ( line.port );
 		config.difficulty = line.difficulty;
 		config.job_seconds = base::max ( line.job_seconds, 1u );
@@ -308,7 +344,7 @@ namespace app {
 
 		}
 
-		note.add ( L"Test pool listening on 127.0.0.1:" ).number ( server->port ( ) ).add ( L", share difficulty " ).decimal ( config.difficulty, 4 ).add ( L", new job every " ).number ( config.job_seconds ).add ( L" s" );
+		note.add ( chain::algorithm_name ( config.algorithm ) ).add ( L" test pool listening on 127.0.0.1:" ).number ( server->port ( ) ).add ( L", share difficulty " ).decimal ( config.difficulty, 4 ).add ( L", new job every " ).number ( config.job_seconds ).add ( L" s" );
 		base::print_line ( note.get ( ) );
 
 		double began = base::seconds ( );
@@ -362,7 +398,7 @@ namespace app {
 					line->algorithm = value;
 					i++;
 
-				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) ) ) {
+				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--test" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) ) ) {
 
 					line->target = value;
 					i++;
@@ -425,9 +461,13 @@ namespace app {
 				else if ( base::same_text ( item, L"--adapter" ) )
 					line->settings.adapter = static_cast < uint32_t > ( number );
 				else if ( base::same_text ( item, L"--user" ) )
-					base::copy_text ( line->settings.worker, base::count_of ( line->settings.worker ), value );
+					line->user = value;
 				else if ( base::same_text ( item, L"--pass" ) )
-					base::copy_text ( line->settings.password, base::count_of ( line->settings.password ), value );
+					line->pass = value;
+				else if ( base::same_text ( item, L"--algorithm" ) )
+					line->algorithm = value;
+				else if ( base::same_text ( item, L"--dataset" ) )
+					line->settings.full_dataset = !base::same_folded ( value, L"light" );
 				else if ( base::same_text ( item, L"--kernel" ) )
 					line->settings.kernel = base::same_text ( value, L"portable" ) ? 2 : ( base::same_text ( value, L"extensions" ) ? 1 : 0 );
 				else if ( base::same_text ( item, L"--priority" ) )
@@ -450,7 +490,25 @@ namespace app {
 
 		}
 
-		if ( line->settings.gpu && line->settings.cpu && !threads_given && cpu.threads > 1 )
+		if ( !chain::read_algorithm ( line->algorithm, line->settings.algorithm ) ) {
+
+			base::text note;
+
+			note.add ( L"alloy: " ).add ( line->algorithm ).add ( L" isn't an algorithm Alloy knows. Try sha256d, scrypt or randomx." );
+			base::print_line ( note.get ( ) );
+			delete line;
+
+			return 2;
+
+		}
+
+		if ( line->user )
+			base::copy_text ( line->settings.pool ( ).worker, base::count_of ( line->settings.pool ( ).worker ), line->user );
+
+		if ( line->pass )
+			base::copy_text ( line->settings.pool ( ).password, base::count_of ( line->settings.pool ( ).password ), line->pass );
+
+		if ( line->settings.gpu && line->settings.cpu && !threads_given && cpu.threads > 1 && line->settings.algorithm != chain::ALGORITHM_RANDOMX )
 			line->settings.threads = cpu.threads - 1;
 
 		const wchar_t* action = line->action ? line->action : L"--help";
@@ -466,7 +524,7 @@ namespace app {
 			code = test_pool ( *line );
 #ifdef ALLOY_DEBUG
 		else if ( base::same_text ( action, L"--test" ) )
-			code = tests::run_all ( );
+			code = tests::run_all ( line->target );
 		else if ( base::same_text ( action, L"--capture" ) && line->target [ 0 ] )
 			code = capture ( line->target, line->timed ? line->seconds : 40, !line->stills );
 		else if ( base::same_text ( action, L"--icon" ) && line->target [ 0 ] )

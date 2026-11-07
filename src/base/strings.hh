@@ -12,6 +12,8 @@ namespace base {
 
 	bool same_text ( const char* a, const char* b );
 
+	bool same_folded ( const wchar_t* a, const wchar_t* b );
+
 	bool same_span ( const char* span, int32_t size, const char* text );
 
 	bool starts_with ( const wchar_t* text, const wchar_t* prefix );

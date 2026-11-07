@@ -29,6 +29,8 @@ namespace ui {
 		CONTROL_STEP_UP,
 		CONTROL_SLIDER,
 		CONTROL_CHOICE,
+		CONTROL_ALGORITHM,
+		CONTROL_REVEAL,
 
 	};
 
@@ -51,6 +53,7 @@ namespace ui {
 		SETTING_PAUSE_BATTERY,
 		SETTING_AUTOSTART,
 		SETTING_THEME,
+		SETTING_DATASET,
 		SETTING_COUNT,
 
 	};
@@ -92,6 +95,44 @@ namespace ui {
 		void move_to ( int32_t at, bool extend );
 
 		bool selection ( int32_t& from, int32_t& to ) const;
+
+	};
+
+	struct field_memory {
+
+		static constexpr int32_t depth = 32;
+
+		text_field undo [ depth ];
+		text_field redo [ depth ];
+		int32_t undo_count = 0;
+		int32_t redo_count = 0;
+		int32_t last_kind = 0;
+		double last_edit = -100.0;
+
+		void clear ( );
+
+		void remember ( const text_field& current, int32_t kind, double now );
+
+		bool step_back ( text_field& current );
+
+		bool step_forward ( text_field& current );
+
+	};
+
+	struct settings_memory {
+
+		static constexpr int32_t depth = 24;
+
+		preferences past [ depth ];
+		preferences ahead [ depth ];
+		int32_t past_count = 0;
+		int32_t ahead_count = 0;
+
+		void remember ( const preferences& current );
+
+		bool step_back ( preferences& current );
+
+		bool step_forward ( preferences& current );
 
 	};
 
@@ -245,6 +286,12 @@ namespace ui {
 
 		command commit_field ( double now );
 
+		command undo ( bool forward, double now );
+
+		command settled ( const preferences& before ) const;
+
+		void edit_field ( int32_t kind, double now );
+
 		bool slide ( int32_t which, float x );
 
 		int32_t caret_from ( int32_t slot, float x );
@@ -344,6 +391,9 @@ namespace ui {
 		float mouse_y = -1.0f;
 		int32_t focus = -1;
 		text_field fields [ 3 ];
+		field_memory field_history [ 3 ];
+		settings_memory settings_history;
+		bool reveal = false;
 		render::box field_boxes [ 3 ];
 		float field_shift [ 3 ] = { };
 		double caret_since = 0.0;

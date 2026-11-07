@@ -6,7 +6,7 @@
 
 namespace tests {
 
-	uint32_t run_all ( );
+	uint32_t run_all ( const wchar_t* only );
 
 	void check ( bool passed, const wchar_t* what );
 
@@ -18,7 +18,11 @@ namespace tests {
 
 	void hash_tests ( );
 
+	void scrypt_tests ( );
+
 	void chain_tests ( );
+
+	void randomx_tests ( );
 
 	void mining_tests ( );
 

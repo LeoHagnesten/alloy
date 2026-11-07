@@ -1,0 +1,134 @@
+#include "scrypt.hlsli"
+
+uint4 spin ( uint4 value, uint4 sum, uint count ) {
+
+	return value ^ ( sum << count ) ^ ( sum >> ( 32 - count ) );
+
+}
+
+void salsa ( inout uint4 b0, inout uint4 b1, inout uint4 b2, inout uint4 b3 ) {
+
+	uint4 x0 = b0;
+	uint4 x1 = b1;
+	uint4 x2 = b2;
+	uint4 x3 = b3;
+
+	[ unroll ]
+	for ( uint i = 0; i < 4; i++ ) {
+
+		x1 = spin ( x1, x0 + x3, 7 );
+		x2 = spin ( x2, x1 + x0, 9 );
+		x3 = spin ( x3, x2 + x1, 13 );
+		x0 = spin ( x0, x3 + x2, 18 );
+		x1 = x1.wxyz;
+		x2 = x2.zwxy;
+		x3 = x3.yzwx;
+		x3 = spin ( x3, x0 + x1, 7 );
+		x2 = spin ( x2, x3 + x0, 9 );
+		x1 = spin ( x1, x2 + x3, 13 );
+		x0 = spin ( x0, x1 + x2, 18 );
+		x1 = x1.yzwx;
+		x2 = x2.zwxy;
+		x3 = x3.wxyz;
+
+	}
+
+	b0 += x0;
+	b1 += x1;
+	b2 += x2;
+	b3 += x3;
+
+}
+
+void block_mix ( inout uint4 p0, inout uint4 p1, inout uint4 p2, inout uint4 p3, inout uint4 q0, inout uint4 q1, inout uint4 q2, inout uint4 q3 ) {
+
+	p0 ^= q0;
+	p1 ^= q1;
+	p2 ^= q2;
+	p3 ^= q3;
+	salsa ( p0, p1, p2, p3 );
+	q0 ^= p0;
+	q1 ^= p1;
+	q2 ^= p2;
+	q3 ^= p3;
+	salsa ( q0, q1, q2, q3 );
+
+}
+
+void lanes_in ( uint4 a, uint4 b, uint4 c, uint4 d, out uint4 x0, out uint4 x1, out uint4 x2, out uint4 x3 ) {
+
+	x0 = uint4 ( a.x, b.y, c.z, d.w );
+	x1 = uint4 ( b.x, c.y, d.z, a.w );
+	x2 = uint4 ( c.x, d.y, a.z, b.w );
+	x3 = uint4 ( d.x, a.y, b.z, c.w );
+
+}
+
+void lanes_out ( uint4 x0, uint4 x1, uint4 x2, uint4 x3, out uint4 a, out uint4 b, out uint4 c, out uint4 d ) {
+
+	a = uint4 ( x0.x, x3.y, x2.z, x1.w );
+	b = uint4 ( x1.x, x0.y, x3.z, x2.w );
+	c = uint4 ( x2.x, x1.y, x0.z, x3.w );
+	d = uint4 ( x3.x, x2.y, x1.z, x0.w );
+
+}
+
+[ numthreads ( 64, 1, 1 ) ]
+void main ( uint3 id : SV_DispatchThreadID ) {
+
+	uint index = lane_of ( id );
+	uint at = index * state_stride;
+	uint origin = index * 8192;
+	uint4 p0, p1, p2, p3, q0, q1, q2, q3;
+
+	lanes_in ( states [ at ], states [ at + 1 ], states [ at + 2 ], states [ at + 3 ], p0, p1, p2, p3 );
+	lanes_in ( states [ at + 4 ], states [ at + 5 ], states [ at + 6 ], states [ at + 7 ], q0, q1, q2, q3 );
+
+	[ loop ]
+	for ( uint j = 0; j < 1024; j++ ) {
+
+		uint slot = origin + j * 8;
+
+		table [ slot ] = p0;
+		table [ slot + 1 ] = p1;
+		table [ slot + 2 ] = p2;
+		table [ slot + 3 ] = p3;
+		table [ slot + 4 ] = q0;
+		table [ slot + 5 ] = q1;
+		table [ slot + 6 ] = q2;
+		table [ slot + 7 ] = q3;
+		block_mix ( p0, p1, p2, p3, q0, q1, q2, q3 );
+
+	}
+
+	[ loop ]
+	for ( uint n = 0; n < 1024; n++ ) {
+
+		uint pick = origin + ( q0.x & 1023 ) * 8;
+
+		p0 ^= table [ pick ];
+		p1 ^= table [ pick + 1 ];
+		p2 ^= table [ pick + 2 ];
+		p3 ^= table [ pick + 3 ];
+		q0 ^= table [ pick + 4 ];
+		q1 ^= table [ pick + 5 ];
+		q2 ^= table [ pick + 6 ];
+		q3 ^= table [ pick + 7 ];
+		block_mix ( p0, p1, p2, p3, q0, q1, q2, q3 );
+
+	}
+
+	uint4 a, b, c, d;
+
+	lanes_out ( p0, p1, p2, p3, a, b, c, d );
+	states [ at ] = a;
+	states [ at + 1 ] = b;
+	states [ at + 2 ] = c;
+	states [ at + 3 ] = d;
+	lanes_out ( q0, q1, q2, q3, a, b, c, d );
+	states [ at + 4 ] = a;
+	states [ at + 5 ] = b;
+	states [ at + 6 ] = c;
+	states [ at + 7 ] = d;
+
+}

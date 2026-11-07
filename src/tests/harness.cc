@@ -42,19 +42,40 @@ namespace tests {
 
 	}
 
-	uint32_t run_all ( ) {
+	struct group {
+
+		const wchar_t* name;
+		void ( *run ) ( );
+
+	};
+
+	static const group groups [ ] = {
+
+		{ L"base", base_tests },
+		{ L"hash", hash_tests },
+		{ L"scrypt", scrypt_tests },
+		{ L"chain", chain_tests },
+		{ L"randomx", randomx_tests },
+		{ L"mining", mining_tests },
+		{ L"pool", pool_tests },
+		{ L"motion", motion_tests },
+
+	};
+
+	uint32_t run_all ( const wchar_t* only ) {
 
 		double began = base::seconds ( );
 
 		app::freeze_settings ( );
 		passed_count = 0;
 		failed_count = 0;
-		base_tests ( );
-		hash_tests ( );
-		chain_tests ( );
-		mining_tests ( );
-		pool_tests ( );
-		motion_tests ( );
+
+		for ( const group& item : groups ) {
+
+			if ( !only || !only [ 0 ] || base::same_text ( only, item.name ) )
+				item.run ( );
+
+		}
 
 		base::text note;
 

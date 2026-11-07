@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chain/algorithm.hh"
 #include "base/clock.hh"
 
 namespace ui {
@@ -53,6 +54,7 @@ namespace ui {
 		GPU_STARTING,
 		GPU_WORKING,
 		GPU_BROKEN,
+		GPU_UNSUPPORTED,
 
 	};
 
@@ -66,12 +68,26 @@ namespace ui {
 
 	};
 
+	struct pool_profile {
+
+		wchar_t address [ 256 ] = { };
+		wchar_t worker [ 128 ] = { };
+		wchar_t password [ 128 ] = { };
+
+	};
+
 	struct preferences {
 
 		uint8_t mode = MODE_POOL;
-		wchar_t address [ 256 ] = L"127.0.0.1:3333";
-		wchar_t worker [ 128 ] = L"alloy.worker";
-		wchar_t password [ 128 ] = L"x";
+		uint8_t algorithm = chain::ALGORITHM_SHA256D;
+		pool_profile pools [ chain::ALGORITHM_COUNT ] = {
+
+			{ L"127.0.0.1:3333", L"alloy.worker", L"x" },
+			{ L"127.0.0.1:3334", L"alloy.worker", L"x" },
+			{ L"127.0.0.1:3335", L"alloy.worker", L"x" },
+
+		};
+		bool full_dataset = true;
 		bool cpu = true;
 		uint32_t threads = 0;
 		uint32_t cpu_limit = 100;
@@ -86,6 +102,28 @@ namespace ui {
 		bool pause_battery = true;
 		bool autostart = false;
 		uint8_t theme = THEME_SYSTEM;
+
+		pool_profile& pool ( ) {
+
+			return pools [ algorithm % chain::ALGORITHM_COUNT ];
+
+		}
+
+		const pool_profile& pool ( ) const {
+
+			return pools [ algorithm % chain::ALGORITHM_COUNT ];
+
+		}
+
+	};
+
+	enum dataset_phase : uint8_t {
+
+		DATASET_NONE,
+		DATASET_BUILDING,
+		DATASET_FULL,
+		DATASET_LIGHT,
+		DATASET_SHORT,
 
 	};
 
@@ -114,6 +152,14 @@ namespace ui {
 		bool paused = false;
 		bool light = false;
 		uint8_t mode = MODE_POOL;
+		uint8_t algorithm = chain::ALGORITHM_SHA256D;
+		uint8_t dataset = DATASET_NONE;
+		uint32_t dataset_progress = 0;
+		double dataset_seconds = 0.0;
+		uint64_t height = 0;
+		int32_t blob_size = 0;
+		uint8_t seed [ 32 ] = { };
+		bool aes = false;
 		wchar_t status [ 160 ] = { };
 		wchar_t pause_reason [ 80 ] = { };
 		double rate = 0.0;

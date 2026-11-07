@@ -17,6 +17,8 @@ namespace ui {
 	static constexpr uint32_t key_delete = 0x2E;
 	static constexpr uint32_t key_one = 0x31;
 	static constexpr uint32_t key_a = 0x41;
+	static constexpr uint32_t key_y = 0x59;
+	static constexpr uint32_t key_z = 0x5A;
 	static constexpr uint32_t key_f5 = 0x74;
 
 	static constexpr float hover_time = 0.12f;
@@ -139,6 +141,154 @@ namespace ui {
 
 		if ( !extend )
 			anchor = caret;
+
+	}
+
+	static bool same_text_field ( const text_field& a, const text_field& b ) {
+
+		return a.length == b.length && base::same_text ( a.text, b.text );
+
+	}
+
+	void field_memory::clear ( ) {
+
+		undo_count = 0;
+		redo_count = 0;
+		last_kind = 0;
+		last_edit = -100.0;
+
+	}
+
+	void field_memory::remember ( const text_field& current, int32_t kind, double now ) {
+
+		bool joined = kind == last_kind && kind < 3 && now - last_edit < 1.0 && undo_count > 0;
+
+		last_kind = kind;
+		last_edit = now;
+		redo_count = 0;
+
+		if ( joined )
+			return;
+
+		if ( undo_count == depth ) {
+
+			base::move ( undo, undo + 1, sizeof ( text_field ) * ( depth - 1 ) );
+			undo_count--;
+
+		}
+
+		undo [ undo_count++ ] = current;
+
+	}
+
+	bool field_memory::step_back ( text_field& current ) {
+
+		while ( undo_count > 0 && same_text_field ( undo [ undo_count - 1 ], current ) )
+			undo_count--;
+
+		if ( !undo_count )
+			return false;
+
+		if ( redo_count == depth ) {
+
+			base::move ( redo, redo + 1, sizeof ( text_field ) * ( depth - 1 ) );
+			redo_count--;
+
+		}
+
+		redo [ redo_count++ ] = current;
+		current = undo [ --undo_count ];
+		last_kind = 0;
+
+		return true;
+
+	}
+
+	bool field_memory::step_forward ( text_field& current ) {
+
+		if ( !redo_count )
+			return false;
+
+		if ( undo_count == depth ) {
+
+			base::move ( undo, undo + 1, sizeof ( text_field ) * ( depth - 1 ) );
+			undo_count--;
+
+		}
+
+		undo [ undo_count++ ] = current;
+		current = redo [ --redo_count ];
+		last_kind = 0;
+
+		return true;
+
+	}
+
+	static bool same_preferences ( const preferences& a, const preferences& b ) {
+
+		return base::same ( &a, &b, sizeof ( preferences ) );
+
+	}
+
+	void settings_memory::remember ( const preferences& current ) {
+
+		ahead_count = 0;
+
+		if ( past_count && same_preferences ( past [ past_count - 1 ], current ) )
+			return;
+
+		if ( past_count == depth ) {
+
+			base::move ( past, past + 1, sizeof ( preferences ) * ( depth - 1 ) );
+			past_count--;
+
+		}
+
+		past [ past_count++ ] = current;
+
+	}
+
+	bool settings_memory::step_back ( preferences& current ) {
+
+		while ( past_count > 0 && same_preferences ( past [ past_count - 1 ], current ) )
+			past_count--;
+
+		if ( !past_count )
+			return false;
+
+		if ( ahead_count == depth ) {
+
+			base::move ( ahead, ahead + 1, sizeof ( preferences ) * ( depth - 1 ) );
+			ahead_count--;
+
+		}
+
+		ahead [ ahead_count++ ] = current;
+		current = past [ --past_count ];
+
+		return true;
+
+	}
+
+	bool settings_memory::step_forward ( preferences& current ) {
+
+		while ( ahead_count > 0 && same_preferences ( ahead [ ahead_count - 1 ], current ) )
+			ahead_count--;
+
+		if ( !ahead_count )
+			return false;
+
+		if ( past_count == depth ) {
+
+			base::move ( past, past + 1, sizeof ( preferences ) * ( depth - 1 ) );
+			past_count--;
+
+		}
+
+		past [ past_count++ ] = current;
+		current = ahead [ --ahead_count ];
+
+		return true;
 
 	}
 
@@ -428,6 +578,7 @@ namespace ui {
 			if ( focus != slot ) {
 
 				focus = slot;
+				field_history [ slot ].clear ( );
 				fields [ slot ].move_to ( at, false );
 
 			} else
@@ -440,6 +591,7 @@ namespace ui {
 
 		if ( item && item->id == CONTROL_SLIDER ) {
 
+			settings_history.remember ( settings );
 			dragging = item->index;
 
 			if ( slide ( dragging, x ) )
@@ -521,8 +673,21 @@ namespace ui {
 				if ( data && data->running )
 					return COMMAND_NONE;
 
+				settings_history.remember ( settings );
 				settings.mode = static_cast < uint8_t > ( index );
 				return COMMAND_PREFERENCES;
+
+			case CONTROL_ALGORITHM:
+				if ( data && data->running )
+					return COMMAND_NONE;
+
+				settings_history.remember ( settings );
+				settings.algorithm = static_cast < uint8_t > ( index % chain::ALGORITHM_COUNT );
+				return COMMAND_PREFERENCES;
+
+			case CONTROL_REVEAL:
+				reveal = !reveal;
+				return COMMAND_NONE;
 
 			case CONTROL_TAB:
 				open_tab ( index, now );
@@ -532,6 +697,8 @@ namespace ui {
 				return COMMAND_CLEAR_LOG;
 
 			case CONTROL_SWITCH:
+				settings_history.remember ( settings );
+
 				if ( index == SETTING_CPU )
 					settings.cpu = !settings.cpu;
 				else if ( index == SETTING_GPU )
@@ -551,6 +718,8 @@ namespace ui {
 				int32_t step = id == CONTROL_STEP_UP ? 1 : -1;
 				uint32_t threads = data ? data->threads : 1;
 
+				settings_history.remember ( settings );
+
 				if ( index == SETTING_THREADS )
 					settings.threads = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( settings.threads ) + step, 1, static_cast < int32_t > ( threads ) ) );
 				else if ( index == SETTING_IDLE_MINUTES )
@@ -565,6 +734,8 @@ namespace ui {
 				int32_t which = index / 16;
 				uint8_t option = static_cast < uint8_t > ( index % 16 );
 
+				settings_history.remember ( settings );
+
 				if ( which == SETTING_PRIORITY )
 					settings.priority = option;
 				else if ( which == SETTING_KERNEL )
@@ -573,6 +744,8 @@ namespace ui {
 					settings.adapter = option;
 				else if ( which == SETTING_THEME )
 					settings.theme = option;
+				else if ( which == SETTING_DATASET )
+					settings.full_dataset = option == 0;
 
 				return COMMAND_PREFERENCES;
 
@@ -625,7 +798,7 @@ namespace ui {
 			return item.length;
 
 		for ( int32_t i = 0; i < item.length; i++ )
-			shown [ i ] = slot == SETTING_PASSWORD ? L'\x2022' : item.text [ i ];
+			shown [ i ] = slot == SETTING_PASSWORD && !reveal ? L'\x2022' : item.text [ i ];
 
 		shown [ item.length ] = 0;
 
@@ -651,9 +824,13 @@ namespace ui {
 		if ( focus < 0 )
 			return COMMAND_NONE;
 
-		wchar_t* target = focus == SETTING_ADDRESS ? settings.address : ( focus == SETTING_WORKER ? settings.worker : settings.password );
-		int32_t room = focus == SETTING_ADDRESS ? base::count_of ( settings.address ) : 128;
+		pool_profile& profile = settings.pool ( );
+		wchar_t* target = focus == SETTING_ADDRESS ? profile.address : ( focus == SETTING_WORKER ? profile.worker : profile.password );
+		int32_t room = focus == SETTING_ADDRESS ? base::count_of ( profile.address ) : 128;
 		bool changed = !base::same_text ( target, fields [ focus ].text );
+
+		if ( changed )
+			settings_history.remember ( settings );
 
 		base::copy_text ( target, room, fields [ focus ].text );
 		focus = -1;
@@ -671,6 +848,35 @@ namespace ui {
 		press_id = CONTROL_NONE;
 
 		return commit_field ( now );
+
+	}
+
+	command shell::settled ( const preferences& before ) const {
+
+		bool pools = !base::same ( before.pools, settings.pools, sizeof ( settings.pools ) ) || before.algorithm != settings.algorithm;
+
+		return pools && data && data->running && settings.mode == MODE_POOL ? COMMAND_RESTART : COMMAND_PREFERENCES;
+
+	}
+
+	command shell::undo ( bool forward, double now ) {
+
+		preferences before = settings;
+		bool moved = forward ? settings_history.step_forward ( settings ) : settings_history.step_back ( settings );
+
+		if ( !moved )
+			return COMMAND_NONE;
+
+		sync_fields ( );
+
+		return settled ( before );
+
+	}
+
+	void shell::edit_field ( int32_t kind, double now ) {
+
+		if ( focus >= 0 )
+			field_history [ focus ].remember ( fields [ focus ], kind, now );
 
 	}
 
@@ -693,10 +899,15 @@ namespace ui {
 				item.move_to ( 0, shift );
 			else if ( code == key_end )
 				item.move_to ( item.length, shift );
-			else if ( code == key_back )
-				item.erase ( false );
-			else if ( code == key_delete )
-				item.erase ( true );
+			else if ( code == key_back || code == key_delete ) {
+
+				edit_field ( 2, now );
+				item.erase ( code == key_delete );
+
+			} else if ( code == key_z && control && !shift )
+				field_history [ focus ].step_back ( item );
+			else if ( ( code == key_y && control ) || ( code == key_z && control && shift ) )
+				field_history [ focus ].step_forward ( item );
 			else if ( code == key_a && control ) {
 
 				item.anchor = 0;
@@ -715,6 +926,7 @@ namespace ui {
 				command result = commit_field ( now );
 
 				focus = next;
+				field_history [ next ].clear ( );
 				fields [ next ].anchor = 0;
 				fields [ next ].caret = fields [ next ].length;
 
@@ -728,6 +940,12 @@ namespace ui {
 
 		if ( code == key_f5 )
 			return COMMAND_TOGGLE;
+
+		if ( control && code == key_z )
+			return undo ( shift, now );
+
+		if ( control && code == key_y )
+			return undo ( true, now );
 
 		if ( control && code >= key_one && code < key_one + PAGE_COUNT )
 			open_page ( static_cast < page > ( code - key_one ), now );
@@ -743,6 +961,7 @@ namespace ui {
 
 		wchar_t text [ 2 ] = { value, 0 };
 
+		edit_field ( value == L' ' ? 3 : 1, now );
 		fields [ focus ].insert ( text );
 		caret_since = now;
 
@@ -755,6 +974,7 @@ namespace ui {
 		if ( focus < 0 || !value )
 			return COMMAND_NONE;
 
+		edit_field ( 3, now );
 		fields [ focus ].insert ( value );
 		caret_since = now;
 
@@ -767,7 +987,7 @@ namespace ui {
 		int32_t from = 0;
 		int32_t to = 0;
 
-		if ( focus < 0 || focus == SETTING_PASSWORD || !fields [ focus ].selection ( from, to ) )
+		if ( focus < 0 || ( focus == SETTING_PASSWORD && !reveal ) || !fields [ focus ].selection ( from, to ) )
 			return false;
 
 		int32_t count = base::min ( to - from, room - 1 );
@@ -777,6 +997,7 @@ namespace ui {
 
 		if ( cut ) {
 
+			edit_field ( 3, now );
 			fields [ focus ].erase ( false );
 			caret_since = now;
 
@@ -868,6 +1089,7 @@ namespace ui {
 			return;
 
 		focus = which;
+		field_history [ which ].clear ( );
 		fields [ which ].anchor = fields [ which ].length;
 		fields [ which ].caret = fields [ which ].length;
 		caret_since = now;
@@ -894,7 +1116,8 @@ namespace ui {
 
 	void shell::sync_fields ( ) {
 
-		const wchar_t* values [ 3 ] = { settings.address, settings.worker, settings.password };
+		const pool_profile& profile = settings.pool ( );
+		const wchar_t* values [ 3 ] = { profile.address, profile.worker, profile.password };
 
 		for ( int32_t i = 0; i < 3; i++ ) {
 
@@ -1055,6 +1278,54 @@ namespace ui {
 
 		}
 
+		static const wchar_t* const algorithm_tips [ ] = {
+
+			L"Bitcoin's hash. The graphics card does most of the work here, and the SHA instructions help the CPU keep up.",
+			L"Litecoin and Dogecoin. Every hash needs 128 KB of scratch memory, which suits the graphics card.",
+			L"Monero. It was built for processors, so only the CPU mines it. Full mode keeps a 2 GB dataset in memory.",
+
+		};
+
+		float list = title_height + 12.0f + static_cast < float > ( PAGE_COUNT ) * 34.0f + 22.0f;
+		bool locked = view.running;
+
+		caption ( surface, render::box { 22.0f, list, sidebar_width - 44.0f, 16.0f }, L"ALGORITHM" );
+		list += 24.0f;
+
+		for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ ) {
+
+			render::box item = { 10.0f, list + static_cast < float > ( i ) * 42.0f, sidebar_width - 20.0f, 40.0f };
+			bool selected = i == settings.algorithm;
+			float level = !locked && !selected ? glow ( CONTROL_ALGORITHM, i, now ) : 0.0f;
+			render::color tint = selected ? colors.text : render::blend ( colors.muted, colors.text, level );
+
+			if ( locked && !selected )
+				surface.push_fade ( 0.5f );
+
+			if ( level > 0.0f )
+				surface.fill ( item, render::faded ( colors.control_hover, level ), corner );
+
+			if ( selected ) {
+
+				surface.dot ( item.x + 18.0f, item.y + 14.0f, 5.0f, colors.accent );
+				surface.dot ( item.x + 18.0f, item.y + 14.0f, 2.0f, colors.chrome );
+
+			} else
+				surface.ring ( item.x + 18.0f, item.y + 14.0f, 4.5f, render::blend ( colors.faint, colors.muted, level ), 1.25f );
+
+			surface.text ( chain::algorithm_name ( static_cast < uint8_t > ( i ) ), selected ? render::FONT_STRONG : render::FONT_BODY, render::box { item.x + 32.0f, item.y + 4.0f, item.w - 40.0f, 20.0f }, tint );
+			surface.text ( chain::algorithm_coins ( static_cast < uint8_t > ( i ) ), render::FONT_SMALL, render::box { item.x + 32.0f, item.y + 21.0f, item.w - 40.0f, 16.0f }, colors.faint );
+
+			if ( locked && !selected )
+				surface.pop_fade ( );
+
+			if ( !locked && !selected )
+				add_hit ( item, CONTROL_ALGORITHM, i );
+
+			add_hint ( item, locked && !selected ? L"Stop mining first, then pick another algorithm." : algorithm_tips [ i ] );
+
+		}
+
 		float top = height - status_height - 112.0f;
 		float inner = sidebar_width - 44.0f;
 		base::text line;
@@ -1135,16 +1406,24 @@ namespace ui {
 
 		}
 
-		if ( settings.gpu && view.adapter_count ) {
+		if ( settings.gpu && view.adapter_count && settings.algorithm != chain::ALGORITHM_RANDOMX ) {
 
-			summary.add ( summary.size ( ) ? L"     GPU intensity " : L"GPU intensity " ).number ( settings.intensity );
+			summary.add ( summary.size ( ) ? L"     GPU " : L"GPU " );
+
+			if ( settings.algorithm == chain::ALGORITHM_SHA256D )
+				summary.add ( L"intensity " ).number ( settings.intensity );
+			else
+				summary.add ( L"on" );
 
 			if ( settings.gpu_limit < 100 )
 				summary.add ( L" at " ).number ( settings.gpu_limit ).put ( L'%' );
 
 		}
 
-		summary.add ( summary.size ( ) ? L"     Alloy 0.2" : L"Alloy 0.2" );
+		if ( settings.algorithm == chain::ALGORITHM_RANDOMX )
+			summary.add ( summary.size ( ) ? L"     " : L"" ).add ( settings.full_dataset ? L"Full dataset" : L"Light dataset" );
+
+		summary.add ( summary.size ( ) ? L"     Alloy 0.3" : L"Alloy 0.3" );
 		surface.text ( summary.get ( ), render::FONT_SMALL, render::box { width * 0.45f, bar.y, width * 0.55f - 16.0f, bar.h }, colors.faint, render::ALIGN_RIGHT );
 
 	}
@@ -1303,14 +1582,17 @@ namespace ui {
 		int32_t slot = which;
 		text_field& item = fields [ slot ];
 		bool focused = focus == slot;
+		bool hidden = masked && !reveal;
 		float level = glow ( CONTROL_FIELD, slot, now );
-		render::box inner = area.inset ( 10.0f, 0.0f );
+		float eye_width = masked ? 32.0f : 0.0f;
+		render::box inner = { area.x + 10.0f, area.y, area.w - 20.0f - eye_width + ( masked ? 6.0f : 0.0f ), area.h };
+		render::box eye = { area.right ( ) - eye_width, area.y, eye_width, area.h };
 		wchar_t shown [ text_field::room + 1 ];
 
 		field_boxes [ slot ] = area;
 
 		for ( int32_t i = 0; i < item.length; i++ )
-			shown [ i ] = masked ? L'\x2022' : item.text [ i ];
+			shown [ i ] = hidden ? L'\x2022' : item.text [ i ];
 
 		shown [ item.length ] = 0;
 
@@ -1361,6 +1643,19 @@ namespace ui {
 
 		surface.pop_clip ( );
 		add_hit ( area, CONTROL_FIELD, slot );
+
+		if ( !masked )
+			return;
+
+		float eye_level = glow ( CONTROL_REVEAL, 0, now );
+		render::box spot = eye.inset ( 4.0f, 5.0f );
+
+		if ( eye_level > 0.0f )
+			surface.fill ( spot, render::faded ( colors.control_hover, eye_level ), 3.0f );
+
+		draw_icon ( surface, reveal ? ICON_HIDDEN : ICON_EYE, eye.middle_x ( ) - 8.0f, eye.middle_y ( ) - 8.0f, 16.0f, render::blend ( colors.muted, colors.text, eye_level ) );
+		add_hit ( spot, CONTROL_REVEAL, 0 );
+		add_hint ( spot, reveal ? L"Hide the password again." : L"Show the password while you type it." );
 
 	}
 

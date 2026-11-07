@@ -68,4 +68,12 @@ namespace chain {
 
 	}
 
+	void litecoin_genesis ( header& out ) {
+
+		static const char raw [ ] = "010000000000000000000000000000000000000000000000000000000000000000000000d9ced4ed1130f7b7faad9be25323ffafa33232a17c3edf6cfd97bee6bafbdd97b9aa8e4ef0ff0f1ecd513f7c";
+
+		base::read_hex ( raw, out.bytes, header_size );
+
+	}
+
 }

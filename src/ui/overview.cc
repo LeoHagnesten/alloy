@@ -29,6 +29,14 @@ namespace ui {
 
 	}
 
+	static const wchar_t* dataset_text ( uint8_t phase ) {
+
+		static const wchar_t* const names [ ] = { L"Not built yet", L"Building", L"Full, 2 GB", L"Light, 256 MB", L"Light, short on memory" };
+
+		return names [ phase < 5 ? phase : 0 ];
+
+	}
+
 	void shell::paint_overview ( render::surface& surface, const snapshot& view, render::box area, double now ) {
 
 		float x = area.x + 28.0f;
@@ -53,7 +61,8 @@ namespace ui {
 
 		metric cells [ 6 ];
 		bool started = view.running || view.hashes > 0;
-		bool gpu_on = settings.gpu && view.adapter_count > 0;
+		uint8_t kind = view.running ? view.algorithm : settings.algorithm;
+		bool gpu_on = settings.gpu && view.adapter_count > 0 && kind != chain::ALGORITHM_RANDOMX;
 
 		cells [ 0 ].caption = L"HASHRATE";
 		cells [ 1 ].caption = L"PROCESSOR";
@@ -88,7 +97,13 @@ namespace ui {
 		if ( settings.cpu_limit < 100 )
 			cells [ 1 ].detail.add ( L" at " ).number ( settings.cpu_limit ).put ( L'%' );
 
-		if ( !gpu_on ) {
+		if ( kind == chain::ALGORITHM_RANDOMX && view.adapter_count ) {
+
+			cells [ 2 ].value.add ( L"Idle" );
+			cells [ 2 ].quiet = true;
+			cells [ 2 ].detail.add ( L"RandomX is CPU only" );
+
+		} else if ( !gpu_on ) {
 
 			cells [ 2 ].value.add ( L"Off" );
 			cells [ 2 ].quiet = true;
@@ -106,7 +121,10 @@ namespace ui {
 			else
 				cells [ 2 ].value.add ( view.running ? L"Starting" : L"\x2014" );
 
-			cells [ 2 ].detail.add ( L"intensity " ).number ( settings.intensity );
+			if ( kind == chain::ALGORITHM_SCRYPT )
+				cells [ 2 ].detail.add ( L"scrypt kernels" );
+			else
+				cells [ 2 ].detail.add ( L"intensity " ).number ( settings.intensity );
 
 			if ( settings.gpu_limit < 100 )
 				cells [ 2 ].detail.add ( L" at " ).number ( settings.gpu_limit ).put ( L'%' );
@@ -336,9 +354,18 @@ namespace ui {
 		draw_icon ( surface, ICON_PROCESSOR, area.x, row + 12.0f, 16.0f, settings.cpu ? colors.text : colors.faint );
 		surface.text ( view.cpu_name, render::FONT_BODY, render::box { area.x + 28.0f, row + 6.0f, name_width, 20.0f }, settings.cpu ? colors.text : colors.faint );
 
+		uint8_t kind = view.running ? view.algorithm : settings.algorithm;
+
 		if ( settings.cpu ) {
 
-			detail.number ( base::min ( settings.threads, view.threads ) ).add ( L" of " ).number ( view.threads ).add ( L" threads, " ).add ( view.sha && settings.kernel != 2 ? L"SHA extensions" : L"portable kernel" );
+			detail.number ( base::min ( settings.threads, view.threads ) ).add ( L" of " ).number ( view.threads ).add ( L" threads, " );
+
+			if ( kind == chain::ALGORITHM_SCRYPT )
+				detail.add ( L"SSE2 scrypt" );
+			else if ( kind == chain::ALGORITHM_RANDOMX )
+				detail.add ( settings.full_dataset ? L"RandomX full dataset" : L"RandomX light" );
+			else
+				detail.add ( view.sha && settings.kernel != 2 ? L"SHA extensions" : L"portable kernel" );
 
 			if ( settings.cpu_limit < 100 )
 				detail.add ( L", " ).number ( settings.cpu_limit ).add ( L"% limit" );
@@ -387,13 +414,21 @@ namespace ui {
 		detail.clear ( );
 		rate.clear ( );
 
-		if ( !gpu_on )
+		if ( kind == chain::ALGORITHM_RANDOMX && view.adapter_count ) {
+
+			detail.add ( L"Not used, RandomX runs on the processor" );
+			gpu_on = false;
+
+		} else if ( !gpu_on )
 			detail.add ( view.adapter_count ? L"Off" : L"Direct3D 11 compute isn't available" );
 		else if ( view.running && view.gpu_state == GPU_BROKEN )
 			detail.add ( view.gpu_name );
 		else {
 
-			detail.add ( L"intensity " ).number ( settings.intensity ).add ( L", " ).compact ( static_cast < double > ( 1u << settings.intensity ) ).add ( L" hashes per dispatch" );
+			if ( kind == chain::ALGORITHM_SCRYPT )
+				detail.add ( L"scrypt, 128 KB of video memory per hash" );
+			else
+				detail.add ( L"intensity " ).number ( settings.intensity ).add ( L", " ).compact ( static_cast < double > ( 1u << settings.intensity ) ).add ( L" hashes per dispatch" );
 
 			if ( settings.gpu_limit < 100 )
 				detail.add ( L", " ).number ( settings.gpu_limit ).add ( L"% limit" );
@@ -427,8 +462,9 @@ namespace ui {
 
 			caption ( surface, render::box { x, y, wide, 16.0f }, L"POOL" );
 			y += 24.0f;
-			property ( surface, x, y, wide, L"Address", settings.address );
-			property ( surface, x, y, wide, L"Worker", settings.worker );
+			property ( surface, x, y, wide, L"Algorithm", chain::algorithm_name ( view.running ? view.algorithm : settings.algorithm ) );
+			property ( surface, x, y, wide, L"Address", settings.pool ( ).address );
+			property ( surface, x, y, wide, L"Worker", settings.pool ( ).worker );
 			value.add ( view.running ? link_text ( view.link ) : L"Offline" );
 
 			if ( view.running && view.link == PHASE_READY && view.latency > 0.0 )
@@ -456,11 +492,34 @@ namespace ui {
 
 			}
 
+			property ( surface, x, y, wide, L"Job", view.job, render::FONT_MONO );
+
+			if ( view.algorithm == chain::ALGORITHM_RANDOMX ) {
+
+				value.clear ( );
+				value.grouped ( view.height );
+				property ( surface, x, y, wide, L"Height", value.get ( ) );
+				hash_property ( surface, x, y, wide, L"Seed hash", view.seed );
+				value.clear ( );
+				value.number ( static_cast < uint64_t > ( view.blob_size ) ).add ( L" bytes, nonce at byte 39" );
+				property ( surface, x, y, wide, L"Blob", value.get ( ) );
+				value.clear ( );
+				value.add ( dataset_text ( view.dataset ) );
+
+				if ( view.dataset == DATASET_BUILDING )
+					value.add ( L", " ).number ( view.dataset_progress / 10 ).put ( L'%' );
+
+				property ( surface, x, y, wide, L"Dataset", value.get ( ) );
+				surface.pop_clip ( );
+
+				return;
+
+			}
+
 			uint8_t previous [ 32 ];
 
 			base::copy ( previous, view.previous, 32 );
 			base::reverse_words ( previous, 32 );
-			property ( surface, x, y, wide, L"Job", view.job, render::FONT_MONO );
 			hash_property ( surface, x, y, wide, L"Previous block", previous );
 			value.clear ( );
 			value.compact ( chain::difficulty_of_bits ( view.bits ) );
@@ -471,12 +530,38 @@ namespace ui {
 
 		} else if ( view.mode == MODE_BENCHMARK ) {
 
+			uint8_t kind = view.running ? view.algorithm : settings.algorithm;
+
 			caption ( surface, render::box { x, y, wide, 16.0f }, L"BENCHMARK" );
 			y += 24.0f;
-			property ( surface, x, y, wide, L"Algorithm", L"sha256d" );
-			property ( surface, x, y, wide, L"Header", L"Genesis block, rolling time" );
-			property ( surface, x, y, wide, L"Processor kernel", view.sha && settings.kernel != 2 ? L"SHA extensions" : L"Portable" );
-			property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 256 per group" );
+			property ( surface, x, y, wide, L"Algorithm", chain::algorithm_name ( kind ) );
+
+			if ( kind == chain::ALGORITHM_SCRYPT ) {
+
+				property ( surface, x, y, wide, L"Header", L"Litecoin genesis, rolling time" );
+				property ( surface, x, y, wide, L"Processor kernel", L"SSE2 Salsa20/8, 128 KB a thread" );
+				property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 64 per group" );
+
+			} else if ( kind == chain::ALGORITHM_RANDOMX ) {
+
+				value.add ( dataset_text ( view.dataset ) );
+
+				if ( view.dataset == DATASET_BUILDING )
+					value.add ( L", " ).number ( view.dataset_progress / 10 ).put ( L'%' );
+
+				property ( surface, x, y, wide, L"Input", L"Monero block blob, 76 bytes" );
+				property ( surface, x, y, wide, L"Processor kernel", view.aes ? L"Interpreter with AES-NI" : L"Interpreter, software AES" );
+				property ( surface, x, y, wide, L"Dataset", value.get ( ) );
+				value.clear ( );
+
+			} else {
+
+				property ( surface, x, y, wide, L"Header", L"Genesis block, rolling time" );
+				property ( surface, x, y, wide, L"Processor kernel", view.sha && settings.kernel != 2 ? L"SHA extensions" : L"Portable" );
+				property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 256 per group" );
+
+			}
+
 			value.grouped ( view.hashes );
 			property ( surface, x, y, wide, L"Hashes", value.get ( ) );
 			value.clear ( );

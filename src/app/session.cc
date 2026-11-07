@@ -8,6 +8,26 @@
 
 namespace app {
 
+	static uint8_t algorithm_of ( const ui::preferences& settings ) {
+
+		uint8_t value = static_cast < uint8_t > ( settings.algorithm % chain::ALGORITHM_COUNT );
+
+		if ( settings.mode == ui::MODE_GENESIS && value == chain::ALGORITHM_RANDOMX )
+			return chain::ALGORITHM_SHA256D;
+
+		return value;
+
+	}
+
+	static void real_genesis ( uint8_t algorithm, chain::header& out ) {
+
+		if ( algorithm == chain::ALGORITHM_SCRYPT )
+			chain::litecoin_genesis ( out );
+		else
+			chain::genesis ( out );
+
+	}
+
 	static mine::limits limits_of ( const ui::preferences& settings ) {
 
 		mine::limits out;
@@ -20,8 +40,33 @@ namespace app {
 		out.gpu_percent = settings.gpu_limit;
 		out.gpu_intensity = settings.intensity;
 		out.adapter = settings.adapter;
+		out.full_dataset = settings.full_dataset;
+		out.algorithm = algorithm_of ( settings );
 
 		return out;
+
+	}
+
+	static uint8_t dataset_phase_of ( mine::dataset_state state ) {
+
+		switch ( state ) {
+
+			case mine::DATASET_BUILDING:
+				return ui::DATASET_BUILDING;
+
+			case mine::DATASET_FULL:
+				return ui::DATASET_FULL;
+
+			case mine::DATASET_LIGHT:
+				return ui::DATASET_LIGHT;
+
+			case mine::DATASET_SHORT:
+				return ui::DATASET_SHORT;
+
+			default:
+				return ui::DATASET_NONE;
+
+		}
 
 	}
 
@@ -60,6 +105,9 @@ namespace app {
 		if ( state == mine::GPU_RUNNING )
 			return ui::GPU_WORKING;
 
+		if ( state == mine::GPU_UNSUPPORTED )
+			return ui::GPU_UNSUPPORTED;
+
 		return state == mine::GPU_FAILED ? ui::GPU_BROKEN : ui::GPU_IDLE;
 
 	}
@@ -81,6 +129,7 @@ namespace app {
 		shown->cores = cpu.cores;
 		shown->threads = cpu.threads;
 		shown->sha = cpu.sha && cpu.sse41 && cpu.ssse3;
+		shown->aes = cpu.aes;
 
 		mine::adapter_info adapters [ ui::adapter_room ];
 
@@ -109,7 +158,12 @@ namespace app {
 		mode = settings.mode;
 		adapter = settings.adapter;
 		kernel = settings.kernel;
+		algorithm = algorithm_of ( settings );
 		view.mode = mode;
+		view.algorithm = algorithm;
+		view.height = 0;
+		view.blob_size = 0;
+		base::zero ( view.seed, 32 );
 		view.rate = 0.0;
 		view.average = 0.0;
 		view.peak = 0.0;
@@ -146,19 +200,26 @@ namespace app {
 
 		mine::feeder* feed = &benchmark;
 
+		if ( algorithm != chain::ALGORITHM_RANDOMX )
+			engine.release_dataset ( );
+
+		benchmark.set_algorithm ( algorithm );
+
 		if ( mode == ui::MODE_POOL ) {
 
 			pool::settings link;
+			const ui::pool_profile& profile = settings.pool ( );
 
-			base::copy_text ( link.address, base::count_of ( link.address ), settings.address );
-			base::copy_text ( link.worker, base::count_of ( link.worker ), settings.worker );
-			base::copy_text ( link.password, base::count_of ( link.password ), settings.password );
+			link.algorithm = algorithm;
+			base::copy_text ( link.address, base::count_of ( link.address ), profile.address );
+			base::copy_text ( link.worker, base::count_of ( link.worker ), profile.worker );
+			base::copy_text ( link.password, base::count_of ( link.password ), profile.password );
 			client.start ( link );
 			feed = &client;
 
 		} else if ( mode == ui::MODE_GENESIS ) {
 
-			genesis.reset ( genesis_from );
+			genesis.reset ( genesis_from, algorithm );
 			feed = &genesis;
 
 		}
@@ -179,12 +240,20 @@ namespace app {
 
 		base::text line;
 
-		line.add ( L"Started " ).add ( mode_name ( mode ) );
+		line.add ( L"Started " ).add ( chain::algorithm_name ( algorithm ) ).put ( L' ' ).add ( mode_name ( mode ) );
 
-		if ( settings.cpu && settings.threads )
-			line.add ( L" on " ).number ( base::min ( settings.threads, engine.lanes ( ) ) ).add ( settings.threads == 1 ? L" thread" : L" threads" ).add ( view.extensions ? L" (SHA extensions)" : L" (portable kernel)" );
+		if ( settings.cpu && settings.threads ) {
 
-		if ( settings.gpu )
+			line.add ( L" on " ).number ( base::min ( settings.threads, engine.lanes ( ) ) ).add ( settings.threads == 1 ? L" thread" : L" threads" );
+
+			if ( algorithm == chain::ALGORITHM_SHA256D )
+				line.add ( view.extensions ? L" (SHA extensions)" : L" (portable kernel)" );
+			else if ( algorithm == chain::ALGORITHM_RANDOMX )
+				line.add ( cpu.aes ? L" (AES-NI)" : L" (software AES)" );
+
+		}
+
+		if ( settings.gpu && algorithm != chain::ALGORITHM_RANDOMX )
 			line.add ( settings.cpu && settings.threads ? L" and the GPU" : L" on the GPU" );
 
 		log ( ui::LEVEL_INFO, line.get ( ) );
@@ -227,7 +296,7 @@ namespace app {
 
 	void session::apply ( const ui::preferences& settings ) {
 
-		if ( active && ( settings.mode != mode || settings.adapter != adapter || settings.kernel != kernel ) ) {
+		if ( active && ( settings.mode != mode || settings.adapter != adapter || settings.kernel != kernel || algorithm_of ( settings ) != algorithm ) ) {
 
 			start ( settings );
 
@@ -348,7 +417,7 @@ namespace app {
 			double ran = base::seconds ( ) - started;
 			chain::header real;
 
-			chain::genesis ( real );
+			real_genesis ( algorithm, real );
 			view.solved = true;
 			view.nonce = genesis.nonce ( );
 			view.progress = base::min ( static_cast < double > ( genesis.nonce ( ) - genesis.start ( ) + 1 ) / static_cast < double > ( space ), 1.0 );
@@ -363,7 +432,11 @@ namespace app {
 			base::text line;
 
 			line.add ( L"Found nonce " ).number ( view.nonce ).add ( L" in " ).duration ( ran );
-			line.add ( view.nonce == real.nonce ( ) ? L", the same nonce Satoshi found on January 3, 2009" : L", which differs from the real block" );
+
+			if ( view.nonce != real.nonce ( ) )
+				line.add ( L", which differs from the real block" );
+			else
+				line.add ( algorithm == chain::ALGORITHM_SCRYPT ? L", the same nonce as Litecoin's first block on October 7, 2011" : L", the same nonce Satoshi found on January 3, 2009" );
 			log ( view.nonce == real.nonce ( ) ? ui::LEVEL_GOOD : ui::LEVEL_ERROR, line.get ( ) );
 			base::copy_text ( view.status, base::count_of ( view.status ), L"Genesis block found" );
 
@@ -444,11 +517,36 @@ namespace app {
 			view.cpu_hashes += engine.lane_hashes ( i );
 
 		view.average = view.uptime > 0.5 ? static_cast < double > ( total ) / view.uptime : 0.0;
-		view.best = engine.best ( ) == ~0ull ? 0.0 : chain::difficulty_of ( engine.best ( ) );
+		view.best = engine.best ( ) == ~0ull ? 0.0 : chain::difficulty_of ( engine.best ( ), algorithm );
 		view.faults = engine.gpu_errors ( );
 		view.gpu_state = gpu_phase_of ( engine.gpu_status ( ) );
 		view.active_threads = engine.threads ( );
 		base::copy_text ( view.gpu_name, base::count_of ( view.gpu_name ), engine.gpu_name ( ) );
+
+		uint8_t dataset = algorithm == chain::ALGORITHM_RANDOMX ? dataset_phase_of ( engine.dataset_status ( ) ) : static_cast < uint8_t > ( ui::DATASET_NONE );
+
+		if ( dataset != view.dataset ) {
+
+			base::text line;
+
+			if ( dataset == ui::DATASET_BUILDING )
+				line.add ( L"Building the RandomX dataset" );
+			else if ( dataset == ui::DATASET_FULL )
+				line.add ( L"The 2 GB RandomX dataset is ready after " ).decimal ( engine.dataset_seconds ( ), 1 ).add ( L" s" );
+			else if ( dataset == ui::DATASET_LIGHT )
+				line.add ( L"RandomX runs in light mode from the 256 MB cache" );
+			else if ( dataset == ui::DATASET_SHORT )
+				line.add ( L"Not enough free memory for the 2 GB dataset, so RandomX runs in light mode" );
+
+			if ( line.size ( ) )
+				log ( dataset == ui::DATASET_SHORT ? ui::LEVEL_WARNING : ui::LEVEL_INFO, line.get ( ) );
+
+			view.dataset = dataset;
+
+		}
+
+		view.dataset_progress = engine.dataset_progress ( );
+		view.dataset_seconds = engine.dataset_seconds ( );
 
 		if ( mode == ui::MODE_POOL ) {
 
@@ -467,6 +565,9 @@ namespace app {
 			view.time = link.time;
 			view.branches = link.branches;
 			view.coinbase_size = link.coinbase_size;
+			view.height = link.height;
+			view.blob_size = link.blob_size;
+			base::copy ( view.seed, link.seed, 32 );
 			base::copy ( view.previous, link.previous, 32 );
 			base::copy_text ( view.job, base::count_of ( view.job ), link.job );
 
@@ -489,24 +590,30 @@ namespace app {
 		ui::snapshot& view = *shown;
 		base::text line;
 
+		const wchar_t* address = settings.pool ( ).address;
+
 		if ( !active )
 			line.add ( view.solved ? L"Genesis block found" : L"Ready" );
 		else if ( paused )
 			line.add ( view.pause_reason );
+		else if ( view.dataset == ui::DATASET_BUILDING )
+			line.add ( L"Building the RandomX dataset, " ).number ( view.dataset_progress / 10 ).put ( L'%' );
+		else if ( algorithm == chain::ALGORITHM_RANDOMX && !settings.cpu )
+			line.add ( L"RandomX needs the CPU turned on" );
 		else if ( mode == ui::MODE_BENCHMARK )
-			line.add ( L"Benchmarking sha256d" );
+			line.add ( L"Benchmarking " ).add ( chain::algorithm_name ( algorithm ) );
 		else if ( mode == ui::MODE_GENESIS )
 			line.add ( L"Searching for the genesis block's nonce" );
 		else if ( view.link == ui::PHASE_READY )
-			line.add ( L"Mining on " ).add ( settings.address );
+			line.add ( L"Mining " ).add ( chain::algorithm_name ( algorithm ) ).add ( L" on " ).add ( address );
 		else if ( view.link == ui::PHASE_SIGNING_IN )
-			line.add ( L"Signing in to " ).add ( settings.address );
+			line.add ( L"Signing in to " ).add ( address );
 		else if ( view.link == ui::PHASE_RETRYING )
-			line.add ( L"Waiting to reconnect to " ).add ( settings.address );
+			line.add ( L"Waiting to reconnect to " ).add ( address );
 		else if ( view.link == ui::PHASE_REFUSED )
 			line.add ( L"The pool refused the worker" );
 		else
-			line.add ( L"Connecting to " ).add ( settings.address );
+			line.add ( L"Connecting to " ).add ( address );
 
 		base::copy_text ( view.status, base::count_of ( view.status ), line.get ( ) );
 

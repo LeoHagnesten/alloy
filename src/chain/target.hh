@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/base.hh"
+#include "chain/algorithm.hh"
 
 namespace chain {
 
@@ -8,7 +8,9 @@ namespace chain {
 
 	void target_of ( uint32_t bits, uint8_t* out );
 
-	void target_for ( double difficulty, uint8_t* out );
+	void target_for ( double difficulty, uint8_t* out, uint8_t kind = ALGORITHM_SHA256D );
+
+	void target_of_top ( uint64_t top, uint8_t* out );
 
 	bool meets ( const uint8_t* digest, const uint8_t* target );
 
@@ -18,7 +20,7 @@ namespace chain {
 
 	uint64_t top_bits ( const uint8_t* digest );
 
-	double difficulty_of ( uint64_t top );
+	double difficulty_of ( uint64_t top, uint8_t kind = ALGORITHM_SHA256D );
 
 	double difficulty_of_bits ( uint32_t bits );
 

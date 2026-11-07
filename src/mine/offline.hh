@@ -8,7 +8,17 @@ namespace mine {
 
 	public:
 
+		void set_algorithm ( uint8_t value ) {
+
+			kind = value;
+
+		}
+
 		bool fill ( uint64_t index, unit& out ) override;
+
+	private:
+
+		uint8_t kind = chain::ALGORITHM_SHA256D;
 
 	};
 
@@ -16,7 +26,13 @@ namespace mine {
 
 	public:
 
-		void reset ( uint32_t from );
+		void reset ( uint32_t from, uint8_t algorithm = chain::ALGORITHM_SHA256D );
+
+		uint8_t algorithm ( ) const {
+
+			return kind;
+
+		}
 
 		bool fill ( uint64_t index, unit& out ) override;
 
@@ -49,6 +65,7 @@ namespace mine {
 	private:
 
 		volatile uint32_t finished = 0;
+		uint8_t kind = chain::ALGORITHM_SHA256D;
 		uint32_t winner = 0;
 		uint32_t first = 0;
 		uint8_t block_hash [ 32 ] = { };
