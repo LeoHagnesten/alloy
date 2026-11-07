@@ -78,16 +78,16 @@ void main ( uint3 id : SV_DispatchThreadID ) {
 
 	uint index = lane_of ( id );
 	uint at = index * state_stride;
-	uint origin = index * 8192;
+	uint origin = index * 4096;
 	uint4 p0, p1, p2, p3, q0, q1, q2, q3;
 
 	lanes_in ( states [ at ], states [ at + 1 ], states [ at + 2 ], states [ at + 3 ], p0, p1, p2, p3 );
 	lanes_in ( states [ at + 4 ], states [ at + 5 ], states [ at + 6 ], states [ at + 7 ], q0, q1, q2, q3 );
 
 	[ loop ]
-	for ( uint j = 0; j < 1024; j++ ) {
+	for ( uint j = 0; j < 1024; j += 2 ) {
 
-		uint slot = origin + j * 8;
+		uint slot = origin + j * 4;
 
 		table [ slot ] = p0;
 		table [ slot + 1 ] = p1;
@@ -98,22 +98,36 @@ void main ( uint3 id : SV_DispatchThreadID ) {
 		table [ slot + 6 ] = q2;
 		table [ slot + 7 ] = q3;
 		block_mix ( p0, p1, p2, p3, q0, q1, q2, q3 );
+		block_mix ( p0, p1, p2, p3, q0, q1, q2, q3 );
 
 	}
 
 	[ loop ]
 	for ( uint n = 0; n < 1024; n++ ) {
 
-		uint pick = origin + ( q0.x & 1023 ) * 8;
+		uint wanted = q0.x & 1023;
+		uint pick = origin + ( wanted >> 1 ) * 8;
+		uint4 v0 = table [ pick ];
+		uint4 v1 = table [ pick + 1 ];
+		uint4 v2 = table [ pick + 2 ];
+		uint4 v3 = table [ pick + 3 ];
+		uint4 v4 = table [ pick + 4 ];
+		uint4 v5 = table [ pick + 5 ];
+		uint4 v6 = table [ pick + 6 ];
+		uint4 v7 = table [ pick + 7 ];
 
-		p0 ^= table [ pick ];
-		p1 ^= table [ pick + 1 ];
-		p2 ^= table [ pick + 2 ];
-		p3 ^= table [ pick + 3 ];
-		q0 ^= table [ pick + 4 ];
-		q1 ^= table [ pick + 5 ];
-		q2 ^= table [ pick + 6 ];
-		q3 ^= table [ pick + 7 ];
+		[ branch ]
+		if ( wanted & 1 )
+			block_mix ( v0, v1, v2, v3, v4, v5, v6, v7 );
+
+		p0 ^= v0;
+		p1 ^= v1;
+		p2 ^= v2;
+		p3 ^= v3;
+		q0 ^= v4;
+		q1 ^= v5;
+		q2 ^= v6;
+		q3 ^= v7;
 		block_mix ( p0, p1, p2, p3, q0, q1, q2, q3 );
 
 	}

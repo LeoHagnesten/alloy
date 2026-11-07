@@ -44,6 +44,12 @@ namespace randomx {
 
 		}
 
+		bool large_pages ( ) const {
+
+			return large;
+
+		}
+
 		const scalar_compiler& compiled ( ) const {
 
 			return native;
@@ -57,6 +63,7 @@ namespace randomx {
 
 		scalar_compiler native;
 		hash::argon2_block* blocks = nullptr;
+		bool large = false;
 		uint8_t key [ key_room ] = { };
 		size_t key_size = 0;
 
@@ -84,9 +91,16 @@ namespace randomx {
 
 		}
 
+		bool large_pages ( ) const {
+
+			return large;
+
+		}
+
 	private:
 
 		uint8_t* memory = nullptr;
+		bool large = false;
 
 	};
 

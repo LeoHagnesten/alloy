@@ -62,6 +62,11 @@ namespace mine {
 		source = feed;
 		compress = extensions && settings.choice != KERNEL_PORTABLE ? hash::sha256_block_extensions : hash::sha256_block;
 		lane_count = base::min ( cpu.threads, max_lanes );
+		level3 = cpu.level3;
+
+		if ( !rx_ready )
+			rx_lanes = lane_count;
+
 		quit = 0;
 		halt = 0;
 		hungry = 0;
@@ -403,6 +408,11 @@ namespace mine {
 
 		bool cancelled = base::atomic_load ( quit ) != 0;
 
+		rx_large = state == DATASET_FULL && rx_dataset->large_pages ( );
+
+		uint64_t fitting = level3 * ( rx_large ? 4 : 3 ) / 4 / randomx::scratchpad_bytes;
+
+		base::atomic_store ( rx_lanes, level3 ? static_cast < uint32_t > ( base::clamp ( fitting, 1ull, static_cast < uint64_t > ( lane_count ) ) ) : lane_count );
 		base::copy ( rx_seed, seed, 32 );
 		rx_built_for = full;
 		rx_seconds = base::seconds ( ) - began;
@@ -422,7 +432,9 @@ namespace mine {
 
 		while ( !base::atomic_load ( quit ) ) {
 
-			if ( self.index >= base::atomic_load ( wanted_threads ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) ) {
+			bool spare = algorithm ( ) == chain::ALGORITHM_RANDOMX && self.index >= base::atomic_load ( rx_lanes );
+
+			if ( self.index >= base::atomic_load ( wanted_threads ) || spare || base::atomic_load ( paused ) || base::atomic_load ( halt ) ) {
 
 				base::sleep ( 30 );
 
@@ -480,14 +492,27 @@ namespace mine {
 			} else if ( work.algorithm == chain::ALGORITHM_SCRYPT ) {
 
 				if ( !kit.scratch )
-					kit.scratch = base::allocate ( hash::scrypt_scratch_bytes );
+					kit.scratch = base::allocate ( hash::scrypt_pair_scratch_bytes );
 
-				chain::header header = work.header;
+				chain::header first = work.header;
+				chain::header second = work.header;
+				uint64_t waiting = nonce_space;
+				uint8_t spare [ 32 ];
 
 				auto hash_one = [ & ] ( uint32_t nonce, uint8_t* digest ) {
 
-					header.set_nonce ( nonce );
-					hash::scrypt_header ( header.bytes, digest, kit.scratch );
+					if ( nonce == waiting ) {
+
+						base::copy ( digest, spare, 32 );
+
+						return;
+
+					}
+
+					first.set_nonce ( nonce );
+					second.set_nonce ( nonce + 1 );
+					hash::scrypt_header_pair ( first.bytes, second.bytes, digest, spare, kit.scratch );
+					waiting = static_cast < uint64_t > ( nonce ) + 1;
 
 				};
 

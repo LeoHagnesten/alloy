@@ -8,6 +8,8 @@ namespace hash {
 
 	bool aes_hardware ( );
 
+	bool aes_ready ( );
+
 	void aes_encrypt_round ( uint8_t* block, const uint8_t* key );
 
 	void aes_decrypt_round ( uint8_t* block, const uint8_t* key );

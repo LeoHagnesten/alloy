@@ -567,7 +567,9 @@ namespace ui {
 		if ( tip_open && tip_closing < 0.0 )
 			tip_closing = now;
 
-		if ( focus >= 0 && !( item && item->id == CONTROL_FIELD && item->index == focus ) )
+		bool keeps_focus = item && ( ( item->id == CONTROL_FIELD && item->index == focus ) || ( item->id == CONTROL_REVEAL && focus == SETTING_PASSWORD ) );
+
+		if ( focus >= 0 && !keeps_focus )
 			result = commit_field ( now );
 
 		if ( item && item->id == CONTROL_FIELD ) {

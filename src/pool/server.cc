@@ -698,11 +698,12 @@ namespace pool {
 
 				peer& client = peers [ i ];
 				int32_t size = 0;
+				int32_t handled = 0;
 
 				if ( !client.used )
 					continue;
 
-				while ( ( size = client.link.read_line ( text, net::line_room, 0 ) ) > 0 ) {
+				while ( handled++ < 16 && ( size = client.link.read_line ( text, net::line_room, 0 ) ) > 0 ) {
 
 					busy = true;
 

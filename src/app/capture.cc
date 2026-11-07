@@ -388,7 +388,7 @@ namespace app {
 			self->view->locate ( ui::CONTROL_SLIDER, ui::SETTING_CPU_LIMIT, knob );
 			self->cursor_x = 760.0f;
 			self->cursor_y = 520.0f;
-			record ( *tweak, L"settings.gif", 10.0, [ & ] ( double t ) {
+			record ( *tweak, L"settings.gif", 11.0, [ & ] ( double t ) {
 
 				if ( once ( t, 0.2, steps [ 0 ] ) )
 					tweak->glide ( 330.0f, knob.middle_y ( ), 0.6 );
@@ -425,17 +425,13 @@ namespace app {
 
 				}
 
-				if ( once ( t, 7.4, steps [ 9 ] ) ) {
+				if ( once ( t, 7.6, steps [ 9 ] ) )
+					handle ( *self, self->view->key ( 'Z', false, true, self->clock ) );
 
-					tweak->press ( );
-					tweak->release ( );
+				if ( once ( t, 8.4, steps [ 10 ] ) )
+					tweak->glide_to ( ui::CONTROL_REVEAL, 0, 0.7 );
 
-				}
-
-				if ( once ( t, 8.2, steps [ 10 ] ) )
-					tweak->glide_to ( ui::CONTROL_FIELD, ui::SETTING_WORKER, 0.6 );
-
-				if ( once ( t, 8.9, steps [ 11 ] ) ) {
+				if ( once ( t, 9.3, steps [ 11 ] ) ) {
 
 					tweak->press ( );
 					tweak->release ( );
@@ -451,6 +447,105 @@ namespace app {
 		}
 
 		self->run->stop ( );
+		self->settings.cpu_limit = 100;
+
+		pool::test_server* coins [ 2 ] = { new pool::test_server, new pool::test_server };
+		static const uint8_t coin_kinds [ 2 ] = { chain::ALGORITHM_SCRYPT, chain::ALGORITHM_RANDOMX };
+
+		for ( int32_t i = 0; i < 2; i++ ) {
+
+			pool::server_settings coin;
+			ui::pool_profile& profile = self->settings.pools [ coin_kinds [ i ] ];
+
+			coin.algorithm = coin_kinds [ i ];
+			coin.port = 0;
+			coin.difficulty = coin_kinds [ i ] == chain::ALGORITHM_RANDOMX ? 400.0 : 4.0;
+			coin.job_seconds = 30;
+
+			if ( !coins [ i ]->start ( coin ) )
+				continue;
+
+			address.clear ( );
+			address.add ( L"127.0.0.1:" ).number ( coins [ i ]->port ( ) );
+			base::copy_text ( profile.address, base::count_of ( profile.address ), address.get ( ) );
+			base::copy_text ( profile.worker, base::count_of ( profile.worker ), L"alloy.studio" );
+
+		}
+
+		if ( clips ) {
+
+			take* switching = new take ( *self );
+			bool marks [ 8 ] = { };
+
+			base::print_line ( L"  recording algorithms.gif" );
+			learn ( *switching );
+			self->cursor = true;
+			self->cursor_x = 640.0f;
+			self->cursor_y = 520.0f;
+			record ( *switching, L"algorithms.gif", 13.0, [ & ] ( double t ) {
+
+				if ( once ( t, 0.2, marks [ 0 ] ) )
+					switching->glide_to ( ui::CONTROL_ALGORITHM, chain::ALGORITHM_SCRYPT, 0.8 );
+
+				if ( once ( t, 1.2, marks [ 1 ] ) ) {
+
+					switching->press ( );
+					switching->release ( );
+
+				}
+
+				if ( once ( t, 2.0, marks [ 2 ] ) )
+					switching->glide_to ( ui::CONTROL_ALGORITHM, chain::ALGORITHM_RANDOMX, 0.5 );
+
+				if ( once ( t, 2.7, marks [ 3 ] ) ) {
+
+					switching->press ( );
+					switching->release ( );
+
+				}
+
+				if ( once ( t, 3.5, marks [ 4 ] ) )
+					switching->glide_to ( ui::CONTROL_TOGGLE, 0, 0.8 );
+
+				if ( once ( t, 4.5, marks [ 5 ] ) ) {
+
+					switching->press ( );
+					switching->release ( );
+
+				}
+
+				if ( once ( t, 5.3, marks [ 6 ] ) )
+					switching->glide ( 980.0f, 600.0f, 1.0 );
+
+			} );
+
+			self->cursor = false;
+			delete switching;
+
+		} else {
+
+			self->settings.algorithm = chain::ALGORITHM_RANDOMX;
+			self->run->start ( self->settings );
+
+		}
+
+		settle ( *self, 10.0 );
+		shoot ( *self, L"randomx-dark.png" );
+		self->run->stop ( );
+		self->settings.algorithm = chain::ALGORITHM_SCRYPT;
+		self->run->start ( self->settings );
+		settle ( *self, 8.0 );
+		shoot ( *self, L"scrypt-dark.png" );
+		self->run->stop ( );
+		self->settings.algorithm = chain::ALGORITHM_SHA256D;
+
+		for ( pool::test_server* coin : coins ) {
+
+			coin->stop ( );
+			delete coin;
+
+		}
+
 		self->settings.mode = ui::MODE_BENCHMARK;
 		self->settings.cpu_limit = 100;
 		self->run->start ( self->settings );

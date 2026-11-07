@@ -178,6 +178,13 @@ namespace tests {
 			note.add ( L" with the CPU and GPU" );
 
 		note.add ( L": " ).number ( accepted ).add ( L" accepted, " ).number ( rejected ).add ( L" rejected, " ).number ( stale ).add ( L" stale at " ).scaled ( rate, L"H/s" );
+
+		if ( !flowing || server->rejected ( ) ) {
+
+			note.add ( L" (pool rejected " ).number ( server->rejected ( ) ).add ( L", jobs " ).number ( static_cast < uint64_t > ( count_logs ( view, L"New job " ) ) );
+			note.add ( L", reseeds " ).number ( static_cast < uint64_t > ( count_logs ( view, L"The RandomX seed changed" ) ) ).add ( L", dataset " ).number ( view.dataset ).add ( L", link " ).number ( view.link ).put ( L')' );
+
+		}
 		check ( flowing && rejected == 0 && server->accepted ( ) >= accepted && server->rejected ( ) == 0 && ( !gpu || gpu_used ), note.get ( ) );
 
 		delete run;
@@ -339,7 +346,7 @@ namespace tests {
 		delete server;
 
 		mine_on ( chain::ALGORITHM_SCRYPT, 2.0, 0, true, 8, 25.0 );
-		mine_on ( chain::ALGORITHM_RANDOMX, 100.0, 2, false, 8, 45.0 );
+		mine_on ( chain::ALGORITHM_RANDOMX, 1000.0, 2, false, 8, 45.0 );
 
 	}
 

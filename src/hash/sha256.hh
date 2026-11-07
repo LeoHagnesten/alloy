@@ -18,6 +18,12 @@ namespace hash {
 
 	void sha256_digest ( const uint32_t* state, uint8_t* out );
 
+	void sha256_head_rounds ( const uint32_t* state, const uint32_t* words, int32_t count, uint32_t* out );
+
+	uint32_t sha256_small0 ( uint32_t value );
+
+	uint32_t sha256_small1 ( uint32_t value );
+
 	class sha256 {
 
 	public:

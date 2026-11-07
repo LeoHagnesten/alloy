@@ -92,7 +92,9 @@ namespace ui {
 		else
 			cells [ 1 ].value.add ( L"\x2014" );
 
-		cells [ 1 ].detail.number ( settings.threads ).add ( settings.threads == 1 ? L" thread" : L" threads" );
+		uint32_t working = view.running && view.active_threads ? view.active_threads : settings.threads;
+
+		cells [ 1 ].detail.number ( working ).add ( working == 1 ? L" thread" : L" threads" );
 
 		if ( settings.cpu_limit < 100 )
 			cells [ 1 ].detail.add ( L" at " ).number ( settings.cpu_limit ).put ( L'%' );
@@ -350,7 +352,9 @@ namespace ui {
 		base::text rate;
 		float row = y + 1.0f;
 
-		add_hint ( render::box { area.x, row, area.w, 70.0f }, L"One bar per thread, scaled to the fastest. Threads left out in Settings stay grey." );
+		bool randomx = ( view.running ? view.algorithm : settings.algorithm ) == chain::ALGORITHM_RANDOMX;
+
+		add_hint ( render::box { area.x, row, area.w, 70.0f }, randomx ? L"RandomX keeps a 2 MB scratchpad per thread in the processor's cache, so Alloy only runs as many threads as fit there." : L"One bar per thread, scaled to the fastest. Threads left out in Settings stay grey." );
 		draw_icon ( surface, ICON_PROCESSOR, area.x, row + 12.0f, 16.0f, settings.cpu ? colors.text : colors.faint );
 		surface.text ( view.cpu_name, render::FONT_BODY, render::box { area.x + 28.0f, row + 6.0f, name_width, 20.0f }, settings.cpu ? colors.text : colors.faint );
 
@@ -358,7 +362,7 @@ namespace ui {
 
 		if ( settings.cpu ) {
 
-			detail.number ( base::min ( settings.threads, view.threads ) ).add ( L" of " ).number ( view.threads ).add ( L" threads, " );
+			detail.number ( view.running ? view.active_threads : base::min ( settings.threads, view.threads ) ).add ( L" of " ).number ( view.threads ).add ( L" threads, " );
 
 			if ( kind == chain::ALGORITHM_SCRYPT )
 				detail.add ( L"SSE2 scrypt" );
@@ -426,7 +430,7 @@ namespace ui {
 		else {
 
 			if ( kind == chain::ALGORITHM_SCRYPT )
-				detail.add ( L"scrypt, 128 KB of video memory per hash" );
+				detail.add ( L"scrypt, 64 KB of video memory per hash" );
 			else
 				detail.add ( L"intensity " ).number ( settings.intensity ).add ( L", " ).compact ( static_cast < double > ( 1u << settings.intensity ) ).add ( L" hashes per dispatch" );
 
@@ -462,7 +466,6 @@ namespace ui {
 
 			caption ( surface, render::box { x, y, wide, 16.0f }, L"POOL" );
 			y += 24.0f;
-			property ( surface, x, y, wide, L"Algorithm", chain::algorithm_name ( view.running ? view.algorithm : settings.algorithm ) );
 			property ( surface, x, y, wide, L"Address", settings.pool ( ).address );
 			property ( surface, x, y, wide, L"Worker", settings.pool ( ).worker );
 			value.add ( view.running ? link_text ( view.link ) : L"Offline" );
@@ -500,9 +503,6 @@ namespace ui {
 				value.grouped ( view.height );
 				property ( surface, x, y, wide, L"Height", value.get ( ) );
 				hash_property ( surface, x, y, wide, L"Seed hash", view.seed );
-				value.clear ( );
-				value.number ( static_cast < uint64_t > ( view.blob_size ) ).add ( L" bytes, nonce at byte 39" );
-				property ( surface, x, y, wide, L"Blob", value.get ( ) );
 				value.clear ( );
 				value.add ( dataset_text ( view.dataset ) );
 

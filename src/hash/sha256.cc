@@ -81,6 +81,58 @@ namespace hash {
 
 	}
 
+	uint32_t sha256_small0 ( uint32_t value ) {
+
+		return base::rotate_right ( value, 7 ) ^ base::rotate_right ( value, 18 ) ^ value >> 3;
+
+	}
+
+	uint32_t sha256_small1 ( uint32_t value ) {
+
+		return base::rotate_right ( value, 17 ) ^ base::rotate_right ( value, 19 ) ^ value >> 10;
+
+	}
+
+	void sha256_head_rounds ( const uint32_t* state, const uint32_t* words, int32_t count, uint32_t* out ) {
+
+		using base::rotate_right;
+
+		uint32_t a = state [ 0 ];
+		uint32_t b = state [ 1 ];
+		uint32_t c = state [ 2 ];
+		uint32_t d = state [ 3 ];
+		uint32_t e = state [ 4 ];
+		uint32_t f = state [ 5 ];
+		uint32_t g = state [ 6 ];
+		uint32_t h = state [ 7 ];
+
+		for ( int32_t i = 0; i < count; i++ ) {
+
+			uint32_t first = h + ( rotate_right ( e, 6 ) ^ rotate_right ( e, 11 ) ^ rotate_right ( e, 25 ) ) + ( ( e & f ) ^ ( ~e & g ) ) + sha256_rounds [ i ] + words [ i ];
+			uint32_t second = ( rotate_right ( a, 2 ) ^ rotate_right ( a, 13 ) ^ rotate_right ( a, 22 ) ) + ( ( a & b ) ^ ( a & c ) ^ ( b & c ) );
+
+			h = g;
+			g = f;
+			f = e;
+			e = d + first;
+			d = c;
+			c = b;
+			b = a;
+			a = first + second;
+
+		}
+
+		out [ 0 ] = a;
+		out [ 1 ] = b;
+		out [ 2 ] = c;
+		out [ 3 ] = d;
+		out [ 4 ] = e;
+		out [ 5 ] = f;
+		out [ 6 ] = g;
+		out [ 7 ] = h;
+
+	}
+
 	void sha256_digest ( const uint32_t* state, uint8_t* out ) {
 
 		for ( int32_t i = 0; i < 8; i++ )

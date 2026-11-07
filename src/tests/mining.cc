@@ -230,7 +230,7 @@ namespace tests {
 		double gpu_scrypt_rate = 0.0;
 
 		note.clear ( );
-		note.add ( L"the three scrypt kernels load with room for " ).grouped ( room ).add ( L" hashes at 128 KB each" );
+		note.add ( L"the three scrypt kernels load with room for " ).grouped ( room ).add ( L" hashes at 64 KB each" );
 		check ( room >= 1024, note.get ( ) );
 
 		if ( room >= 1024 ) {

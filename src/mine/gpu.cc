@@ -13,7 +13,7 @@
 
 namespace mine {
 
-	static constexpr uint32_t scrypt_lane_bytes = 131072;
+	static constexpr uint32_t scrypt_lane_bytes = 65536;
 	static constexpr uint32_t scrypt_state_bytes = 192;
 
 	struct work_constants {
@@ -210,7 +210,7 @@ namespace mine {
 
 		uint64_t budget = video_memory ? video_memory / 4 : 512ull << 20;
 
-		for ( uint32_t lanes = 16384; ok && lanes >= 1024 && !table_view; lanes /= 2 ) {
+		for ( uint32_t lanes = 32768; ok && lanes >= 1024 && !table_view; lanes /= 2 ) {
 
 			if ( static_cast < uint64_t > ( lanes ) * scrypt_lane_bytes > budget && lanes > 1024 )
 				continue;
@@ -323,8 +323,24 @@ namespace mine {
 		values.limits [ 1 ] = sampling ? 1 : 0;
 		values.limits [ 2 ] = across * width;
 
-		for ( int32_t i = 0; i < 16; i++ )
-			values.head [ i ] = base::load_big ( header.bytes + i * 4 );
+		if ( scrypt ) {
+
+			for ( int32_t i = 0; i < 16; i++ )
+				values.head [ i ] = base::load_big ( header.bytes + i * 4 );
+
+		} else {
+
+			const uint32_t* words = values.tail;
+			uint32_t w16 = hash::sha256_small0 ( words [ 1 ] ) + words [ 0 ];
+			uint32_t w17 = hash::sha256_small1 ( 640 ) + hash::sha256_small0 ( words [ 2 ] ) + words [ 1 ];
+
+			hash::sha256_head_rounds ( values.midstate, words, 3, values.head );
+			values.head [ 8 ] = w16;
+			values.head [ 9 ] = w17;
+			values.head [ 10 ] = hash::sha256_small1 ( w16 ) + words [ 2 ];
+			values.head [ 11 ] = hash::sha256_small1 ( w17 ) + hash::sha256_small0 ( 0x80000000 );
+
+		}
 
 		D3D11_MAPPED_SUBRESOURCE mapped;
 

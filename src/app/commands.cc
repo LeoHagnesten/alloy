@@ -38,7 +38,7 @@ namespace app {
 
 	};
 
-	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window" };
+	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window" };
 
 	bool is_command ( wchar_t** arguments, int32_t count ) {
 
@@ -62,6 +62,7 @@ namespace app {
 		base::print_line ( L"  Alloy.exe --genesis [--from nonce]          rediscover the Bitcoin genesis block's nonce" );
 		base::print_line ( L"  Alloy.exe --mine host:port [--user name] [--pass word] [--seconds n]" );
 		base::print_line ( L"  Alloy.exe --test-pool [--port n] [--difficulty d] [--job-seconds n] [--seconds n]" );
+		base::print_line ( L"  Alloy.exe --allow-large-pages                let RandomX use large pages (run as administrator once)" );
 		base::print_line ( L"" );
 		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx  --dataset full|light" );
 		base::print_line ( L"  Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n" );
@@ -139,10 +140,12 @@ namespace app {
 
 			}
 
-			note.clear ( );
-			note.add ( L"  dataset ready in " ).decimal ( view.dataset_seconds, 1 ).add ( L" s" );
-			base::print_line ( note.get ( ) );
+			double built = view.dataset_seconds;
+
 			run->start ( line.settings );
+			note.clear ( );
+			note.add ( L"  dataset ready in " ).decimal ( built, 1 ).add ( L" s, " ).number ( view.active_threads ).add ( L" threads fit the processor's cache" );
+			base::print_line ( note.get ( ) );
 
 		}
 
@@ -522,6 +525,14 @@ namespace app {
 			code = mine ( *line );
 		else if ( base::same_text ( action, L"--test-pool" ) )
 			code = test_pool ( *line );
+		else if ( base::same_text ( action, L"--allow-large-pages" ) ) {
+
+			bool granted = base::allow_large_pages ( );
+
+			base::print_line ( granted ? L"Large pages are allowed for this account. Sign out and back in, and RandomX will use them." : L"Windows refused. Run this once from an administrator terminal." );
+			code = granted ? 0 : 1;
+
+		}
 #ifdef ALLOY_DEBUG
 		else if ( base::same_text ( action, L"--test" ) )
 			code = tests::run_all ( line->target );

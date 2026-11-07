@@ -1,14 +1,10 @@
 #pragma once
 
 #include "randomx/dataset.hh"
-#include <emmintrin.h>
+#include "randomx/jit.hh"
+#include "base/memory.hh"
 
 namespace randomx {
-
-	static constexpr int32_t program_size = 256;
-	static constexpr int32_t program_iterations = 2048;
-	static constexpr int32_t program_count = 8;
-	static constexpr uint32_t scratchpad_bytes = 2097152;
 
 	class machine {
 
@@ -25,6 +21,14 @@ namespace randomx {
 		bool open ( const cache* light, const dataset* fast );
 
 		void hash ( const void* input, size_t size, uint8_t* out );
+
+		bool compiled ( ) const {
+
+			return code.run != nullptr && !interpret;
+
+		}
+
+		bool interpret = false;
 
 	private:
 
@@ -46,22 +50,21 @@ namespace randomx {
 
 		void compile ( const uint8_t* code );
 
-		void execute ( );
+		bool build ( const uint8_t* bytes );
+
+		void execute ( bool native );
 
 		void run ( );
 
 		void read_dataset ( uint64_t address );
 
 		uint8_t* scratchpad = nullptr;
+		base::code_view code;
 		const cache* light_source = nullptr;
 		const dataset* fast_source = nullptr;
 		alignas ( 16 ) uint8_t program [ 128 + 8 * program_size ];
 		step steps [ program_size ];
-		uint64_t r [ 8 ] = { };
-		__m128d f [ 4 ];
-		__m128d e [ 4 ];
-		__m128d a [ 4 ];
-		__m128d exponent_mask;
+		registers state;
 		uint32_t ma = 0;
 		uint32_t mx = 0;
 		uint32_t read_registers [ 4 ] = { };

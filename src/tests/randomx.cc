@@ -4,6 +4,7 @@
 #include "randomx/machine.hh"
 #include "hash/aes.hh"
 #include "hash/blake2b.hh"
+#include "base/bits.hh"
 #include "base/clock.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -48,6 +49,54 @@ namespace tests {
 		vm.hash ( input, size, out );
 
 		return hex_is ( out, 32, item.expected );
+
+	}
+
+	static bool agrees ( randomx::machine& vm, int32_t count ) {
+
+		uint8_t input [ 76 ];
+		uint8_t native [ 32 ];
+		uint8_t plain [ 32 ];
+		bool same = true;
+
+		for ( int32_t i = 0; i < count && same; i++ ) {
+
+			for ( int32_t k = 0; k < 76; k++ )
+				input [ k ] = static_cast < uint8_t > ( k * 31 + i * 97 + 5 );
+
+			vm.interpret = false;
+			vm.hash ( input, 76, native );
+			vm.interpret = true;
+			vm.hash ( input, 76, plain );
+			same = base::same ( native, plain, 32 );
+
+		}
+
+		vm.interpret = false;
+
+		return same && vm.compiled ( );
+
+	}
+
+	static double hash_rate ( randomx::machine& vm, bool interpret, double span ) {
+
+		uint8_t input [ 76 ] = { };
+		uint8_t out [ 32 ];
+		uint32_t count = 0;
+		double began = base::seconds ( );
+
+		vm.interpret = interpret;
+
+		while ( base::seconds ( ) - began < span ) {
+
+			base::store_little ( input + 39, count++ );
+			vm.hash ( input, 76, out );
+
+		}
+
+		vm.interpret = false;
+
+		return count / ( base::seconds ( ) - began );
 
 	}
 
@@ -196,8 +245,9 @@ namespace tests {
 		}
 
 		note.clear ( );
-		note.add ( L"light mode hashes all five reference vectors, including a Monero block blob (" ).number ( static_cast < uint64_t > ( passed ) ).add ( L" of 5)" );
-		check ( passed == 5, note.get ( ) );
+		note.add ( L"compiled light mode hashes all five reference vectors, including a Monero block blob (" ).number ( static_cast < uint64_t > ( passed ) ).add ( L" of 5)" );
+		check ( passed == 5 && vm->compiled ( ), note.get ( ) );
+		check ( agrees ( *vm, 4 ), L"compiled and interpreted light mode agree on four more inputs" );
 
 		randomx::dataset* fast = new randomx::dataset;
 
@@ -217,8 +267,41 @@ namespace tests {
 		}
 
 		note.clear ( );
-		note.add ( L"the full 2 GiB dataset builds in " ).decimal ( dataset_time, 1 ).add ( L" s and fast mode hashes the same vectors" );
-		check ( passed == 3, note.get ( ) );
+		note.add ( L"the full 2 GiB dataset builds in " ).decimal ( dataset_time, 1 ).add ( L" s and compiled fast mode hashes the same vectors" );
+		check ( passed == 3 && vm->compiled ( ), note.get ( ) );
+
+		bool fast_agrees = full && agrees ( *vm, 16 );
+		double native_rate = full ? hash_rate ( *vm, false, 1.0 ) : 0.0;
+		double plain_rate = full ? hash_rate ( *vm, true, 1.0 ) : 0.0;
+
+		note.clear ( );
+		note.add ( L"compiled fast mode matches the interpreter on 16 inputs and runs " ).decimal ( plain_rate > 0.0 ? native_rate / plain_rate : 0.0, 1 ).add ( L"x faster on one thread (" ).decimal ( native_rate, 0 ).add ( L" against " ).decimal ( plain_rate, 0 ).add ( L" H/s)" );
+		check ( fast_agrees && native_rate > plain_rate * 2.0, note.get ( ) );
+
+		uint8_t* bytes = new uint8_t [ 128 + 8 * randomx::program_size ];
+		base::code_view view;
+		randomx::program_shape shape;
+		uint8_t seed [ 64 ] = { 1, 2, 3 };
+		bool emitted = base::open_code_view ( view, randomx::native_room );
+		double emit_began = base::seconds ( );
+		int32_t emits = 0;
+
+		shape.whole_loop = true;
+
+		for ( ; emits < 2000 && emitted; emits++ ) {
+
+			hash::aes_fill_4r ( seed, bytes, 128 + 8 * randomx::program_size );
+			emitted = randomx::emit_program ( bytes + 128, shape, view.write, randomx::native_room );
+
+		}
+
+		double emit_time = ( base::seconds ( ) - emit_began ) / base::max ( emits, 1 ) * 1e6;
+
+		note.clear ( );
+		note.add ( L"generating and compiling one program takes " ).decimal ( emit_time, 1 ).add ( L" us" );
+		check ( emitted && emit_time < 100.0, note.get ( ) );
+		base::close_code_view ( view );
+		delete [ ] bytes;
 
 		delete vm;
 		delete fast;

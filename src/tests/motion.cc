@@ -238,6 +238,76 @@ namespace tests {
 		hinted = hinted && hinting->paint ( surface, *view, rest + 2.0 ) && surface.capture ( later );
 		check ( hinted && !same_pixels ( before, settled ) && !same_pixels ( midway, settled ) && same_pixels ( settled, later ), L"resting the cursor opens a hint that zooms in and then holds still pixel for pixel" );
 
+		ui::shell* editing = new ui::shell ( settings );
+		double at = 300.0;
+		uint32_t threads = settings.threads;
+
+		auto click = [ & ] ( ui::control id, int32_t index ) {
+
+			render::box spot;
+
+			if ( !editing->locate ( id, index, spot ) )
+				return false;
+
+			editing->mouse_move ( spot.middle_x ( ), spot.middle_y ( ), at );
+			editing->mouse_down ( spot.middle_x ( ), spot.middle_y ( ), false, at );
+			editing->mouse_up ( spot.middle_x ( ), spot.middle_y ( ), at );
+			at += 0.5;
+
+			return editing->paint ( surface, *view, at );
+
+		};
+
+		auto type = [ & ] ( const wchar_t* text ) {
+
+			for ( int32_t i = 0; text [ i ]; i++ ) {
+
+				editing->character ( text [ i ], at );
+				at += 0.1;
+
+			}
+
+		};
+
+		editing->open_page ( ui::PAGE_SETTINGS, at - 10.0 );
+		editing->paint ( surface, *view, at );
+
+		bool stepped = click ( ui::CONTROL_STEP_DOWN, ui::SETTING_THREADS ) && click ( ui::CONTROL_STEP_DOWN, ui::SETTING_THREADS ) && settings.threads == threads - 2;
+
+		editing->key ( 'Z', false, true, at );
+		stepped = stepped && settings.threads == threads - 1;
+		editing->key ( 'Z', false, true, at );
+		stepped = stepped && settings.threads == threads;
+		editing->key ( 'Y', false, true, at );
+		stepped = stepped && settings.threads == threads - 1;
+		check ( stepped, L"Ctrl+Z steps settings back one change at a time and Ctrl+Y brings them forward again" );
+
+		bool typed = click ( ui::CONTROL_FIELD, ui::SETTING_WORKER );
+
+		editing->key ( 0x23, false, false, at );
+		type ( L".rig" );
+		at += 1.5;
+		type ( L"2" );
+		editing->key ( 'Z', false, true, at );
+		editing->key ( 0x0D, false, false, at );
+		typed = typed && base::same_text ( settings.pool ( ).worker, L"alloy.worker.rig" );
+		editing->key ( 'Z', false, true, at );
+		typed = typed && base::same_text ( settings.pool ( ).worker, L"alloy.worker" );
+		check ( typed, L"Ctrl+Z inside a field undoes typing in word-sized steps, and the committed edit can be undone too" );
+
+		base::list < uint8_t > hidden;
+		base::list < uint8_t > shown;
+		wchar_t copied [ 64 ];
+		bool masked = editing->paint ( surface, *view, at ) && surface.capture ( hidden ) && click ( ui::CONTROL_FIELD, ui::SETTING_PASSWORD );
+
+		editing->key ( 'A', false, true, at );
+		masked = masked && !editing->copy_selection ( copied, 64, false, at );
+		masked = masked && click ( ui::CONTROL_REVEAL, 0 ) && editing->copy_selection ( copied, 64, false, at ) && base::same_text ( copied, L"x" );
+		editing->blur ( at );
+		masked = masked && editing->paint ( surface, *view, at + 1.0 ) && surface.capture ( shown ) && !same_pixels ( hidden, shown );
+		check ( masked, L"the eye button shows the password, and it can only be copied while shown" );
+
+		delete editing;
 		delete hinting;
 		delete moving;
 		delete resting;

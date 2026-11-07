@@ -67,6 +67,25 @@ namespace tests {
 		hash::scrypt_header ( genesis.bytes, digest, scratch );
 		check ( !chain::meets_bits ( digest, 0x1E0FFFF0 ), L"the nonce before it misses the target" );
 
+		void* pair_scratch = base::allocate ( hash::scrypt_pair_scratch_bytes );
+		chain::header other = genesis;
+		uint8_t paired [ 2 ] [ 32 ];
+		uint8_t single [ 2 ] [ 32 ];
+		bool pairs = true;
+
+		for ( uint32_t i = 0; i < 6 && pairs; i++ ) {
+
+			genesis.set_nonce ( 2084524493u - 3 + i * 2 );
+			other.set_nonce ( genesis.nonce ( ) + 1 );
+			hash::scrypt_header_pair ( genesis.bytes, other.bytes, paired [ 0 ], paired [ 1 ], pair_scratch );
+			hash::scrypt_header ( genesis.bytes, single [ 0 ], scratch );
+			hash::scrypt_header ( other.bytes, single [ 1 ], scratch );
+			pairs = base::same ( paired, single, sizeof ( paired ) );
+
+		}
+
+		check ( pairs, L"hashing two nonces side by side gives the same results as one at a time" );
+
 		double began = base::seconds ( );
 		uint32_t count = 0;
 
@@ -77,10 +96,26 @@ namespace tests {
 
 		}
 
+		double alone = count / ( base::seconds ( ) - began );
+
+		began = base::seconds ( );
+		count = 0;
+
+		while ( base::seconds ( ) - began < 0.25 ) {
+
+			genesis.set_nonce ( count );
+			other.set_nonce ( count + 1 );
+			hash::scrypt_header_pair ( genesis.bytes, other.bytes, paired [ 0 ], paired [ 1 ], pair_scratch );
+			count += 2;
+
+		}
+
+		double together = count / ( base::seconds ( ) - began );
 		base::text note;
 
-		note.add ( L"one thread hashes scrypt at " ).decimal ( count / ( base::seconds ( ) - began ) / 1000.0, 2 ).add ( L" kH/s" );
-		check ( count > 0, note.get ( ) );
+		note.add ( L"one thread hashes scrypt at " ).decimal ( together / 1000.0, 2 ).add ( L" kH/s in pairs against " ).decimal ( alone / 1000.0, 2 ).add ( L" kH/s alone" );
+		check ( together > alone, note.get ( ) );
+		base::release ( pair_scratch );
 		base::release ( scratch );
 
 	}

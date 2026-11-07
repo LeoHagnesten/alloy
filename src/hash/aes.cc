@@ -137,6 +137,12 @@ namespace hash {
 
 	}
 
+	bool aes_ready ( ) {
+
+		return tables.ready;
+
+	}
+
 	void aes_encrypt_round ( uint8_t* block, const uint8_t* key ) {
 
 		uint8_t in [ 16 ];

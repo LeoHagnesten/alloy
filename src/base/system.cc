@@ -1,6 +1,7 @@
 #include "base/system.hh"
 #include "base/strings.hh"
 #include <windows.h>
+#include <ntsecapi.h>
 
 namespace base {
 
@@ -10,19 +11,20 @@ namespace base {
 
 	}
 
-	static uint32_t count_cores ( ) {
+	static void count_topology ( processor& out ) {
 
 		DWORD size = 0;
 
-		GetLogicalProcessorInformationEx ( RelationProcessorCore, nullptr, &size );
+		GetLogicalProcessorInformationEx ( RelationAll, nullptr, &size );
 
 		if ( !size )
-			return 0;
+			return;
 
 		uint8_t* buffer = new uint8_t [ size ];
 		uint32_t cores = 0;
+		uint64_t third = 0;
 
-		if ( GetLogicalProcessorInformationEx ( RelationProcessorCore, reinterpret_cast < SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* > ( buffer ), &size ) ) {
+		if ( GetLogicalProcessorInformationEx ( RelationAll, reinterpret_cast < SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* > ( buffer ), &size ) ) {
 
 			for ( DWORD at = 0; at < size; ) {
 
@@ -30,6 +32,8 @@ namespace base {
 
 				if ( item->Relationship == RelationProcessorCore )
 					cores++;
+				else if ( item->Relationship == RelationCache && item->Cache.Level == 3 && item->Cache.Type != CacheInstruction )
+					third += item->Cache.CacheSize;
 
 				at += item->Size;
 
@@ -38,8 +42,8 @@ namespace base {
 		}
 
 		delete [ ] buffer;
-
-		return cores;
+		out.cores = cores;
+		out.level3 = third;
 
 	}
 
@@ -164,7 +168,44 @@ namespace base {
 		shorten ( out.name, out.label, count_of ( out.label ) );
 
 		out.threads = max ( static_cast < uint32_t > ( GetActiveProcessorCount ( ALL_PROCESSOR_GROUPS ) ), 1u );
-		out.cores = clamp ( count_cores ( ), 1u, out.threads );
+		count_topology ( out );
+		out.cores = clamp ( out.cores, 1u, out.threads );
+
+	}
+
+	bool allow_large_pages ( ) {
+
+		HANDLE token = nullptr;
+		uint8_t user [ 256 ];
+		DWORD size = 0;
+
+		if ( !OpenProcessToken ( GetCurrentProcess ( ), TOKEN_QUERY, &token ) )
+			return false;
+
+		bool known = GetTokenInformation ( token, TokenUser, user, sizeof ( user ), &size );
+
+		CloseHandle ( token );
+
+		if ( !known )
+			return false;
+
+		LSA_OBJECT_ATTRIBUTES attributes = { };
+		LSA_HANDLE policy = nullptr;
+		wchar_t name [ ] = L"SeLockMemoryPrivilege";
+		LSA_UNICODE_STRING right = { };
+
+		if ( LsaOpenPolicy ( nullptr, &attributes, POLICY_CREATE_ACCOUNT | POLICY_LOOKUP_NAMES, &policy ) != 0 )
+			return false;
+
+		right.Buffer = name;
+		right.Length = static_cast < USHORT > ( ( count_of ( name ) - 1 ) * sizeof ( wchar_t ) );
+		right.MaximumLength = static_cast < USHORT > ( sizeof ( name ) );
+
+		LONG status = LsaAddAccountRights ( policy, reinterpret_cast < TOKEN_USER* > ( user )->User.Sid, &right, 1 );
+
+		LsaClose ( policy );
+
+		return status == 0;
 
 	}
 

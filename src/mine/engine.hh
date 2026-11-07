@@ -169,6 +169,14 @@ namespace mine {
 
 		}
 
+		uint32_t working_threads ( ) const {
+
+			uint32_t wanted = base::atomic_load ( wanted_threads );
+
+			return algorithm ( ) == chain::ALGORITHM_RANDOMX ? base::min ( wanted, base::atomic_load ( rx_lanes ) ) : wanted;
+
+		}
+
 		uint8_t algorithm ( ) const {
 
 			return static_cast < uint8_t > ( base::atomic_load ( seen_algorithm ) );
@@ -208,6 +216,12 @@ namespace mine {
 		double dataset_seconds ( ) const {
 
 			return rx_seconds;
+
+		}
+
+		bool dataset_large ( ) const {
+
+			return rx_large;
 
 		}
 
@@ -282,6 +296,9 @@ namespace mine {
 		uint8_t rx_seed [ 32 ] = { };
 		uint32_t rx_built_for = 0;
 		double rx_seconds = 0.0;
+		bool rx_large = false;
+		uint64_t level3 = 0;
+		volatile uint32_t rx_lanes = max_lanes;
 		volatile uint32_t rx_full = 1;
 		volatile uint32_t rx_ready = 0;
 		volatile uint32_t rx_building = 0;

@@ -3,14 +3,11 @@
 #include "hash/blake2b.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
+#include "base/system.hh"
 #include <xmmintrin.h>
 
 namespace randomx {
 
-	static constexpr uint32_t level1 = 16384 - 8;
-	static constexpr uint32_t level2 = 262144 - 8;
-	static constexpr uint32_t level3 = scratchpad_bytes - 8;
-	static constexpr uint32_t level3_line = scratchpad_bytes - 64;
 	static constexpr uint64_t line_mask = ( dataset_base - 1 ) & ~63ull;
 	static constexpr uint64_t extra_lines = dataset_extra / 64;
 	static const uint64_t nothing = 0;
@@ -92,6 +89,7 @@ namespace randomx {
 	machine::~machine ( ) {
 
 		base::release_pages ( scratchpad );
+		base::close_code_view ( code );
 
 	}
 
@@ -100,8 +98,29 @@ namespace randomx {
 		light_source = light;
 		fast_source = fast;
 
-		if ( !scratchpad )
-			scratchpad = static_cast < uint8_t* > ( base::allocate_pages ( scratchpad_bytes ) );
+		if ( !hash::aes_ready ( ) ) {
+
+			base::processor cpu;
+
+			base::detect ( cpu );
+			hash::aes_prepare ( cpu.aes );
+
+		}
+
+		if ( !scratchpad ) {
+
+			bool large = false;
+
+			scratchpad = static_cast < uint8_t* > ( base::allocate_large ( scratchpad_bytes, large ) );
+
+		}
+
+		if ( !code.run )
+			base::open_code_view ( code, native_room );
+
+		state.scratchpad = scratchpad;
+		state.mantissa = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( ( 1ull << 56 ) - 1 ) ) );
+		state.sign = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( 0x80F0000000000000ull ) ) );
 
 		return scratchpad != nullptr && ( fast || ( light && light->ready ( ) ) );
 
@@ -115,7 +134,7 @@ namespace randomx {
 			q [ i ] = base::load_little64 ( entropy + i * 8 );
 
 		for ( int32_t i = 0; i < 4; i++ )
-			a [ i ] = _mm_castsi128_pd ( _mm_set_epi64x ( static_cast < int64_t > ( small_float ( q [ i * 2 + 1 ] ) ), static_cast < int64_t > ( small_float ( q [ i * 2 ] ) ) ) );
+			state.a [ i ] = _mm_castsi128_pd ( _mm_set_epi64x ( static_cast < int64_t > ( small_float ( q [ i * 2 + 1 ] ) ), static_cast < int64_t > ( small_float ( q [ i * 2 ] ) ) ) );
 
 		ma = static_cast < uint32_t > ( q [ 8 ] & line_mask );
 		mx = static_cast < uint32_t > ( q [ 10 ] );
@@ -124,12 +143,32 @@ namespace randomx {
 			read_registers [ i ] = i * 2 + ( q [ 12 ] >> i & 1 );
 
 		dataset_offset = q [ 13 ] % ( extra_lines + 1 ) * 64;
-		exponent_mask = _mm_castsi128_pd ( _mm_set_epi64x ( static_cast < int64_t > ( float_mask ( q [ 15 ] ) ), static_cast < int64_t > ( float_mask ( q [ 14 ] ) ) ) );
+		state.exponent = _mm_castsi128_pd ( _mm_set_epi64x ( static_cast < int64_t > ( float_mask ( q [ 15 ] ) ), static_cast < int64_t > ( float_mask ( q [ 14 ] ) ) ) );
+
+	}
+
+	bool machine::build ( const uint8_t* bytes ) {
+
+		if ( interpret || !code.write )
+			return false;
+
+		program_shape shape;
+
+		for ( int32_t i = 0; i < 4; i++ )
+			shape.read_registers [ i ] = read_registers [ i ];
+
+		shape.whole_loop = fast_source != nullptr;
+
+		return emit_program ( bytes, shape, code.write, native_room );
 
 	}
 
 	void machine::compile ( const uint8_t* code ) {
 
+		uint64_t* r = state.r;
+		__m128d* f = state.f;
+		__m128d* e = state.e;
+		__m128d* a = state.a;
 		int16_t usage [ 8 ] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 
 		for ( int32_t i = 0; i < program_size; i++ ) {
@@ -143,7 +182,7 @@ namespace randomx {
 			uint32_t mod = bytes [ 3 ];
 			uint32_t imm32 = base::load_little ( bytes + 4 );
 			uint64_t wide = static_cast < uint64_t > ( static_cast < int64_t > ( static_cast < int32_t > ( imm32 ) ) );
-			uint32_t near = mod & 3 ? level1 : level2;
+			uint32_t near = mod & 3 ? level1_mask : level2_mask;
 			step& s = steps [ i ];
 
 			s = step { };
@@ -162,7 +201,7 @@ namespace randomx {
 				} else {
 
 					s.isrc = &nothing;
-					s.mask = level3;
+					s.mask = level3_mask;
 
 				}
 
@@ -330,7 +369,7 @@ namespace randomx {
 				s.kind = KIND_ISTORE;
 				s.isrc = &r [ s8 ];
 				s.imm = wide;
-				s.mask = ( mod >> 4 ) < 14 ? near : level3;
+				s.mask = ( mod >> 4 ) < 14 ? near : level3_mask;
 
 			}
 
@@ -340,8 +379,6 @@ namespace randomx {
 
 	void machine::run ( ) {
 
-		const __m128d sign_scale = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( 0x80F0000000000000ull ) ) );
-		const __m128d mantissa = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( ( 1ull << 56 ) - 1 ) ) );
 		uint8_t* pad = scratchpad;
 
 		for ( int32_t pc = 0; pc < program_size; pc++ ) {
@@ -441,7 +478,7 @@ namespace randomx {
 					break;
 
 				case KIND_FSCAL_R:
-					*s.fdst = _mm_xor_pd ( *s.fdst, sign_scale );
+					*s.fdst = _mm_xor_pd ( *s.fdst, state.sign );
 					break;
 
 				case KIND_FMUL_R:
@@ -450,7 +487,7 @@ namespace randomx {
 
 				case KIND_FDIV_M: {
 
-					__m128d divisor = _mm_or_pd ( _mm_and_pd ( load_pair ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ), mantissa ), exponent_mask );
+					__m128d divisor = _mm_or_pd ( _mm_and_pd ( load_pair ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ), state.mantissa ), state.exponent );
 
 					*s.fdst = _mm_div_pd ( *s.fdst, divisor );
 					break;
@@ -493,7 +530,7 @@ namespace randomx {
 			const uint8_t* item = fast_source->data ( ) + address;
 
 			for ( int32_t i = 0; i < 8; i++ )
-				r [ i ] ^= base::load_little64 ( item + i * 8 );
+				state.r [ i ] ^= base::load_little64 ( item + i * 8 );
 
 			return;
 
@@ -504,18 +541,30 @@ namespace randomx {
 		light_source->item ( address / 64, item );
 
 		for ( int32_t i = 0; i < 8; i++ )
-			r [ i ] ^= item [ i ];
+			state.r [ i ] ^= item [ i ];
 
 	}
 
-	void machine::execute ( ) {
+	void machine::execute ( bool native ) {
 
-		const __m128d mantissa = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( ( 1ull << 56 ) - 1 ) ) );
+		uint64_t* r = state.r;
 		uint32_t first = mx;
 		uint32_t second = ma;
+		native_body body = reinterpret_cast < native_body > ( code.run );
 
 		for ( int32_t i = 0; i < 8; i++ )
 			r [ i ] = 0;
+
+		if ( native && fast_source ) {
+
+			state.mx = mx;
+			state.ma = ma;
+			state.dataset = fast_source->data ( ) + dataset_offset;
+			body ( &state );
+
+			return;
+
+		}
 
 		for ( int32_t iteration = 0; iteration < program_iterations; iteration++ ) {
 
@@ -529,12 +578,15 @@ namespace randomx {
 
 			for ( int32_t i = 0; i < 4; i++ ) {
 
-				f [ i ] = load_pair ( scratchpad + second + i * 8 );
-				e [ i ] = _mm_or_pd ( _mm_and_pd ( load_pair ( scratchpad + second + 32 + i * 8 ), mantissa ), exponent_mask );
+				state.f [ i ] = load_pair ( scratchpad + second + i * 8 );
+				state.e [ i ] = _mm_or_pd ( _mm_and_pd ( load_pair ( scratchpad + second + 32 + i * 8 ), state.mantissa ), state.exponent );
 
 			}
 
-			run ( );
+			if ( native )
+				body ( &state );
+			else
+				run ( );
 
 			mx ^= static_cast < uint32_t > ( r [ read_registers [ 2 ] ] ^ r [ read_registers [ 3 ] ] );
 			mx &= static_cast < uint32_t > ( line_mask );
@@ -554,8 +606,8 @@ namespace randomx {
 
 			for ( int32_t i = 0; i < 4; i++ ) {
 
-				f [ i ] = _mm_xor_pd ( f [ i ], e [ i ] );
-				_mm_storeu_pd ( reinterpret_cast < double* > ( scratchpad + first + i * 16 ), f [ i ] );
+				state.f [ i ] = _mm_xor_pd ( state.f [ i ], state.e [ i ] );
+				_mm_storeu_pd ( reinterpret_cast < double* > ( scratchpad + first + i * 16 ), state.f [ i ] );
 
 			}
 
@@ -574,13 +626,13 @@ namespace randomx {
 		auto pack = [ & ] ( ) {
 
 			for ( int32_t i = 0; i < 8; i++ )
-				base::store_little64 ( file + i * 8, r [ i ] );
+				base::store_little64 ( file + i * 8, state.r [ i ] );
 
 			for ( int32_t i = 0; i < 4; i++ ) {
 
-				_mm_storeu_pd ( reinterpret_cast < double* > ( file + 64 + i * 16 ), f [ i ] );
-				_mm_storeu_pd ( reinterpret_cast < double* > ( file + 128 + i * 16 ), e [ i ] );
-				_mm_storeu_pd ( reinterpret_cast < double* > ( file + 192 + i * 16 ), a [ i ] );
+				_mm_storeu_pd ( reinterpret_cast < double* > ( file + 64 + i * 16 ), state.f [ i ] );
+				_mm_storeu_pd ( reinterpret_cast < double* > ( file + 128 + i * 16 ), state.e [ i ] );
+				_mm_storeu_pd ( reinterpret_cast < double* > ( file + 192 + i * 16 ), state.a [ i ] );
 
 			}
 
@@ -594,8 +646,13 @@ namespace randomx {
 
 			hash::aes_fill_4r ( seed, program, sizeof ( program ) );
 			configure ( program );
-			compile ( program + 128 );
-			execute ( );
+
+			bool native = build ( program + 128 );
+
+			if ( !native )
+				compile ( program + 128 );
+
+			execute ( native );
 
 			if ( chain + 1 < program_count ) {
 

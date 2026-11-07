@@ -235,7 +235,7 @@ namespace app {
 		base::zero ( lane_last, sizeof ( lane_last ) );
 		view.running = true;
 		view.lane_count = static_cast < int32_t > ( engine.lanes ( ) );
-		view.active_threads = engine.threads ( );
+		view.active_threads = engine.working_threads ( );
 		view.extensions = engine.uses_extensions ( );
 
 		base::text line;
@@ -520,7 +520,7 @@ namespace app {
 		view.best = engine.best ( ) == ~0ull ? 0.0 : chain::difficulty_of ( engine.best ( ), algorithm );
 		view.faults = engine.gpu_errors ( );
 		view.gpu_state = gpu_phase_of ( engine.gpu_status ( ) );
-		view.active_threads = engine.threads ( );
+		view.active_threads = engine.working_threads ( );
 		base::copy_text ( view.gpu_name, base::count_of ( view.gpu_name ), engine.gpu_name ( ) );
 
 		uint8_t dataset = algorithm == chain::ALGORITHM_RANDOMX ? dataset_phase_of ( engine.dataset_status ( ) ) : static_cast < uint8_t > ( ui::DATASET_NONE );
@@ -531,8 +531,12 @@ namespace app {
 
 			if ( dataset == ui::DATASET_BUILDING )
 				line.add ( L"Building the RandomX dataset" );
-			else if ( dataset == ui::DATASET_FULL )
+			else if ( dataset == ui::DATASET_FULL ) {
+
 				line.add ( L"The 2 GB RandomX dataset is ready after " ).decimal ( engine.dataset_seconds ( ), 1 ).add ( L" s" );
+				line.add ( engine.dataset_large ( ) ? L", in large pages" : L". Alloy.exe --allow-large-pages makes RandomX faster" );
+
+			}
 			else if ( dataset == ui::DATASET_LIGHT )
 				line.add ( L"RandomX runs in light mode from the 256 MB cache" );
 			else if ( dataset == ui::DATASET_SHORT )

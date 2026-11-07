@@ -21,7 +21,7 @@ namespace randomx {
 		static const char salt [ ] = "RandomX\x03";
 
 		if ( !blocks )
-			blocks = static_cast < hash::argon2_block* > ( base::allocate_pages ( cache_bytes ) );
+			blocks = static_cast < hash::argon2_block* > ( base::allocate_large ( cache_bytes, large ) );
 
 		if ( !programs )
 			programs = new scalar_program [ cache_accesses ];
@@ -137,7 +137,7 @@ namespace randomx {
 	bool dataset::build ( const cache& source, uint32_t threads, volatile uint32_t* progress, volatile uint32_t* cancel ) {
 
 		if ( !memory )
-			memory = static_cast < uint8_t* > ( base::allocate_pages ( dataset_items * 64 ) );
+			memory = static_cast < uint8_t* > ( base::allocate_large ( dataset_items * 64, large ) );
 
 		if ( !memory || !source.ready ( ) )
 			return false;

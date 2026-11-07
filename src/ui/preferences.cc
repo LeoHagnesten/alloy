@@ -57,7 +57,7 @@ namespace ui {
 
 		section ( L"POOL" );
 		value.add ( L"for " ).add ( chain::algorithm_name ( settings.algorithm ) );
-		surface.text ( value.get ( ), render::FONT_SMALL, render::box { x, y - 40.0f, wide, 16.0f }, colors.faint, render::ALIGN_RIGHT );
+		surface.text ( value.get ( ), render::FONT_SMALL, render::box { x, y - 22.0f, wide, 16.0f }, colors.faint, render::ALIGN_RIGHT );
 		field ( surface, row ( L"Pool address", address_tips [ settings.algorithm % chain::ALGORITHM_COUNT ], 300.0f, 30.0f ), SETTING_ADDRESS, false, now );
 		field ( surface, row ( L"Worker", settings.algorithm == chain::ALGORITHM_RANDOMX ? L"Monero pools want your wallet address here. Some take a dot and a name for this PC after it." : L"Who the pool credits for your shares. Most pools want your wallet or username, a dot, then a name for this PC.", 300.0f, 30.0f ), SETTING_WORKER, false, now );
 		field ( surface, row ( L"Password", L"Most pools ignore this. Leave it as x unless yours says otherwise.", 300.0f, 30.0f ), SETTING_PASSWORD, true, now );

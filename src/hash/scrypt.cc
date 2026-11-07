@@ -294,6 +294,151 @@ namespace hash {
 
 	}
 
+	static inline void salsa_pair ( __m128i* one, __m128i* two ) {
+
+		__m128i a0 = one [ 0 ];
+		__m128i a1 = one [ 1 ];
+		__m128i a2 = one [ 2 ];
+		__m128i a3 = one [ 3 ];
+		__m128i b0 = two [ 0 ];
+		__m128i b1 = two [ 1 ];
+		__m128i b2 = two [ 2 ];
+		__m128i b3 = two [ 3 ];
+
+		for ( int32_t i = 0; i < 8; i += 2 ) {
+
+			a1 = spin ( a1, _mm_add_epi32 ( a0, a3 ), 7 );
+			b1 = spin ( b1, _mm_add_epi32 ( b0, b3 ), 7 );
+			a2 = spin ( a2, _mm_add_epi32 ( a1, a0 ), 9 );
+			b2 = spin ( b2, _mm_add_epi32 ( b1, b0 ), 9 );
+			a3 = spin ( a3, _mm_add_epi32 ( a2, a1 ), 13 );
+			b3 = spin ( b3, _mm_add_epi32 ( b2, b1 ), 13 );
+			a0 = spin ( a0, _mm_add_epi32 ( a3, a2 ), 18 );
+			b0 = spin ( b0, _mm_add_epi32 ( b3, b2 ), 18 );
+			a1 = _mm_shuffle_epi32 ( a1, 0x93 );
+			b1 = _mm_shuffle_epi32 ( b1, 0x93 );
+			a2 = _mm_shuffle_epi32 ( a2, 0x4E );
+			b2 = _mm_shuffle_epi32 ( b2, 0x4E );
+			a3 = _mm_shuffle_epi32 ( a3, 0x39 );
+			b3 = _mm_shuffle_epi32 ( b3, 0x39 );
+			a3 = spin ( a3, _mm_add_epi32 ( a0, a1 ), 7 );
+			b3 = spin ( b3, _mm_add_epi32 ( b0, b1 ), 7 );
+			a2 = spin ( a2, _mm_add_epi32 ( a3, a0 ), 9 );
+			b2 = spin ( b2, _mm_add_epi32 ( b3, b0 ), 9 );
+			a1 = spin ( a1, _mm_add_epi32 ( a2, a3 ), 13 );
+			b1 = spin ( b1, _mm_add_epi32 ( b2, b3 ), 13 );
+			a0 = spin ( a0, _mm_add_epi32 ( a1, a2 ), 18 );
+			b0 = spin ( b0, _mm_add_epi32 ( b1, b2 ), 18 );
+			a1 = _mm_shuffle_epi32 ( a1, 0x39 );
+			b1 = _mm_shuffle_epi32 ( b1, 0x39 );
+			a2 = _mm_shuffle_epi32 ( a2, 0x4E );
+			b2 = _mm_shuffle_epi32 ( b2, 0x4E );
+			a3 = _mm_shuffle_epi32 ( a3, 0x93 );
+			b3 = _mm_shuffle_epi32 ( b3, 0x93 );
+
+		}
+
+		one [ 0 ] = _mm_add_epi32 ( one [ 0 ], a0 );
+		one [ 1 ] = _mm_add_epi32 ( one [ 1 ], a1 );
+		one [ 2 ] = _mm_add_epi32 ( one [ 2 ], a2 );
+		one [ 3 ] = _mm_add_epi32 ( one [ 3 ], a3 );
+		two [ 0 ] = _mm_add_epi32 ( two [ 0 ], b0 );
+		two [ 1 ] = _mm_add_epi32 ( two [ 1 ], b1 );
+		two [ 2 ] = _mm_add_epi32 ( two [ 2 ], b2 );
+		two [ 3 ] = _mm_add_epi32 ( two [ 3 ], b3 );
+
+	}
+
+	static inline void mix_pair ( __m128i* one, __m128i* two ) {
+
+		for ( int32_t k = 0; k < 4; k++ ) {
+
+			one [ k ] = _mm_xor_si128 ( one [ k ], one [ 4 + k ] );
+			two [ k ] = _mm_xor_si128 ( two [ k ], two [ 4 + k ] );
+
+		}
+
+		salsa_pair ( one, two );
+
+		for ( int32_t k = 0; k < 4; k++ ) {
+
+			one [ 4 + k ] = _mm_xor_si128 ( one [ 4 + k ], one [ k ] );
+			two [ 4 + k ] = _mm_xor_si128 ( two [ 4 + k ], two [ k ] );
+
+		}
+
+		salsa_pair ( one + 4, two + 4 );
+
+	}
+
+	static void romix_pair ( uint8_t* first, uint8_t* second, __m128i* tables ) {
+
+		__m128i* one_table = tables;
+		__m128i* two_table = tables + scrypt_cost * 8;
+		alignas ( 16 ) __m128i one [ 8 ];
+		alignas ( 16 ) __m128i two [ 8 ];
+
+		for ( int32_t i = 0; i < 2; i++ ) {
+
+			lanes_in ( first + i * 64, one + i * 4 );
+			lanes_in ( second + i * 64, two + i * 4 );
+
+		}
+
+		for ( uint32_t i = 0; i < scrypt_cost; i++ ) {
+
+			for ( int32_t k = 0; k < 8; k++ ) {
+
+				one_table [ i * 8 + k ] = one [ k ];
+				two_table [ i * 8 + k ] = two [ k ];
+
+			}
+
+			mix_pair ( one, two );
+
+		}
+
+		for ( uint32_t i = 0; i < scrypt_cost; i++ ) {
+
+			const __m128i* one_slot = one_table + ( static_cast < uint32_t > ( _mm_cvtsi128_si32 ( one [ 4 ] ) ) & ( scrypt_cost - 1 ) ) * 8;
+			const __m128i* two_slot = two_table + ( static_cast < uint32_t > ( _mm_cvtsi128_si32 ( two [ 4 ] ) ) & ( scrypt_cost - 1 ) ) * 8;
+
+			for ( int32_t k = 0; k < 8; k++ ) {
+
+				one [ k ] = _mm_xor_si128 ( one [ k ], one_slot [ k ] );
+				two [ k ] = _mm_xor_si128 ( two [ k ], two_slot [ k ] );
+
+			}
+
+			mix_pair ( one, two );
+
+		}
+
+		for ( int32_t i = 0; i < 2; i++ ) {
+
+			lanes_out ( one + i * 4, first + i * 64 );
+			lanes_out ( two + i * 4, second + i * 64 );
+
+		}
+
+	}
+
+	void scrypt_header_pair ( const uint8_t* first, const uint8_t* second, uint8_t* first_out, uint8_t* second_out, void* scratch ) {
+
+		uintptr_t at = ( reinterpret_cast < uintptr_t > ( scratch ) + 63 ) & ~static_cast < uintptr_t > ( 63 );
+		hmac_sha256 first_key ( first, 80 );
+		hmac_sha256 second_key ( second, 80 );
+		uint8_t first_blocks [ 128 ];
+		uint8_t second_blocks [ 128 ];
+
+		pbkdf2_sha256 ( first_key, first, 80, 1, first_blocks, 128 );
+		pbkdf2_sha256 ( second_key, second, 80, 1, second_blocks, 128 );
+		romix_pair ( first_blocks, second_blocks, reinterpret_cast < __m128i* > ( at ) );
+		pbkdf2_sha256 ( first_key, first_blocks, 128, 1, first_out, 32 );
+		pbkdf2_sha256 ( second_key, second_blocks, 128, 1, second_out, 32 );
+
+	}
+
 	void scrypt_header ( const uint8_t* header, uint8_t* out, void* scratch ) {
 
 		uintptr_t at = ( reinterpret_cast < uintptr_t > ( scratch ) + 63 ) & ~static_cast < uintptr_t > ( 63 );

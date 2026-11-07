@@ -10,6 +10,7 @@ namespace base {
 		wchar_t label [ 64 ] = { };
 		uint32_t threads = 1;
 		uint32_t cores = 1;
+		uint64_t level3 = 0;
 		bool ssse3 = false;
 		bool sse41 = false;
 		bool sha = false;
@@ -21,5 +22,7 @@ namespace base {
 	void detect ( processor& out );
 
 	bool system_prefers_light ( );
+
+	bool allow_large_pages ( );
 
 }
