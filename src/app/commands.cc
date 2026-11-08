@@ -1,4 +1,6 @@
 #include "app/commands.hh"
+#include "app/journal.hh"
+#include "app/self_test.hh"
 #include "version.hh"
 #include "app/session.hh"
 #include "app/settings.hh"
@@ -41,7 +43,7 @@ namespace app {
 
 	};
 
-	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window", L"--tls-check" };
+	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window", L"--tls-check", L"--self-test", L"--crash-test" };
 
 	bool is_command ( wchar_t** arguments, int32_t count ) {
 
@@ -66,6 +68,7 @@ namespace app {
 		base::print_line ( L"  Alloy.exe --mine host:port [--user name] [--pass word] [--seconds n]" );
 		base::print_line ( L"  Alloy.exe --test-pool [--port n] [--difficulty d] [--job-seconds n] [--seconds n]" );
 		base::print_line ( L"  Alloy.exe --allow-large-pages                let RandomX use large pages (run as administrator once)" );
+		base::print_line ( L"  Alloy.exe --self-test                        check every hash kernel and graphics card against known answers" );
 		base::print_line ( L"" );
 		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx  --dataset full|light" );
 		base::print_line ( L"  Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n" );
@@ -477,7 +480,7 @@ namespace app {
 					line->algorithm = value;
 					i++;
 
-				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--test" ) || base::same_text ( item, L"--tls-check" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) ) ) {
+				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--test" ) || base::same_text ( item, L"--tls-check" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) || base::same_text ( item, L"--crash-test" ) ) ) {
 
 					line->target = value;
 					i++;
@@ -605,6 +608,8 @@ namespace app {
 			code = mine ( *line );
 		else if ( base::same_text ( action, L"--test-pool" ) )
 			code = test_pool ( *line );
+		else if ( base::same_text ( action, L"--self-test" ) )
+			code = self_test_command ( );
 		else if ( base::same_text ( action, L"--allow-large-pages" ) ) {
 
 			bool granted = base::allow_large_pages ( );
@@ -626,6 +631,15 @@ namespace app {
 			code = smoke_window ( line->target );
 		else if ( base::same_text ( action, L"--tls-check" ) && line->target [ 0 ] )
 			code = tls_check ( line->target, line->http );
+		else if ( base::same_text ( action, L"--crash-test" ) && line->target [ 0 ] ) {
+
+			volatile uintptr_t nowhere = 0;
+
+			open_journal ( line->target );
+			journal ( 0, L"Crashing on purpose to test the crash report" );
+			*reinterpret_cast < volatile uint32_t* > ( nowhere + 0 ) = 1;
+
+		}
 #endif
 		else {
 

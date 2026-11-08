@@ -278,7 +278,7 @@ namespace tests {
 		note.add ( L"compiled fast mode matches the interpreter on 16 inputs and runs " ).decimal ( plain_rate > 0.0 ? native_rate / plain_rate : 0.0, 1 ).add ( L"x faster on one thread (" ).decimal ( native_rate, 0 ).add ( L" against " ).decimal ( plain_rate, 0 ).add ( L" H/s)" );
 		check ( fast_agrees && native_rate > plain_rate * 2.0, note.get ( ) );
 
-		uint8_t* bytes = new uint8_t [ 128 + 8 * randomx::program_size ];
+		uint8_t* bytes = new uint8_t [ 128 + 8 * randomx::program_room ];
 		base::code_view view;
 		randomx::program_shape shape;
 		uint8_t seed [ 64 ] = { 1, 2, 3 };
@@ -290,7 +290,7 @@ namespace tests {
 
 		for ( ; emits < 2000 && emitted; emits++ ) {
 
-			hash::aes_fill_4r ( seed, bytes, 128 + 8 * randomx::program_size );
+			hash::aes_fill_4r ( seed, bytes, 128 + 8 * 256 );
 			emitted = randomx::emit_program ( bytes + 128, shape, view.write, randomx::native_room );
 
 		}

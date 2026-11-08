@@ -12,6 +12,8 @@ namespace pool {
 		double difficulty = 0.01;
 		uint32_t job_seconds = 30;
 		uint32_t reseed_jobs = 0;
+		uint8_t variant = 0;
+		uint32_t switch_jobs = 0;
 		bool nicehash = false;
 		bool verbose = false;
 

@@ -95,67 +95,128 @@ namespace hash {
 
 	}
 
-	void argon2d_fill ( argon2_block* memory, uint32_t blocks, uint32_t passes, const void* password, size_t password_size, const void* salt, size_t salt_size ) {
+	void argon2d_fill ( argon2_block* memory, uint32_t blocks, uint32_t passes, uint32_t lanes, const argon2_input& input ) {
 
 		uint8_t seed [ 72 ];
 		blake2b initial ( 64 );
 
-		put32 ( initial, 1 );
-		put32 ( initial, 0 );
+		lanes = lanes ? lanes : 1;
+		put32 ( initial, lanes );
+		put32 ( initial, input.tag_size );
 		put32 ( initial, blocks );
 		put32 ( initial, passes );
 		put32 ( initial, 0x13 );
 		put32 ( initial, 0 );
-		put32 ( initial, static_cast < uint32_t > ( password_size ) );
-		initial.add ( password, password_size );
-		put32 ( initial, static_cast < uint32_t > ( salt_size ) );
-		initial.add ( salt, salt_size );
-		put32 ( initial, 0 );
-		put32 ( initial, 0 );
+		put32 ( initial, static_cast < uint32_t > ( input.password_size ) );
+		initial.add ( input.password, input.password_size );
+		put32 ( initial, static_cast < uint32_t > ( input.salt_size ) );
+		initial.add ( input.salt, input.salt_size );
+		put32 ( initial, static_cast < uint32_t > ( input.secret_size ) );
+		initial.add ( input.secret, input.secret_size );
+		put32 ( initial, static_cast < uint32_t > ( input.data_size ) );
+		initial.add ( input.data, input.data_size );
 		initial.end ( seed );
 
-		for ( uint32_t i = 0; i < 2; i++ ) {
+		uint32_t used = blocks / ( slices * lanes ) * slices * lanes;
+		uint32_t width = used / lanes;
+		uint32_t segment = width / slices;
 
-			base::store_little ( seed + 64, i );
-			base::store_little ( seed + 68, 0 );
-			blake2b_long ( memory [ i ].v, 1024, seed, 72 );
+		for ( uint32_t lane = 0; lane < lanes; lane++ ) {
+
+			for ( uint32_t i = 0; i < 2; i++ ) {
+
+				base::store_little ( seed + 64, i );
+				base::store_little ( seed + 68, lane );
+				blake2b_long ( memory [ lane * width + i ].v, 1024, seed, 72 );
+
+			}
 
 		}
-
-		uint32_t segment = blocks / slices;
 
 		for ( uint32_t pass = 0; pass < passes; pass++ ) {
 
 			for ( uint32_t slice = 0; slice < slices; slice++ ) {
 
-				uint32_t first = pass == 0 && slice == 0 ? 2 : 0;
+				for ( uint32_t lane = 0; lane < lanes; lane++ ) {
 
-				for ( uint32_t index = first; index < segment; index++ ) {
+					uint32_t first = pass == 0 && slice == 0 ? 2 : 0;
+					uint32_t row = lane * width;
 
-					uint32_t current = slice * segment + index;
-					uint32_t previous = current == 0 ? blocks - 1 : current - 1;
-					uint64_t random = memory [ previous ].v [ 0 ] & 0xFFFFFFFFull;
-					uint64_t area = 0;
+					for ( uint32_t index = first; index < segment; index++ ) {
 
-					if ( pass == 0 )
-						area = slice == 0 ? index - 1 : slice * segment + index - 1;
-					else
-						area = blocks - segment + index - 1;
+						uint32_t column = slice * segment + index;
+						uint32_t current = row + column;
+						uint32_t previous = column == 0 ? row + width - 1 : current - 1;
+						uint64_t word = memory [ previous ].v [ 0 ];
+						uint64_t random = word & 0xFFFFFFFFull;
+						uint32_t target = pass == 0 && slice == 0 ? lane : static_cast < uint32_t > ( ( word >> 32 ) % lanes );
+						bool same = target == lane;
+						uint64_t area = 0;
 
-					uint64_t relative = random * random >> 32;
+						if ( pass == 0 ) {
 
-					relative = area - 1 - ( area * relative >> 32 );
+							if ( slice == 0 )
+								area = index - 1;
+							else if ( same )
+								area = slice * segment + index - 1;
+							else
+								area = slice * segment - ( index == 0 ? 1 : 0 );
 
-					uint64_t start = pass == 0 || slice == slices - 1 ? 0 : ( slice + 1 ) * static_cast < uint64_t > ( segment );
-					uint32_t reference = static_cast < uint32_t > ( ( start + relative ) % blocks );
+						} else if ( same )
+							area = width - segment + index - 1;
+						else
+							area = width - segment - ( index == 0 ? 1 : 0 );
 
-					compress ( memory [ previous ], memory [ reference ], memory [ current ], pass > 0 );
+						uint64_t relative = random * random >> 32;
+
+						relative = area - 1 - ( area * relative >> 32 );
+
+						uint64_t start = pass == 0 || slice == slices - 1 ? 0 : ( slice + 1 ) * static_cast < uint64_t > ( segment );
+						uint32_t reference = target * width + static_cast < uint32_t > ( ( start + relative ) % width );
+
+						compress ( memory [ previous ], memory [ reference ], memory [ current ], pass > 0 );
+
+					}
 
 				}
 
 			}
 
 		}
+
+	}
+
+	void argon2d_fill ( argon2_block* memory, uint32_t blocks, uint32_t passes, const void* password, size_t password_size, const void* salt, size_t salt_size ) {
+
+		argon2_input input;
+
+		input.password = password;
+		input.password_size = password_size;
+		input.salt = salt;
+		input.salt_size = salt_size;
+		argon2d_fill ( memory, blocks, passes, 1, input );
+
+	}
+
+	void argon2d_tag ( const argon2_block* memory, uint32_t blocks, uint32_t lanes, uint32_t tag_size, uint8_t* out ) {
+
+		lanes = lanes ? lanes : 1;
+
+		uint32_t width = blocks / ( slices * lanes ) * slices;
+		argon2_block last = memory [ width - 1 ];
+		uint8_t bytes [ 1024 ];
+
+		for ( uint32_t lane = 1; lane < lanes; lane++ ) {
+
+			for ( int32_t i = 0; i < 128; i++ )
+				last.v [ i ] ^= memory [ lane * width + width - 1 ].v [ i ];
+
+		}
+
+		for ( int32_t i = 0; i < 128; i++ )
+			base::store_little64 ( bytes + i * 8, last.v [ i ] );
+
+		blake2b_long ( out, tag_size, bytes, sizeof ( bytes ) );
 
 	}
 

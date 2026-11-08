@@ -16,7 +16,7 @@ namespace hash {
 
 	void aes_fill_1r ( uint8_t* state, uint8_t* out, size_t size );
 
-	void aes_fill_4r ( const uint8_t* state, uint8_t* out, size_t size );
+	void aes_fill_4r ( const uint8_t* state, uint8_t* out, size_t size, const uint8_t ( *keys ) [ 16 ] = nullptr );
 
 	void aes_hash_1r ( const uint8_t* input, size_t size, uint8_t* out );
 

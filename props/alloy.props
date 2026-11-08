@@ -31,7 +31,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalOptions>/Zc:threadSafeInit- /clang:-ffreestanding /clang:-fno-math-errno /clang:-mno-stack-arg-probe /clang:-Wno-unused-parameter /clang:-Wno-missing-braces %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Zc:threadSafeInit- /clang:-ffreestanding /clang:-fno-math-errno /clang:-mno-stack-arg-probe /clang:-fasynchronous-unwind-tables /clang:-Wno-unused-parameter /clang:-Wno-missing-braces %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <FxCompile>
       <ShaderType>Compute</ShaderType>

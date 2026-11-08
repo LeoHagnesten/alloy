@@ -1,4 +1,5 @@
 #include "pool/client.hh"
+#include "randomx/variant.hh"
 #include "net/socket.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -18,7 +19,20 @@ namespace pool {
 		base::add_json_string ( request, worker );
 		request.add ( ",\"pass\":" );
 		base::add_json_string ( request, password );
-		request.add ( ",\"agent\":\"" ).add ( agent ).add ( "\",\"algo\":[\"rx/0\"]}}" );
+		request.add ( ",\"agent\":\"" ).add ( agent ).add ( "\",\"algo\":[" );
+
+		const randomx::variant& chosen = randomx::variant_of ( config.variant );
+
+		request.put ( '"' ).add ( chosen.key ).put ( '"' );
+
+		for ( uint8_t i = 0; i < randomx::VARIANT_COUNT; i++ ) {
+
+			if ( i != chosen.id )
+				request.add ( ",\"" ).add ( randomx::variant_of ( i ).key ).put ( '"' );
+
+		}
+
+		request.add ( "]}}" );
 		link->send_line ( request.get ( ) );
 
 	}
@@ -55,11 +69,12 @@ namespace pool {
 		double share_difficulty = blob_difficulty ( incoming->target );
 		bool reseeded = false;
 		bool changed = false;
-		bool foreign = incoming->algo [ 0 ] && !base::same_text ( incoming->algo, "rx/0" ) && !base::same_text ( incoming->algo, "randomx" );
+		bool switched = false;
+		int32_t found = incoming->algo [ 0 ] ? randomx::find_variant ( incoming->algo ) : config.variant;
 
 		base::widen ( name, base::count_of ( name ), incoming->id );
 
-		if ( foreign ) {
+		if ( found < 0 ) {
 
 			if ( !base::same_text ( refused_algo, incoming->algo ) ) {
 
@@ -84,6 +99,7 @@ namespace pool {
 		}
 
 		refused_algo [ 0 ] = 0;
+		incoming->variant = static_cast < uint8_t > ( found );
 
 		if ( incoming->blob [ blob_nonce_at + 3 ] && !nicehash ) {
 
@@ -98,7 +114,8 @@ namespace pool {
 
 			shown.nicehash = nicehash;
 
-			reseeded = have_job && !base::same ( blob_current.seed, incoming->seed, 32 );
+			switched = have_job && blob_current.variant != incoming->variant;
+			reseeded = have_job && !switched && !base::same ( blob_current.seed, incoming->seed, 32 );
 			changed = !have_job || share_difficulty != difficulty;
 			blob_current = *incoming;
 			have_job = true;
@@ -111,6 +128,7 @@ namespace pool {
 			shown.difficulty = difficulty;
 			shown.height = incoming->height;
 			shown.blob_size = incoming->blob_size;
+			shown.variant = incoming->variant;
 			base::copy ( shown.seed, incoming->seed, 32 );
 			base::copy_text ( shown.job, base::count_of ( shown.job ), name );
 
@@ -135,6 +153,18 @@ namespace pool {
 
 		if ( reseeded )
 			note ( EVENT_INFO, L"The RandomX seed changed, so the dataset is being rebuilt" );
+
+		if ( switched ) {
+
+			const randomx::variant& now = randomx::variant_of ( incoming->variant );
+			wchar_t key [ 16 ];
+
+			base::widen ( key, base::count_of ( key ), now.key );
+			line.clear ( );
+			line.add ( L"The pool switched to " ).add ( now.name ).add ( L" (" ).add ( key ).add ( L") for " ).add ( now.coin ).add ( L", so the dataset is being rebuilt" );
+			note ( EVENT_INFO, line.get ( ) );
+
+		}
 
 		delete incoming;
 

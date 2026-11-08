@@ -2,6 +2,7 @@
 
 #include "randomx/compiler.hh"
 #include "randomx/superscalar.hh"
+#include "randomx/variant.hh"
 #include "hash/argon2.hh"
 
 namespace randomx {
@@ -26,9 +27,9 @@ namespace randomx {
 
 		~cache ( );
 
-		bool build ( const void* key, size_t size );
+		bool build ( const void* key, size_t size, uint8_t kind = VARIANT_RX0 );
 
-		bool matches ( const void* key, size_t size ) const;
+		bool matches ( const void* key, size_t size, uint8_t kind = VARIANT_RX0 ) const;
 
 		void item ( uint64_t number, uint64_t* out ) const;
 
@@ -50,6 +51,12 @@ namespace randomx {
 
 		}
 
+		uint8_t kind ( ) const {
+
+			return built_kind;
+
+		}
+
 		const scalar_compiler& compiled ( ) const {
 
 			return native;
@@ -66,6 +73,7 @@ namespace randomx {
 		bool large = false;
 		uint8_t key [ key_room ] = { };
 		size_t key_size = 0;
+		uint8_t built_kind = VARIANT_RX0;
 
 	};
 

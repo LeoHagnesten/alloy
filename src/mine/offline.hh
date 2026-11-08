@@ -14,11 +14,18 @@ namespace mine {
 
 		}
 
+		void set_variant ( uint8_t value ) {
+
+			variant = value;
+
+		}
+
 		bool fill ( uint64_t index, unit& out ) override;
 
 	private:
 
 		uint8_t kind = chain::ALGORITHM_SHA256D;
+		uint8_t variant = 0;
 
 	};
 

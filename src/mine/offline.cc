@@ -21,6 +21,7 @@ namespace mine {
 
 			out.blob_size = sizeof ( blob ) / 2;
 			out.nonce_at = 39;
+			out.variant = variant;
 			base::read_hex ( blob, out.blob, out.blob_size );
 			base::store_little ( out.blob + 43, static_cast < uint32_t > ( index ) );
 			hash::sha256_twice ( "alloy benchmark seed", 20, out.seed );

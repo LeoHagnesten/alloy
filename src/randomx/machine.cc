@@ -12,40 +12,6 @@ namespace randomx {
 	static constexpr uint64_t extra_lines = dataset_extra / 64;
 	static const uint64_t nothing = 0;
 
-	enum kind : uint8_t {
-
-		KIND_IADD_RS,
-		KIND_IADD_M,
-		KIND_ISUB_R,
-		KIND_ISUB_M,
-		KIND_IMUL_R,
-		KIND_IMUL_M,
-		KIND_IMULH_R,
-		KIND_IMULH_M,
-		KIND_ISMULH_R,
-		KIND_ISMULH_M,
-		KIND_INEG_R,
-		KIND_IXOR_R,
-		KIND_IXOR_M,
-		KIND_IROR_R,
-		KIND_IROL_R,
-		KIND_ISWAP_R,
-		KIND_FSWAP_R,
-		KIND_FADD_R,
-		KIND_FADD_M,
-		KIND_FSUB_R,
-		KIND_FSUB_M,
-		KIND_FSCAL_R,
-		KIND_FMUL_R,
-		KIND_FDIV_M,
-		KIND_FSQRT_R,
-		KIND_CBRANCH,
-		KIND_CFROUND,
-		KIND_ISTORE,
-		KIND_NOP,
-
-	};
-
 	static inline void set_rounding ( uint32_t mode ) {
 
 		uint32_t value = 0x9FC0 | ( mode & 3 ) << 13;
@@ -93,10 +59,11 @@ namespace randomx {
 
 	}
 
-	bool machine::open ( const cache* light, const dataset* fast ) {
+	bool machine::open ( const cache* light, const dataset* fast, uint8_t kind ) {
 
 		light_source = light;
 		fast_source = fast;
+		rules = &variant_of ( kind );
 
 		if ( !hash::aes_ready ( ) ) {
 
@@ -111,7 +78,7 @@ namespace randomx {
 
 			bool large = false;
 
-			scratchpad = static_cast < uint8_t* > ( base::allocate_large ( scratchpad_bytes, large ) );
+			scratchpad = static_cast < uint8_t* > ( base::allocate_large ( scratchpad_room, large ) );
 
 		}
 
@@ -157,7 +124,8 @@ namespace randomx {
 		for ( int32_t i = 0; i < 4; i++ )
 			shape.read_registers [ i ] = read_registers [ i ];
 
-		shape.whole_loop = fast_source != nullptr;
+		shape.whole_loop = fast_source != nullptr && ( !rules->v2 || hash::aes_hardware ( ) );
+		shape.rules = rules;
 
 		return emit_program ( bytes, shape, code.write, native_room );
 
@@ -170,11 +138,14 @@ namespace randomx {
 		__m128d* e = state.e;
 		__m128d* a = state.a;
 		int16_t usage [ 8 ] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+		uint32_t level1 = level1_bytes - 8;
+		uint32_t level2 = rules->level2 - 8;
+		uint32_t level3 = rules->level3 - 8;
 
-		for ( int32_t i = 0; i < program_size; i++ ) {
+		for ( int32_t i = 0; i < rules->program_size; i++ ) {
 
 			const uint8_t* bytes = code + i * 8;
-			uint32_t opcode = bytes [ 0 ];
+			uint8_t operation = rules->decode [ bytes [ 0 ] ];
 			uint32_t d8 = bytes [ 1 ] & 7;
 			uint32_t s8 = bytes [ 2 ] & 7;
 			uint32_t d4 = bytes [ 1 ] & 3;
@@ -182,15 +153,15 @@ namespace randomx {
 			uint32_t mod = bytes [ 3 ];
 			uint32_t imm32 = base::load_little ( bytes + 4 );
 			uint64_t wide = static_cast < uint64_t > ( static_cast < int64_t > ( static_cast < int32_t > ( imm32 ) ) );
-			uint32_t near = mod & 3 ? level1_mask : level2_mask;
+			uint32_t near = mod & 3 ? level1 : level2;
 			step& s = steps [ i ];
 
 			s = step { };
+			s.kind = operation;
 			s.idst = &r [ d8 ];
 
-			auto memory_source = [ & ] ( uint8_t which ) {
+			auto memory_source = [ & ] ( ) {
 
-				s.kind = which;
 				s.imm = wide;
 
 				if ( s8 != d8 ) {
@@ -201,7 +172,7 @@ namespace randomx {
 				} else {
 
 					s.isrc = &nothing;
-					s.mask = level3_mask;
+					s.mask = level3;
 
 				}
 
@@ -209,9 +180,7 @@ namespace randomx {
 
 			};
 
-			auto register_source = [ & ] ( uint8_t which ) {
-
-				s.kind = which;
+			auto register_source = [ & ] ( ) {
 
 				if ( s8 != d8 )
 					s.isrc = &r [ s8 ];
@@ -226,9 +195,8 @@ namespace randomx {
 
 			};
 
-			auto float_memory = [ & ] ( uint8_t which, __m128d* target ) {
+			auto float_memory = [ & ] ( __m128d* target ) {
 
-				s.kind = which;
 				s.fdst = target;
 				s.isrc = &r [ s8 ];
 				s.imm = wide;
@@ -236,140 +204,128 @@ namespace randomx {
 
 			};
 
-			if ( opcode < 16 ) {
+			switch ( operation ) {
 
-				s.kind = KIND_IADD_RS;
-				s.isrc = &r [ s8 ];
-				s.shift = static_cast < uint8_t > ( mod >> 2 & 3 );
-				s.imm = d8 == 5 ? wide : 0;
-				usage [ d8 ] = static_cast < int16_t > ( i );
-
-			} else if ( opcode < 23 )
-				memory_source ( KIND_IADD_M );
-			else if ( opcode < 39 )
-				register_source ( KIND_ISUB_R );
-			else if ( opcode < 46 )
-				memory_source ( KIND_ISUB_M );
-			else if ( opcode < 62 )
-				register_source ( KIND_IMUL_R );
-			else if ( opcode < 66 )
-				memory_source ( KIND_IMUL_M );
-			else if ( opcode < 70 ) {
-
-				s.kind = KIND_IMULH_R;
-				s.isrc = &r [ s8 ];
-				usage [ d8 ] = static_cast < int16_t > ( i );
-
-			} else if ( opcode < 71 )
-				memory_source ( KIND_IMULH_M );
-			else if ( opcode < 75 ) {
-
-				s.kind = KIND_ISMULH_R;
-				s.isrc = &r [ s8 ];
-				usage [ d8 ] = static_cast < int16_t > ( i );
-
-			} else if ( opcode < 76 )
-				memory_source ( KIND_ISMULH_M );
-			else if ( opcode < 84 ) {
-
-				if ( imm32 && ( imm32 & ( imm32 - 1 ) ) ) {
-
-					s.kind = KIND_IMUL_R;
-					s.imm = reciprocal ( imm32 );
-					s.isrc = &s.imm;
+				case OP_IADD_RS:
+					s.isrc = &r [ s8 ];
+					s.shift = static_cast < uint8_t > ( mod >> 2 & 3 );
+					s.imm = d8 == 5 ? wide : 0;
 					usage [ d8 ] = static_cast < int16_t > ( i );
+					break;
 
-				} else
-					s.kind = KIND_NOP;
+				case OP_IADD_M:
+				case OP_ISUB_M:
+				case OP_IMUL_M:
+				case OP_IMULH_M:
+				case OP_ISMULH_M:
+				case OP_IXOR_M:
+					memory_source ( );
+					break;
 
-			} else if ( opcode < 86 ) {
+				case OP_ISUB_R:
+				case OP_IMUL_R:
+				case OP_IXOR_R:
+				case OP_IROR_R:
+				case OP_IROL_R:
+					register_source ( );
+					break;
 
-				s.kind = KIND_INEG_R;
-				usage [ d8 ] = static_cast < int16_t > ( i );
-
-			} else if ( opcode < 101 )
-				register_source ( KIND_IXOR_R );
-			else if ( opcode < 106 )
-				memory_source ( KIND_IXOR_M );
-			else if ( opcode < 114 )
-				register_source ( KIND_IROR_R );
-			else if ( opcode < 116 )
-				register_source ( KIND_IROL_R );
-			else if ( opcode < 120 ) {
-
-				if ( s8 != d8 ) {
-
-					s.kind = KIND_ISWAP_R;
+				case OP_IMULH_R:
+				case OP_ISMULH_R:
 					s.isrc = &r [ s8 ];
 					usage [ d8 ] = static_cast < int16_t > ( i );
-					usage [ s8 ] = static_cast < int16_t > ( i );
+					break;
 
-				} else
-					s.kind = KIND_NOP;
+				case OP_IMUL_RCP:
+					if ( imm32 && ( imm32 & ( imm32 - 1 ) ) ) {
 
-			} else if ( opcode < 124 ) {
+						s.kind = OP_IMUL_R;
+						s.imm = reciprocal ( imm32 );
+						s.isrc = &s.imm;
+						usage [ d8 ] = static_cast < int16_t > ( i );
 
-				s.kind = KIND_FSWAP_R;
-				s.fdst = d8 < 4 ? &f [ d8 ] : &e [ d8 - 4 ];
+					} else
+						s.kind = OP_NOP;
 
-			} else if ( opcode < 140 ) {
+					break;
 
-				s.kind = KIND_FADD_R;
-				s.fdst = &f [ d4 ];
-				s.fsrc = &a [ s4 ];
+				case OP_INEG_R:
+					usage [ d8 ] = static_cast < int16_t > ( i );
+					break;
 
-			} else if ( opcode < 145 )
-				float_memory ( KIND_FADD_M, &f [ d4 ] );
-			else if ( opcode < 161 ) {
+				case OP_ISWAP_R:
+					if ( s8 != d8 ) {
 
-				s.kind = KIND_FSUB_R;
-				s.fdst = &f [ d4 ];
-				s.fsrc = &a [ s4 ];
+						s.isrc = &r [ s8 ];
+						usage [ d8 ] = static_cast < int16_t > ( i );
+						usage [ s8 ] = static_cast < int16_t > ( i );
 
-			} else if ( opcode < 166 )
-				float_memory ( KIND_FSUB_M, &f [ d4 ] );
-			else if ( opcode < 172 ) {
+					} else
+						s.kind = OP_NOP;
 
-				s.kind = KIND_FSCAL_R;
-				s.fdst = &f [ d4 ];
+					break;
 
-			} else if ( opcode < 204 ) {
+				case OP_FSWAP_R:
+					s.fdst = d8 < 4 ? &f [ d8 ] : &e [ d8 - 4 ];
+					break;
 
-				s.kind = KIND_FMUL_R;
-				s.fdst = &e [ d4 ];
-				s.fsrc = &a [ s4 ];
+				case OP_FADD_R:
+				case OP_FSUB_R:
+					s.fdst = &f [ d4 ];
+					s.fsrc = &a [ s4 ];
+					break;
 
-			} else if ( opcode < 208 )
-				float_memory ( KIND_FDIV_M, &e [ d4 ] );
-			else if ( opcode < 214 ) {
+				case OP_FADD_M:
+				case OP_FSUB_M:
+					float_memory ( &f [ d4 ] );
+					break;
 
-				s.kind = KIND_FSQRT_R;
-				s.fdst = &e [ d4 ];
+				case OP_FSCAL_R:
+					s.fdst = &f [ d4 ];
+					break;
 
-			} else if ( opcode < 239 ) {
+				case OP_FMUL_R:
+					s.fdst = &e [ d4 ];
+					s.fsrc = &a [ s4 ];
+					break;
 
-				uint32_t shift = ( mod >> 4 ) + 8;
+				case OP_FDIV_M:
+					float_memory ( &e [ d4 ] );
+					break;
 
-				s.kind = KIND_CBRANCH;
-				s.target = usage [ d8 ];
-				s.imm = ( wide | 1ull << shift ) & ~( 1ull << ( shift - 1 ) );
-				s.mask = 255u << shift;
+				case OP_FSQRT_R:
+					s.fdst = &e [ d4 ];
+					break;
 
-				for ( int32_t k = 0; k < 8; k++ )
-					usage [ k ] = static_cast < int16_t > ( i );
+				case OP_CBRANCH: {
 
-			} else if ( opcode < 240 ) {
+					uint32_t shift = ( mod >> 4 ) + 8;
 
-				s.kind = KIND_CFROUND;
-				s.isrc = &r [ s8 ];
-				s.imm = imm32 & 63;
+					s.target = usage [ d8 ];
+					s.imm = ( wide | 1ull << shift ) & ~( 1ull << ( shift - 1 ) );
+					s.mask = 255u << shift;
 
-			} else {
+					for ( int32_t k = 0; k < 8; k++ )
+						usage [ k ] = static_cast < int16_t > ( i );
 
-				s.kind = KIND_ISTORE;
-				s.isrc = &r [ s8 ];
-				s.imm = wide;
-				s.mask = ( mod >> 4 ) < 14 ? near : level3_mask;
+					break;
+
+				}
+
+				case OP_CFROUND:
+					s.isrc = &r [ s8 ];
+					s.imm = imm32 & 63;
+					break;
+
+				case OP_ISTORE:
+					s.isrc = &r [ s8 ];
+					s.imm = wide;
+					s.mask = ( mod >> 4 ) < 14 ? near : level3;
+					break;
+
+				default:
+					s.kind = OP_NOP;
+					break;
 
 			}
 
@@ -380,112 +336,114 @@ namespace randomx {
 	void machine::run ( ) {
 
 		uint8_t* pad = scratchpad;
+		bool v2 = rules->v2;
+		int32_t size = rules->program_size;
 
-		for ( int32_t pc = 0; pc < program_size; pc++ ) {
+		for ( int32_t pc = 0; pc < size; pc++ ) {
 
 			step& s = steps [ pc ];
 
 			switch ( s.kind ) {
 
-				case KIND_IADD_RS:
+				case OP_IADD_RS:
 					*s.idst += ( *s.isrc << s.shift ) + s.imm;
 					break;
 
-				case KIND_IADD_M:
+				case OP_IADD_M:
 					*s.idst += base::load_little64 ( pad + ( ( *s.isrc + s.imm ) & s.mask ) );
 					break;
 
-				case KIND_ISUB_R:
+				case OP_ISUB_R:
 					*s.idst -= *s.isrc;
 					break;
 
-				case KIND_ISUB_M:
+				case OP_ISUB_M:
 					*s.idst -= base::load_little64 ( pad + ( ( *s.isrc + s.imm ) & s.mask ) );
 					break;
 
-				case KIND_IMUL_R:
+				case OP_IMUL_R:
 					*s.idst *= *s.isrc;
 					break;
 
-				case KIND_IMUL_M:
+				case OP_IMUL_M:
 					*s.idst *= base::load_little64 ( pad + ( ( *s.isrc + s.imm ) & s.mask ) );
 					break;
 
-				case KIND_IMULH_R:
+				case OP_IMULH_R:
 					*s.idst = high_product ( *s.idst, *s.isrc );
 					break;
 
-				case KIND_IMULH_M:
+				case OP_IMULH_M:
 					*s.idst = high_product ( *s.idst, base::load_little64 ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ) );
 					break;
 
-				case KIND_ISMULH_R:
+				case OP_ISMULH_R:
 					*s.idst = signed_high_product ( *s.idst, *s.isrc );
 					break;
 
-				case KIND_ISMULH_M:
+				case OP_ISMULH_M:
 					*s.idst = signed_high_product ( *s.idst, base::load_little64 ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ) );
 					break;
 
-				case KIND_INEG_R:
+				case OP_INEG_R:
 					*s.idst = 0 - *s.idst;
 					break;
 
-				case KIND_IXOR_R:
+				case OP_IXOR_R:
 					*s.idst ^= *s.isrc;
 					break;
 
-				case KIND_IXOR_M:
+				case OP_IXOR_M:
 					*s.idst ^= base::load_little64 ( pad + ( ( *s.isrc + s.imm ) & s.mask ) );
 					break;
 
-				case KIND_IROR_R:
+				case OP_IROR_R:
 					*s.idst = __builtin_rotateright64 ( *s.idst, *s.isrc & 63 );
 					break;
 
-				case KIND_IROL_R:
+				case OP_IROL_R:
 					*s.idst = __builtin_rotateleft64 ( *s.idst, *s.isrc & 63 );
 					break;
 
-				case KIND_ISWAP_R: {
+				case OP_ISWAP_R: {
 
-					uint64_t kept = *s.idst;
+					uint64_t held = *s.idst;
 
 					*s.idst = *const_cast < uint64_t* > ( s.isrc );
-					*const_cast < uint64_t* > ( s.isrc ) = kept;
+					*const_cast < uint64_t* > ( s.isrc ) = held;
 					break;
 
 				}
 
-				case KIND_FSWAP_R:
+				case OP_FSWAP_R:
 					*s.fdst = _mm_shuffle_pd ( *s.fdst, *s.fdst, 1 );
 					break;
 
-				case KIND_FADD_R:
+				case OP_FADD_R:
 					*s.fdst = _mm_add_pd ( *s.fdst, *s.fsrc );
 					break;
 
-				case KIND_FADD_M:
+				case OP_FADD_M:
 					*s.fdst = _mm_add_pd ( *s.fdst, load_pair ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ) );
 					break;
 
-				case KIND_FSUB_R:
+				case OP_FSUB_R:
 					*s.fdst = _mm_sub_pd ( *s.fdst, *s.fsrc );
 					break;
 
-				case KIND_FSUB_M:
+				case OP_FSUB_M:
 					*s.fdst = _mm_sub_pd ( *s.fdst, load_pair ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ) );
 					break;
 
-				case KIND_FSCAL_R:
+				case OP_FSCAL_R:
 					*s.fdst = _mm_xor_pd ( *s.fdst, state.sign );
 					break;
 
-				case KIND_FMUL_R:
+				case OP_FMUL_R:
 					*s.fdst = _mm_mul_pd ( *s.fdst, *s.fsrc );
 					break;
 
-				case KIND_FDIV_M: {
+				case OP_FDIV_M: {
 
 					__m128d divisor = _mm_or_pd ( _mm_and_pd ( load_pair ( pad + ( ( *s.isrc + s.imm ) & s.mask ) ), state.mantissa ), state.exponent );
 
@@ -494,11 +452,11 @@ namespace randomx {
 
 				}
 
-				case KIND_FSQRT_R:
+				case OP_FSQRT_R:
 					*s.fdst = _mm_sqrt_pd ( *s.fdst );
 					break;
 
-				case KIND_CBRANCH:
+				case OP_CBRANCH:
 					*s.idst += s.imm;
 
 					if ( ( *s.idst & s.mask ) == 0 )
@@ -506,11 +464,18 @@ namespace randomx {
 
 					break;
 
-				case KIND_CFROUND:
-					set_rounding ( static_cast < uint32_t > ( __builtin_rotateright64 ( *s.isrc, s.imm ) & 3 ) );
+				case OP_CFROUND: {
+
+					uint64_t value = __builtin_rotateright64 ( *s.isrc, s.imm );
+
+					if ( !v2 || ( value & 0x3C ) == 0 )
+						set_rounding ( static_cast < uint32_t > ( value & 3 ) );
+
 					break;
 
-				case KIND_ISTORE:
+				}
+
+				case OP_ISTORE:
 					base::store_little64 ( pad + ( ( *s.idst + s.imm ) & s.mask ), *s.isrc );
 					break;
 
@@ -545,17 +510,57 @@ namespace randomx {
 
 	}
 
+	void machine::mix_registers ( ) {
+
+		if ( !rules->v2 ) {
+
+			for ( int32_t i = 0; i < 4; i++ )
+				state.f [ i ] = _mm_xor_pd ( state.f [ i ], state.e [ i ] );
+
+			return;
+
+		}
+
+		alignas ( 16 ) uint8_t blocks [ 4 ] [ 16 ];
+		alignas ( 16 ) uint8_t keys [ 4 ] [ 16 ];
+
+		for ( int32_t i = 0; i < 4; i++ ) {
+
+			_mm_store_pd ( reinterpret_cast < double* > ( blocks [ i ] ), state.f [ i ] );
+			_mm_store_pd ( reinterpret_cast < double* > ( keys [ i ] ), state.e [ i ] );
+
+		}
+
+		for ( int32_t k = 0; k < 4; k++ ) {
+
+			for ( int32_t i = 0; i < 4; i++ ) {
+
+				if ( i & 1 )
+					hash::aes_decrypt_round ( blocks [ i ], keys [ k ] );
+				else
+					hash::aes_encrypt_round ( blocks [ i ], keys [ k ] );
+
+			}
+
+		}
+
+		for ( int32_t i = 0; i < 4; i++ )
+			state.f [ i ] = _mm_load_pd ( reinterpret_cast < const double* > ( blocks [ i ] ) );
+
+	}
+
 	void machine::execute ( bool native ) {
 
 		uint64_t* r = state.r;
 		uint32_t first = mx;
 		uint32_t second = ma;
+		uint32_t line3 = rules->level3 - 64;
 		native_body body = reinterpret_cast < native_body > ( code.run );
 
 		for ( int32_t i = 0; i < 8; i++ )
 			r [ i ] = 0;
 
-		if ( native && fast_source ) {
+		if ( native && fast_source && ( !rules->v2 || hash::aes_hardware ( ) ) ) {
 
 			state.mx = mx;
 			state.ma = ma;
@@ -566,12 +571,12 @@ namespace randomx {
 
 		}
 
-		for ( int32_t iteration = 0; iteration < program_iterations; iteration++ ) {
+		for ( int32_t iteration = 0; iteration < rules->iterations; iteration++ ) {
 
 			uint64_t mix = r [ read_registers [ 0 ] ] ^ r [ read_registers [ 1 ] ];
 
-			first = ( first ^ static_cast < uint32_t > ( mix ) ) & level3_line;
-			second = ( second ^ static_cast < uint32_t > ( mix >> 32 ) ) & level3_line;
+			first = ( first ^ static_cast < uint32_t > ( mix ) ) & line3;
+			second = ( second ^ static_cast < uint32_t > ( mix >> 32 ) ) & line3;
 
 			for ( int32_t i = 0; i < 8; i++ )
 				r [ i ] ^= base::load_little64 ( scratchpad + first + i * 8 );
@@ -588,28 +593,28 @@ namespace randomx {
 			else
 				run ( );
 
-			mx ^= static_cast < uint32_t > ( r [ read_registers [ 2 ] ] ^ r [ read_registers [ 3 ] ] );
-			mx &= static_cast < uint32_t > ( line_mask );
+			uint32_t read_at = static_cast < uint32_t > ( ma & line_mask );
+			uint32_t& moving = rules->v2 ? ma : mx;
+
+			moving ^= static_cast < uint32_t > ( r [ read_registers [ 2 ] ] ^ r [ read_registers [ 3 ] ] );
 
 			if ( fast_source )
-				_mm_prefetch ( reinterpret_cast < const char* > ( fast_source->data ( ) + dataset_offset + mx ), _MM_HINT_NTA );
+				_mm_prefetch ( reinterpret_cast < const char* > ( fast_source->data ( ) + dataset_offset + ( moving & line_mask ) ), _MM_HINT_NTA );
 
-			read_dataset ( dataset_offset + ma );
+			read_dataset ( dataset_offset + read_at );
 
-			uint32_t kept = mx;
+			uint32_t held = mx;
 
 			mx = ma;
-			ma = kept;
+			ma = held;
 
 			for ( int32_t i = 0; i < 8; i++ )
 				base::store_little64 ( scratchpad + second + i * 8, r [ i ] );
 
-			for ( int32_t i = 0; i < 4; i++ ) {
+			mix_registers ( );
 
-				state.f [ i ] = _mm_xor_pd ( state.f [ i ], state.e [ i ] );
+			for ( int32_t i = 0; i < 4; i++ )
 				_mm_storeu_pd ( reinterpret_cast < double* > ( scratchpad + first + i * 16 ), state.f [ i ] );
-
-			}
 
 			first = 0;
 			second = 0;
@@ -618,10 +623,12 @@ namespace randomx {
 
 	}
 
-	void machine::hash ( const void* input, size_t size, uint8_t* out ) {
+	void machine::hash_core ( const void* input, size_t size, uint8_t* out ) {
 
 		alignas ( 16 ) uint8_t seed [ 64 ];
 		alignas ( 16 ) uint8_t file [ 256 ];
+		uint32_t pad = rules->level3;
+		size_t program_bytes = 128 + 8 * static_cast < size_t > ( rules->program_size );
 
 		auto pack = [ & ] ( ) {
 
@@ -639,12 +646,12 @@ namespace randomx {
 		};
 
 		hash::blake2b_once ( seed, 64, input, size );
-		hash::aes_fill_1r ( seed, scratchpad, scratchpad_bytes );
+		hash::aes_fill_1r ( seed, scratchpad, pad );
 		set_rounding ( 0 );
 
-		for ( int32_t chain = 0; chain < program_count; chain++ ) {
+		for ( int32_t chain = 0; chain < rules->count; chain++ ) {
 
-			hash::aes_fill_4r ( seed, program, sizeof ( program ) );
+			hash::aes_fill_4r ( seed, program, program_bytes, rules->keys );
 			configure ( program );
 
 			bool native = build ( program + 128 );
@@ -654,7 +661,7 @@ namespace randomx {
 
 			execute ( native );
 
-			if ( chain + 1 < program_count ) {
+			if ( chain + 1 < rules->count ) {
 
 				pack ( );
 				hash::blake2b_once ( seed, 64, file, 256 );
@@ -664,9 +671,26 @@ namespace randomx {
 		}
 
 		pack ( );
-		hash::aes_hash_1r ( scratchpad, scratchpad_bytes, file + 192 );
+		hash::aes_hash_1r ( scratchpad, pad, file + 192 );
 		hash::blake2b_once ( out, 32, file, 256 );
 		set_rounding ( 0 );
+
+	}
+
+	void machine::hash ( const void* input, size_t size, uint8_t* out ) {
+
+		hash_core ( input, size, out );
+
+		if ( !rules->v2 )
+			return;
+
+		uint8_t result [ 32 ];
+		hash::blake2b commitment ( 32 );
+
+		base::copy ( result, out, 32 );
+		commitment.add ( input, size );
+		commitment.add ( result, 32 );
+		commitment.end ( out );
 
 	}
 

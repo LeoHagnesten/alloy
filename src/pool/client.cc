@@ -116,6 +116,7 @@ namespace pool {
 
 			}
 			base::copy ( out.seed, blob_current.seed, 32 );
+			out.variant = blob_current.variant;
 			chain::target_of_top ( blob_current.target, out.target );
 
 			return true;

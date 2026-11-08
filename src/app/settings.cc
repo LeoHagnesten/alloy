@@ -1,4 +1,5 @@
 #include "app/settings.hh"
+#include "randomx/variant.hh"
 #include "base/system/files.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
@@ -133,6 +134,8 @@ namespace app {
 					out.algorithm = pick ( algorithm_names, value, out.algorithm );
 				else if ( base::same_text ( key, "dataset" ) )
 					out.full_dataset = pick ( dataset_names, value, 1 ) == 1;
+				else if ( base::same_text ( key, "randomx_variant" ) )
+					out.variant = static_cast < uint8_t > ( base::max ( randomx::find_variant ( value ), 0 ) );
 				else if ( base::same_text ( key, "address" ) )
 					base::widen ( profile->address, base::count_of ( profile->address ), value );
 				else if ( base::same_text ( key, "backup" ) )
@@ -209,6 +212,7 @@ namespace app {
 		out.add ( "mode=" ).add ( mode_names [ copy->mode % 3 ] ).add ( "\r\n" );
 		out.add ( "algorithm=" ).add ( algorithm_names [ copy->algorithm % 3 ] ).add ( "\r\n" );
 		out.add ( "dataset=" ).add ( dataset_names [ copy->full_dataset ? 1 : 0 ] ).add ( "\r\n" );
+		out.add ( "randomx_variant=" ).add ( randomx::variant_of ( copy->variant ).key ).add ( "\r\n" );
 
 		for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ ) {
 

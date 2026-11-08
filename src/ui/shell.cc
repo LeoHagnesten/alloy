@@ -774,6 +774,8 @@ namespace ui {
 					settings.theme = option;
 				else if ( which == SETTING_DATASET )
 					settings.full_dataset = option == 0;
+				else if ( which == SETTING_VARIANT )
+					settings.variant = option;
 				return COMMAND_PREFERENCES;
 
 			}

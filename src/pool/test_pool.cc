@@ -185,6 +185,10 @@ namespace pool {
 		work.target = state.blob_target;
 		base::copy ( work.seed, state.seed, 32 );
 		work.height = 3200000 + book.made;
+		work.variant = state.config.variant;
+
+		if ( state.config.switch_jobs && book.made )
+			work.variant = static_cast < uint8_t > ( ( state.config.variant + book.made / state.config.switch_jobs ) % randomx::VARIANT_COUNT );
 
 	}
 
@@ -555,12 +559,12 @@ namespace pool {
 		uint8_t blob [ blob_room ];
 		uint8_t digest [ 32 ];
 
-		if ( !state.cache->matches ( work.seed, 32 ) )
-			state.cache->build ( work.seed, 32 );
+		if ( !state.cache->matches ( work.seed, 32, work.variant ) )
+			state.cache->build ( work.seed, 32, work.variant );
 
 		base::copy ( blob, work.blob, static_cast < size_t > ( work.blob_size ) );
 		base::copy ( blob + blob_nonce_at, nonce, 4 );
-		state.machine->open ( state.cache, nullptr );
+		state.machine->open ( state.cache, nullptr, work.variant );
 		state.machine->hash ( blob, static_cast < size_t > ( work.blob_size ), digest );
 
 		if ( !base::same ( digest, claimed, 32 ) ) {
@@ -666,7 +670,7 @@ namespace pool {
 
 			state->cache = new randomx::cache;
 			state->machine = new randomx::machine;
-			state->cache->build ( state->seed, 32 );
+			state->cache->build ( state->seed, 32, config.variant );
 
 		}
 

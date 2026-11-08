@@ -72,22 +72,35 @@ Alloy.exe --mine 127.0.0.1:3335 --algorithm randomx
 ## Layout
 
 ```
-src/base     the standard library: memory, strings, text, bits, clock, threads,
-             files, containers, sorting, math, JSON, PNG, GIF and the runtime
-src/hash     SHA-256 with and without the SHA extensions, scrypt, Blake2b,
-             Argon2d and the RandomX AES generators
-src/chain    algorithms, block headers, targets and difficulty, merkle trees
-src/randomx  SuperscalarHash, the cache and dataset, the virtual machine, an
-             x86-64 assembler and the compilers built on it
-src/mine     the engine that schedules nonces across threads and the GPU,
-             the compute shaders and their Direct3D host
-src/net      sockets
-src/pool     stratum and Monero jobs, the client and the test pool
-src/render   the Direct2D surface for the window and for offscreen captures
-src/ui       the interface: shell, pages, widgets, icons and the mark
-src/app      the window, the mining session, settings and the command line
-src/tests    the Debug-only test suite
+src/base                 the standard library: memory, strings, text, bits, math
+                         and the runtime
+src/base/containers      list, ring and sort
+src/base/system          threads, clock, files, console, clipboard, COM and the
+                         hardware queries
+src/base/formats         JSON, PNG and GIF
+src/hash                 SHA-256 with and without the SHA extensions, scrypt,
+                         Blake2b, Argon2d, Keccak and the RandomX AES generators
+src/chain                algorithms, block headers, targets and difficulty, merkle
+                         trees and wallet address checks
+src/randomx              SuperscalarHash, the cache and dataset, the virtual
+                         machine, an x86-64 assembler and the compilers built on it
+src/mine                 the engine that schedules nonces across threads and cards
+src/mine/gpu             the Direct3D 11 host for the compute shaders
+src/mine/gpu/kernels     the SHA-256d and scrypt compute shaders
+src/net                  sockets and TLS
+src/pool                 stratum and Monero jobs, the client, presets and the
+                         test pool
+src/render               the Direct2D surface for the window and for captures
+src/ui                   the shell, widgets, icons, theme and the mark
+src/ui/pages             Overview, Activity and Settings
+src/app                  the window, the mining session, settings, the local API
+                         and the command line
+src/app/debug            the headless screenshot and clip recorder
+src/tests                the Debug-only test suite
+src/version.hh           the version, shared by the code and the resource file
 ```
+
+`alloy.vcxproj` picks up sources by wildcard and `alloy.vcxproj.filters` mirrors these folders in Solution Explorer. A new folder under `src` needs a matching filter there.
 
 ## Tests
 

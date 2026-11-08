@@ -46,6 +46,7 @@ namespace tests {
 
 		const wchar_t* name;
 		void ( *run ) ( );
+		bool slow = false;
 
 	};
 
@@ -57,9 +58,11 @@ namespace tests {
 		{ L"chain", chain_tests },
 		{ L"address", address_tests },
 		{ L"randomx", randomx_tests },
+		{ L"variants", variant_tests },
 		{ L"mining", mining_tests },
 		{ L"pool", pool_tests },
 		{ L"motion", motion_tests },
+		{ L"xmrig", benchmark_tests, true },
 
 	};
 
@@ -73,7 +76,9 @@ namespace tests {
 
 		for ( const group& item : groups ) {
 
-			if ( !only || !only [ 0 ] || base::same_text ( only, item.name ) )
+			bool named = only && only [ 0 ] && base::same_text ( only, item.name );
+
+			if ( named || ( !item.slow && ( !only || !only [ 0 ] ) ) )
 				item.run ( );
 
 		}

@@ -16,7 +16,7 @@ namespace chain {
 
 		{ L"SHA-256d", L"sha256d", L"Bitcoin, Bitcoin Cash", 4294901760.0 },
 		{ L"Scrypt", L"scrypt", L"Litecoin, Dogecoin", 281470681743360.0 },
-		{ L"RandomX", L"randomx", L"Monero", 18446744073709551616.0 },
+		{ L"RandomX", L"randomx", L"Monero, Wownero", 18446744073709551616.0 },
 
 	};
 

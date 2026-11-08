@@ -16,9 +16,9 @@ namespace randomx {
 
 	}
 
-	bool cache::build ( const void* seed, size_t size ) {
+	bool cache::build ( const void* seed, size_t size, uint8_t which ) {
 
-		static const char salt [ ] = "RandomX\x03";
+		const variant& rules = variant_of ( which );
 
 		if ( !blocks )
 			blocks = static_cast < hash::argon2_block* > ( base::allocate_large ( cache_bytes, large ) );
@@ -33,12 +33,20 @@ namespace randomx {
 		key_size = size;
 		base::zero ( key, sizeof ( key ) );
 		base::copy ( key, seed, size );
-		hash::argon2d_fill ( blocks, cache_blocks, 3, seed, size, salt, 8 );
+		built_kind = rules.id;
+
+		hash::argon2_input input;
+
+		input.password = seed;
+		input.password_size = size;
+		input.salt = rules.salt;
+		input.salt_size = rules.salt_size;
+		hash::argon2d_fill ( blocks, cache_blocks, rules.passes, rules.lanes, input );
 
 		seed_generator random ( seed, size );
 
 		for ( int32_t i = 0; i < cache_accesses; i++ )
-			generate_superscalar ( programs [ i ], random );
+			generate_superscalar ( programs [ i ], random, rules.latency );
 
 		native.build ( programs, cache_accesses );
 
@@ -46,9 +54,9 @@ namespace randomx {
 
 	}
 
-	bool cache::matches ( const void* seed, size_t size ) const {
+	bool cache::matches ( const void* seed, size_t size, uint8_t which ) const {
 
-		return blocks && size == key_size && base::same ( seed, key, size );
+		return blocks && size == key_size && which == built_kind && base::same ( seed, key, size );
 
 	}
 

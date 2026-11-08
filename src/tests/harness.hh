@@ -26,6 +26,10 @@ namespace tests {
 
 	void randomx_tests ( );
 
+	void variant_tests ( );
+
+	void benchmark_tests ( );
+
 	void mining_tests ( );
 
 	void pool_tests ( );

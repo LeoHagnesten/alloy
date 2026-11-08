@@ -47,6 +47,7 @@ namespace pool {
 		uint8_t seed [ 32 ] = { };
 		uint64_t height = 0;
 		char algo [ 16 ] = { };
+		uint8_t variant = 0;
 
 	};
 

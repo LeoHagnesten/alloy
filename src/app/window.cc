@@ -1,4 +1,5 @@
 #include "app/commands.hh"
+#include "app/journal.hh"
 #include "app/session.hh"
 #include "app/settings.hh"
 #include "ui/shell.hh"
@@ -850,11 +851,15 @@ namespace app {
 
 		}
 
+		open_journal ( );
+
 		host* self = create_host ( );
 
 		if ( !self->window || !self->surface.ready ( ) ) {
 
+			journal ( ui::LEVEL_ERROR, L"The window couldn't be created, Direct3D 11 or DirectComposition isn't available" );
 			destroy_host ( self );
+			close_journal ( );
 
 			if ( single )
 				CloseHandle ( single );
@@ -866,6 +871,23 @@ namespace app {
 		sync_tray ( *self );
 		sync_login ( *self );
 		self->run->apply ( self->settings );
+		self->run->check_kernels ( );
+
+		wchar_t report [ base::path_room ];
+		bool unclean = false;
+
+		if ( previous_crash ( report, base::path_room, unclean ) ) {
+
+			base::text line;
+
+			if ( report [ 0 ] )
+				line.add ( L"Alloy crashed last time. The report is at " ).add ( report );
+			else
+				line.add ( L"Alloy didn't close cleanly last time, after a power cut or a forced close" );
+
+			self->run->log ( ui::LEVEL_WARNING, line.get ( ) );
+
+		}
 
 		if ( !minimized )
 			ShowWindow ( self->window, SW_SHOW );
@@ -878,6 +900,7 @@ namespace app {
 		pump ( self, -1.0 );
 		self->window = nullptr;
 		destroy_host ( self );
+		close_journal ( );
 
 		if ( single )
 			CloseHandle ( single );

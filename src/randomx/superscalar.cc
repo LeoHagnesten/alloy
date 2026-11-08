@@ -412,9 +412,9 @@ namespace randomx {
 
 	}
 
-	static int32_t schedule_uop ( uint8_t uop, uint8_t ( *busy ) [ 3 ], int32_t cycle, bool commit ) {
+	static int32_t schedule_uop ( uint8_t uop, uint8_t ( *busy ) [ 3 ], int32_t cycle, bool commit, int32_t limit ) {
 
-		for ( ; cycle < cycle_room; cycle++ ) {
+		for ( ; cycle < limit; cycle++ ) {
 
 			if ( ( uop & PORT_5 ) && !busy [ cycle ] [ 2 ] ) {
 
@@ -449,7 +449,7 @@ namespace randomx {
 
 	}
 
-	static int32_t schedule_op ( const macro_op& op, uint8_t ( *busy ) [ 3 ], int32_t cycle, int32_t ready, bool commit ) {
+	static int32_t schedule_op ( const macro_op& op, uint8_t ( *busy ) [ 3 ], int32_t cycle, int32_t ready, bool commit, int32_t limit ) {
 
 		if ( op.dependent )
 			cycle = base::max ( cycle, ready );
@@ -458,19 +458,19 @@ namespace randomx {
 			return cycle;
 
 		if ( op.second == PORT_NONE )
-			return schedule_uop ( op.first, busy, cycle, commit );
+			return schedule_uop ( op.first, busy, cycle, commit, limit );
 
-		for ( ; cycle < cycle_room; cycle++ ) {
+		for ( ; cycle < limit; cycle++ ) {
 
-			int32_t first = schedule_uop ( op.first, busy, cycle, false );
-			int32_t second = schedule_uop ( op.second, busy, cycle, false );
+			int32_t first = schedule_uop ( op.first, busy, cycle, false, limit );
+			int32_t second = schedule_uop ( op.second, busy, cycle, false, limit );
 
 			if ( first >= 0 && first == second ) {
 
 				if ( commit ) {
 
-					schedule_uop ( op.first, busy, first, true );
-					schedule_uop ( op.second, busy, second, true );
+					schedule_uop ( op.first, busy, first, true, limit );
+					schedule_uop ( op.second, busy, second, true, limit );
 
 				}
 
@@ -484,7 +484,7 @@ namespace randomx {
 
 	}
 
-	void generate_superscalar ( scalar_program& out, seed_generator& random ) {
+	void generate_superscalar ( scalar_program& out, seed_generator& random, int32_t latency ) {
 
 		uint8_t busy [ cycle_room ] [ 3 ] = { };
 		register_state registers [ 8 ];
@@ -497,7 +497,9 @@ namespace randomx {
 		int32_t multiplications = 0;
 		int32_t thrown = 0;
 
-		for ( int32_t decode_cycle = 0; decode_cycle < superscalar_latency && !saturated && size < superscalar_room; decode_cycle++ ) {
+		int32_t room = base::min ( 3 * latency + 2, superscalar_room );
+
+		for ( int32_t decode_cycle = 0; decode_cycle < latency && !saturated && size < room; decode_cycle++ ) {
 
 			const decoder& buffer = next_decoder ( current.info->type, decode_cycle, multiplications, random );
 			int32_t slot = 0;
@@ -508,7 +510,7 @@ namespace randomx {
 
 				if ( op_index >= current.info->count ) {
 
-					if ( saturated || size >= superscalar_room )
+					if ( saturated || size >= room )
 						break;
 
 					create_for_slot ( current, random, buffer.slots [ slot ], buffer.index, buffer.count == slot + 1 );
@@ -517,7 +519,7 @@ namespace randomx {
 				}
 
 				const macro_op& op = current.info->ops [ op_index ];
-				int32_t when = schedule_op ( op, busy, cycle, ready, false );
+				int32_t when = schedule_op ( op, busy, cycle, ready, false, latency + 4 );
 
 				if ( when < 0 ) {
 
@@ -588,7 +590,7 @@ namespace randomx {
 				}
 
 				thrown = 0;
-				when = schedule_op ( op, busy, when, when, true );
+				when = schedule_op ( op, busy, when, when, true, latency + 4 );
 
 				if ( when < 0 ) {
 
@@ -613,7 +615,7 @@ namespace randomx {
 				slot++;
 				op_index++;
 
-				if ( when >= superscalar_latency )
+				if ( when >= latency )
 					saturated = true;
 
 				cycle = top;

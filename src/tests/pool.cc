@@ -1,6 +1,7 @@
 #ifdef ALLOY_DEBUG
 
 #include "tests/harness.hh"
+#include "randomx/variant.hh"
 #include "app/session.hh"
 #include "pool/test_pool.hh"
 #include "net/socket.hh"
@@ -191,6 +192,72 @@ namespace tests {
 		}
 		check ( flowing && rejected == 0 && server->accepted ( ) >= accepted && server->rejected ( ) == 0 && ( !gpu || gpu_used ), note.get ( ) );
 
+		delete run;
+		server->stop ( );
+		delete server;
+
+	}
+
+	static void follow_switches ( ) {
+
+		pool::test_server* server = new pool::test_server;
+		pool::server_settings config;
+
+		config.algorithm = chain::ALGORITHM_RANDOMX;
+		config.port = 0;
+		config.difficulty = 100.0;
+		config.job_seconds = 4;
+		config.variant = randomx::VARIANT_WOW;
+		config.switch_jobs = 2;
+
+		if ( !server->start ( config ) ) {
+
+			check ( false, L"the switching test pool starts" );
+			delete server;
+
+			return;
+
+		}
+
+		while ( !server->ready ( ) )
+			base::sleep ( 10 );
+
+		app::session* run = new app::session;
+		ui::preferences settings;
+		base::writer < wchar_t, 64 > address;
+		uint32_t seen = 0;
+		uint32_t accepted_before = 0;
+		uint32_t accepted_after = 0;
+
+		address.add ( L"127.0.0.1:" ).number ( server->port ( ) );
+		settings.algorithm = chain::ALGORITHM_RANDOMX;
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
+		settings.threads = run->processor ( ).threads;
+		settings.full_dataset = false;
+		settings.variant = randomx::VARIANT_RX0;
+		run->start ( settings );
+
+		bool followed = wait_until ( *run, settings, 40.0, [ & ] ( const ui::snapshot& view ) {
+
+			seen |= 1u << view.variant;
+
+			int32_t switches = count_logs ( view, L"The pool switched to " );
+
+			if ( !switches )
+				accepted_before = view.accepted;
+			else if ( switches >= 1 && view.accepted > accepted_before )
+				accepted_after = view.accepted - accepted_before;
+
+			return accepted_before > 0 && accepted_after > 0 && switches >= 1;
+
+		} );
+
+		const ui::snapshot& view = run->view ( );
+		base::text note;
+
+		note.add ( L"Alloy follows a pool that switches from RandomWOW to RandomARQ mid-session and keeps getting shares accepted (" ).number ( accepted_before ).add ( L" before, " ).number ( accepted_after ).add ( L" after, pool rejected " ).number ( server->rejected ( ) ).put ( L')' );
+		run->stop ( );
+		check ( followed && server->rejected ( ) == 0 && ( seen & ( 1u << randomx::VARIANT_WOW ) ) && view.rejected == 0, note.get ( ) );
 		delete run;
 		server->stop ( );
 		delete server;
@@ -427,6 +494,7 @@ namespace tests {
 
 		mine_on ( chain::ALGORITHM_SCRYPT, 2.0, 0, true, 8, 25.0 );
 		mine_on ( chain::ALGORITHM_RANDOMX, 1000.0, 2, false, 8, 45.0, true );
+		follow_switches ( );
 
 	}
 

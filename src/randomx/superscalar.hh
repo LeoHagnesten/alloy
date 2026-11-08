@@ -67,7 +67,7 @@ namespace randomx {
 
 	uint64_t reciprocal ( uint32_t divisor );
 
-	void generate_superscalar ( scalar_program& out, seed_generator& random );
+	void generate_superscalar ( scalar_program& out, seed_generator& random, int32_t latency = superscalar_latency );
 
 	void run_superscalar ( uint64_t* r, const scalar_program& program );
 

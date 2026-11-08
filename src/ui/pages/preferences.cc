@@ -2,6 +2,7 @@
 #include "version.hh"
 #include "chain/address.hh"
 #include "pool/presets.hh"
+#include "randomx/variant.hh"
 #include "base/math.hh"
 #include "base/text.hh"
 
@@ -121,6 +122,17 @@ namespace ui {
 
 		if ( kind == chain::ALGORITHM_SHA256D )
 			segmented ( surface, row ( L"Hash kernel", view.sha ? L"Auto uses the CPU's SHA instructions, about three times faster than the portable code." : L"This CPU has no SHA instructions, so Auto runs the portable code.", 324.0f, 30.0f ), kernels, 3, settings.kernel, CONTROL_CHOICE, SETTING_KERNEL * 16, true, now );
+
+		if ( kind == chain::ALGORITHM_RANDOMX ) {
+
+			static const wchar_t* const coins [ randomx::VARIANT_COUNT ] = { L"Monero", L"RX v2", L"Wownero", L"ArQmA", L"Graft", L"Safex", L"Yada", L"Keva", L"Equilibria" };
+			const randomx::variant& rules = randomx::variant_of ( settings.variant );
+
+			tip.clear ( );
+			tip.add ( rules.name ).add ( L" for " ).add ( rules.coin ).add ( L". Pools that switch coins override this, and Alloy follows them without restarting." );
+			segmented ( surface, row ( L"Coin", tip.get ( ), 612.0f, 30.0f ), coins, randomx::VARIANT_COUNT, settings.variant, CONTROL_CHOICE, SETTING_VARIANT * 16, true, now );
+
+		}
 
 		if ( kind == chain::ALGORITHM_RANDOMX )
 			segmented ( surface, row ( L"Dataset", L"Full hashes about three times faster but keeps 2 GB of memory busy. Light gets by on 256 MB.", 252.0f, 30.0f ), datasets, 2, settings.full_dataset ? 0 : 1, CONTROL_CHOICE, SETTING_DATASET * 16, true, now );

@@ -1,5 +1,6 @@
 #include "pool/job.hh"
 #include "chain/merkle.hh"
+#include "randomx/variant.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -147,7 +148,7 @@ namespace pool {
 		out.add ( "{\"blob\":\"" ).hex ( work.blob, static_cast < size_t > ( work.blob_size ), false ).add ( "\",\"job_id\":" );
 		base::add_json_string ( out, work.id );
 		out.add ( ",\"target\":\"" ).hex ( target, 8, false ).add ( "\",\"height\":" ).number ( work.height );
-		out.add ( ",\"seed_hash\":\"" ).hex ( work.seed, 32, false ).add ( "\",\"algo\":\"rx/0\"}" );
+		out.add ( ",\"seed_hash\":\"" ).hex ( work.seed, 32, false ).add ( "\",\"algo\":\"" ).add ( randomx::variant_of ( work.variant ).key ).add ( "\"}" );
 
 	}
 

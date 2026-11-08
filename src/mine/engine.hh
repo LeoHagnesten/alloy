@@ -35,6 +35,7 @@ namespace mine {
 		uint32_t blob_size = 0;
 		uint32_t nonce_at = 0;
 		uint8_t seed [ 32 ] = { };
+		uint8_t variant = 0;
 		uint8_t target [ 32 ] = { };
 		uint64_t index = 0;
 		uint32_t job = 0;
@@ -210,6 +211,18 @@ namespace mine {
 
 		}
 
+		uint32_t gpu_restarts ( uint32_t index ) const {
+
+			return base::atomic_load ( gpus [ index ].restarts );
+
+		}
+
+		uint32_t gpu_trimmed ( uint32_t index ) const {
+
+			return base::atomic_load ( gpus [ index ].trimmed );
+
+		}
+
 		uint32_t gpu_errors ( ) const;
 
 		const wchar_t* gpu_name ( ) const {
@@ -221,6 +234,12 @@ namespace mine {
 		const wchar_t* gpu_name ( uint32_t index ) const {
 
 			return gpus [ index ].label;
+
+		}
+
+		uint8_t dataset_variant ( ) const {
+
+			return static_cast < uint8_t > ( base::atomic_load ( rx_kind ) );
 
 		}
 
@@ -268,6 +287,8 @@ namespace mine {
 			volatile uint32_t phase = GPU_OFF;
 			volatile uint32_t faults = 0;
 			volatile uint32_t heat = 0;
+			volatile uint32_t restarts = 0;
+			volatile uint32_t trimmed = 0;
 			wchar_t label [ 128 ] = { };
 
 		};
@@ -297,7 +318,7 @@ namespace mine {
 
 		void leave_dataset ( );
 
-		void build_dataset ( const uint8_t* seed );
+		void build_dataset ( const uint8_t* seed, uint8_t kind );
 
 		feeder* source = nullptr;
 		hash::compressor compress = hash::sha256_block;
@@ -328,6 +349,7 @@ namespace mine {
 		randomx::cache* rx_cache = nullptr;
 		randomx::dataset* rx_dataset = nullptr;
 		uint8_t rx_seed [ 32 ] = { };
+		volatile uint32_t rx_kind = 0;
 		uint32_t rx_built_for = 0;
 		double rx_seconds = 0.0;
 		bool rx_large = false;

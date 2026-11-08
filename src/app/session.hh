@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/api.hh"
+#include "app/self_test.hh"
 #include "ui/model.hh"
 #include "mine/engine.hh"
 #include "mine/offline.hh"
@@ -29,6 +30,8 @@ namespace app {
 		void log ( uint8_t level, const wchar_t* text );
 
 		void clear_log ( );
+
+		void check_kernels ( );
 
 		void set_genesis_start ( uint32_t nonce ) {
 
@@ -88,6 +91,12 @@ namespace app {
 
 	private:
 
+		static unsigned long check_main ( void* context );
+
+		void finish_check ( const ui::preferences& settings );
+
+		mine::limits limits_for ( const ui::preferences& settings ) const;
+
 		void sync_api ( const ui::preferences& settings );
 
 		void publish ( const ui::preferences& settings );
@@ -111,6 +120,7 @@ namespace app {
 		uint8_t algorithm = chain::ALGORITHM_SHA256D;
 		uint32_t adapter = 0;
 		uint8_t kernel = 0;
+		uint8_t variant = 0;
 		double started = 0.0;
 		double last_sample = 0.0;
 		double last_tick = 0.0;
@@ -118,6 +128,8 @@ namespace app {
 		uint64_t last_gpu = 0;
 		uint64_t lane_last [ ui::lane_room ] = { };
 		uint64_t gpu_last [ ui::gpu_room ] = { };
+		uint32_t gpu_restarts_seen [ ui::gpu_room ] = { };
+		uint32_t gpu_trims_seen [ ui::gpu_room ] = { };
 		status_api api;
 		uint32_t api_port = 0;
 		double published = 0.0;
@@ -127,6 +139,10 @@ namespace app {
 		char pin_learned [ 65 ] = { };
 		bool paused = false;
 		uint32_t genesis_from = 0;
+		void* checker = nullptr;
+		self_report* checked = nullptr;
+		bool portable_only = false;
+		uint32_t broken_cards [ chain::ALGORITHM_COUNT ] = { };
 
 	};
 

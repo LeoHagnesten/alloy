@@ -1,4 +1,5 @@
 #include "app/session.hh"
+#include "app/journal.hh"
 #include "version.hh"
 #include "chain/target.hh"
 #include "mine/gpu/device.hh"
@@ -164,7 +165,103 @@ namespace app {
 	session::~session ( ) {
 
 		stop ( );
+
+		if ( checker ) {
+
+			base::join_thread ( checker );
+			checker = nullptr;
+
+		}
+
+		delete checked;
 		delete shown;
+
+	}
+
+	mine::limits session::limits_for ( const ui::preferences& settings ) const {
+
+		mine::limits out = limits_of ( settings, shown->adapter_count );
+		uint32_t broken = broken_cards [ out.algorithm % chain::ALGORITHM_COUNT ];
+		uint32_t kept = 0;
+
+		if ( portable_only )
+			out.choice = mine::KERNEL_PORTABLE;
+
+		for ( uint32_t i = 0; i < out.adapter_count; i++ ) {
+
+			if ( !( broken & 1u << out.adapters [ i ] ) )
+				out.adapters [ kept++ ] = out.adapters [ i ];
+
+		}
+
+		out.adapter_count = kept;
+		out.gpu = out.gpu && kept > 0;
+
+		return out;
+
+	}
+
+	unsigned long session::check_main ( void* context ) {
+
+		session* self = static_cast < session* > ( context );
+
+		base::set_thread_priority ( base::PRIORITY_LOW );
+		run_self_test ( *self->checked, false );
+
+		return 0;
+
+	}
+
+	void session::check_kernels ( ) {
+
+		if ( checker )
+			return;
+
+		checked = new self_report;
+		checker = base::start_thread ( &check_main, this );
+
+	}
+
+	void session::finish_check ( const ui::preferences& settings ) {
+
+		base::join_thread ( checker );
+		checker = nullptr;
+
+		const self_report& report = *checked;
+		base::text line;
+
+		if ( !report.failed ) {
+
+			line.add ( L"Self-test passed: " ).number ( static_cast < uint64_t > ( report.count ) ).add ( L" kernel checks in " ).decimal ( report.seconds, 1 ).add ( L" s" );
+			log ( ui::LEVEL_INFO, line.get ( ) );
+
+		} else {
+
+			for ( int32_t i = 0; i < report.count; i++ ) {
+
+				const check_result& item = report.checks [ i ];
+
+				if ( item.passed || item.skipped )
+					continue;
+
+				line.clear ( );
+				line.add ( L"Self-test failed: " ).add ( item.name ).add ( L". Alloy won't use that kernel." );
+				log ( ui::LEVEL_ERROR, line.get ( ) );
+
+			}
+
+		}
+
+		bool restrict = !report.sha_extensions || report.broken_sha_cards || report.broken_scrypt_cards;
+
+		portable_only = !report.sha_extensions;
+		broken_cards [ chain::ALGORITHM_SHA256D ] = report.broken_sha_cards;
+		broken_cards [ chain::ALGORITHM_SCRYPT ] = report.broken_scrypt_cards;
+		delete checked;
+		checked = nullptr;
+
+		if ( restrict && active )
+			start ( settings );
 
 	}
 
@@ -178,6 +275,7 @@ namespace app {
 		mode = settings.mode;
 		adapter = settings.adapter;
 		kernel = settings.kernel;
+		variant = settings.variant;
 		algorithm = algorithm_of ( settings );
 		view.mode = mode;
 		view.algorithm = algorithm;
@@ -224,6 +322,8 @@ namespace app {
 			engine.release_dataset ( );
 
 		benchmark.set_algorithm ( algorithm );
+		benchmark.set_variant ( settings.variant );
+		view.variant = settings.variant;
 
 		if ( mode == ui::MODE_POOL ) {
 
@@ -231,6 +331,7 @@ namespace app {
 			const ui::pool_profile& profile = settings.pool ( );
 
 			link.algorithm = algorithm;
+			link.variant = settings.variant;
 			base::copy_text ( link.address, base::count_of ( link.address ), profile.address );
 			base::copy_text ( link.backup, base::count_of ( link.backup ), profile.backup );
 			base::copy_text ( link.pin, sizeof ( link.pin ), profile.pin );
@@ -247,7 +348,7 @@ namespace app {
 
 		}
 
-		engine.start ( feed, limits_of ( settings, shown->adapter_count ) );
+		engine.start ( feed, limits_for ( settings ) );
 		active = true;
 		paused = false;
 		started = base::seconds ( );
@@ -256,6 +357,8 @@ namespace app {
 		last_total = 0;
 		last_gpu = 0;
 		base::zero ( gpu_last, sizeof ( gpu_last ) );
+		base::zero ( gpu_restarts_seen, sizeof ( gpu_restarts_seen ) );
+		base::zero ( gpu_trims_seen, sizeof ( gpu_trims_seen ) );
 		pin_serial = 0;
 		pin_waiting = false;
 		view.gpu_count = 0;
@@ -325,7 +428,7 @@ namespace app {
 
 		sync_api ( settings );
 
-		if ( active && ( settings.mode != mode || settings.adapter != adapter || settings.kernel != kernel || algorithm_of ( settings ) != algorithm ) ) {
+		if ( active && ( settings.mode != mode || settings.adapter != adapter || settings.kernel != kernel || algorithm_of ( settings ) != algorithm || ( algorithm == chain::ALGORITHM_RANDOMX && settings.variant != variant ) ) ) {
 
 			start ( settings );
 
@@ -335,7 +438,7 @@ namespace app {
 
 		if ( active ) {
 
-			engine.apply ( limits_of ( settings, shown->adapter_count ) );
+			engine.apply ( limits_for ( settings ) );
 			shown->extensions = engine.uses_extensions ( );
 
 		}
@@ -361,6 +464,7 @@ namespace app {
 		row.level = level;
 		base::copy_text ( row.text, base::count_of ( row.text ), text );
 		view.log_serial++;
+		journal ( level, text );
 
 	}
 
@@ -567,6 +671,29 @@ namespace app {
 
 			view.gpu_states [ i ] = gpu_phase_of ( engine.gpu_status ( static_cast < uint32_t > ( i ) ) );
 			view.gpu_heat [ i ] = engine.gpu_temperature ( static_cast < uint32_t > ( i ) );
+
+			uint32_t restarts = engine.gpu_restarts ( static_cast < uint32_t > ( i ) );
+			uint32_t trims = engine.gpu_trimmed ( static_cast < uint32_t > ( i ) );
+
+			if ( restarts > gpu_restarts_seen [ i ] ) {
+
+				base::text line;
+
+				gpu_restarts_seen [ i ] = restarts;
+				line.add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) ).add ( L" stopped responding, so Alloy is restarting it" );
+				log ( ui::LEVEL_WARNING, line.get ( ) );
+
+			}
+
+			if ( trims > gpu_trims_seen [ i ] ) {
+
+				base::text line;
+
+				gpu_trims_seen [ i ] = trims;
+				line.add ( L"Halved the batch on " ).add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) ).add ( L" so each one stays well under Windows' two-second GPU timeout" );
+				log ( ui::LEVEL_WARNING, line.get ( ) );
+
+			}
 			base::copy_text ( view.gpu_names [ i ], base::count_of ( view.gpu_names [ i ] ), engine.gpu_name ( static_cast < uint32_t > ( i ) ) );
 
 		}
@@ -631,6 +758,10 @@ namespace app {
 
 			view.nicehash = link.nicehash;
 			view.blob_size = link.blob_size;
+
+			if ( link.has_job && algorithm == chain::ALGORITHM_RANDOMX )
+				view.variant = link.variant;
+
 			base::copy ( view.seed, link.seed, 32 );
 			base::copy ( view.previous, link.previous, 32 );
 			base::copy_text ( view.job, base::count_of ( view.job ), link.job );
@@ -688,6 +819,9 @@ namespace app {
 		uint64_t logs = shown->log_serial;
 		uint64_t shares = shown->share_serial;
 		bool changed = false;
+
+		if ( checker && base::thread_finished ( checker ) )
+			finish_check ( settings );
 
 		drain_pool ( );
 

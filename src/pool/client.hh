@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pool/job.hh"
+#include "version.hh"
 #include "mine/engine.hh"
 #include "base/system/clock.hh"
 #include "base/containers/ring.hh"
@@ -13,7 +14,7 @@ namespace net {
 
 namespace pool {
 
-	static constexpr const char* agent = "alloy/0.3";
+	static constexpr const char* agent = "alloy/" ALLOY_VERSION_TEXT;
 
 	enum link_state : uint8_t {
 
@@ -52,6 +53,7 @@ namespace pool {
 	struct settings {
 
 		uint8_t algorithm = chain::ALGORITHM_SHA256D;
+		uint8_t variant = 0;
 		wchar_t address [ 256 ] = { };
 		wchar_t backup [ 256 ] = { };
 		wchar_t worker [ 128 ] = { };
@@ -81,6 +83,7 @@ namespace pool {
 		uint64_t height = 0;
 		int32_t blob_size = 0;
 		uint8_t seed [ 32 ] = { };
+		uint8_t variant = 0;
 		bool on_backup = false;
 		bool nicehash = false;
 		char learned_pin [ 65 ] = { };

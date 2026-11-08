@@ -1,0 +1,195 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="assets">
+      <UniqueIdentifier>{2C8A728F-0249-3C79-6E83-FB5D71B6932C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="props">
+      <UniqueIdentifier>{89AC86E4-A4DB-3EC6-3CC6-847546035CA0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{D7C5B777-8FBA-DDFB-D35A-06D30B4E0186}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\app">
+      <UniqueIdentifier>{EE83D064-8127-332B-6181-D1B3CC341460}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\app\debug">
+      <UniqueIdentifier>{9DC5965B-F9B4-24D0-F115-EB9220B1A558}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\base">
+      <UniqueIdentifier>{D558997B-8C67-0195-1704-94F5DFA579A1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\base\containers">
+      <UniqueIdentifier>{0C4D7CE2-7BA2-8473-8A57-3FAF475F0A98}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\base\formats">
+      <UniqueIdentifier>{6323C55A-F7DF-E89C-AE67-0216CB1A8C2C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\base\system">
+      <UniqueIdentifier>{0639255C-FB48-38D8-41E5-0666211B2D95}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\chain">
+      <UniqueIdentifier>{638AD11E-1F69-F4A2-EB47-BF79628063BC}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\hash">
+      <UniqueIdentifier>{11E30CDA-19EC-B1A6-B3F1-03BBE6461908}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\mine">
+      <UniqueIdentifier>{B73342ED-7C40-195F-757C-C553F6D04169}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\mine\gpu">
+      <UniqueIdentifier>{C075E12D-85B8-27B2-9A3F-5262C26EBFF3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\mine\gpu\kernels">
+      <UniqueIdentifier>{4389E79E-846F-DC4D-24E0-AD9411D7A15E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\net">
+      <UniqueIdentifier>{FF9A854A-A4C0-C31B-6ACD-F7DA47827B0E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\pool">
+      <UniqueIdentifier>{14F3ED46-4F51-00A7-5CDC-EF1D51621745}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\randomx">
+      <UniqueIdentifier>{07F64817-68C2-6887-CDEB-5DD5F5B56FCB}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\render">
+      <UniqueIdentifier>{DEF88993-F0A2-19F2-5899-3955A93F93D8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\tests">
+      <UniqueIdentifier>{FC16BBC7-AA81-7C49-D5B4-AEE520B8BB1F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\ui">
+      <UniqueIdentifier>{02F2249F-8D8E-8AA2-5693-152C13E13F40}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\ui\pages">
+      <UniqueIdentifier>{35FB3E2F-83E0-AE17-DC64-37B8FEAB79D6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\app\*.cc">
+      <Filter>src\app</Filter>
+    </ClCompile>
+    <ClCompile Include="src\app\debug\*.cc">
+      <Filter>src\app\debug</Filter>
+    </ClCompile>
+    <ClCompile Include="src\base\*.cc">
+      <Filter>src\base</Filter>
+    </ClCompile>
+    <ClCompile Include="src\base\formats\*.cc">
+      <Filter>src\base\formats</Filter>
+    </ClCompile>
+    <ClCompile Include="src\base\system\*.cc">
+      <Filter>src\base\system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\chain\*.cc">
+      <Filter>src\chain</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hash\*.cc">
+      <Filter>src\hash</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mine\*.cc">
+      <Filter>src\mine</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mine\gpu\*.cc">
+      <Filter>src\mine\gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="src\net\*.cc">
+      <Filter>src\net</Filter>
+    </ClCompile>
+    <ClCompile Include="src\pool\*.cc">
+      <Filter>src\pool</Filter>
+    </ClCompile>
+    <ClCompile Include="src\randomx\*.cc">
+      <Filter>src\randomx</Filter>
+    </ClCompile>
+    <ClCompile Include="src\render\*.cc">
+      <Filter>src\render</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests\*.cc">
+      <Filter>src\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\*.cc">
+      <Filter>src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\pages\*.cc">
+      <Filter>src\ui\pages</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\*.hh">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\app\*.hh">
+      <Filter>src\app</Filter>
+    </ClInclude>
+    <ClInclude Include="src\base\*.hh">
+      <Filter>src\base</Filter>
+    </ClInclude>
+    <ClInclude Include="src\base\containers\*.hh">
+      <Filter>src\base\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\base\formats\*.hh">
+      <Filter>src\base\formats</Filter>
+    </ClInclude>
+    <ClInclude Include="src\base\system\*.hh">
+      <Filter>src\base\system</Filter>
+    </ClInclude>
+    <ClInclude Include="src\chain\*.hh">
+      <Filter>src\chain</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hash\*.hh">
+      <Filter>src\hash</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mine\*.hh">
+      <Filter>src\mine</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mine\gpu\*.hh">
+      <Filter>src\mine\gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="src\net\*.hh">
+      <Filter>src\net</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pool\*.hh">
+      <Filter>src\pool</Filter>
+    </ClInclude>
+    <ClInclude Include="src\randomx\*.hh">
+      <Filter>src\randomx</Filter>
+    </ClInclude>
+    <ClInclude Include="src\render\*.hh">
+      <Filter>src\render</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tests\*.hh">
+      <Filter>src\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui\*.hh">
+      <Filter>src\ui</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="src\mine\gpu\kernels\*.hlsl">
+      <Filter>src\mine\gpu\kernels</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\mine\gpu\kernels\*.hlsli">
+      <Filter>src\mine\gpu\kernels</Filter>
+    </None>
+    <None Include="assets\alloy.manifest">
+      <Filter>assets</Filter>
+    </None>
+    <None Include="props\alloy.props">
+      <Filter>props</Filter>
+    </None>
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="assets\alloy.ico">
+      <Filter>assets</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="assets\alloy.rc">
+      <Filter>assets</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>

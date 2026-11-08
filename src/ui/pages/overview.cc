@@ -1,5 +1,6 @@
 #include "ui/shell.hh"
 #include "chain/target.hh"
+#include "randomx/variant.hh"
 #include "base/bits.hh"
 #include "base/math.hh"
 #include "base/memory.hh"
@@ -26,6 +27,16 @@ namespace ui {
 		static const wchar_t* const names [ ] = { L"Offline", L"Connecting", L"Signing in", L"Connected", L"Reconnecting", L"Refused" };
 
 		return names [ phase < 6 ? phase : 0 ];
+
+	}
+
+	static void variant_label ( base::text& out, uint8_t kind ) {
+
+		const randomx::variant& rules = randomx::variant_of ( kind );
+		wchar_t key [ 16 ];
+
+		base::widen ( key, base::count_of ( key ), rules.key );
+		out.add ( rules.name ).add ( L", " ).add ( key );
 
 	}
 
@@ -500,6 +511,9 @@ namespace ui {
 			if ( view.algorithm == chain::ALGORITHM_RANDOMX ) {
 
 				value.clear ( );
+				variant_label ( value, view.variant );
+				property ( surface, x, y, wide, L"Algorithm", value.get ( ) );
+				value.clear ( );
 				value.grouped ( view.height );
 				property ( surface, x, y, wide, L"Height", value.get ( ) );
 				hash_property ( surface, x, y, wide, L"Seed hash", view.seed );
@@ -549,6 +563,10 @@ namespace ui {
 				if ( view.dataset == DATASET_BUILDING )
 					value.add ( L", " ).number ( view.dataset_progress / 10 ).put ( L'%' );
 
+				base::text named;
+
+				variant_label ( named, view.variant );
+				property ( surface, x, y, wide, L"Variant", named.get ( ) );
 				property ( surface, x, y, wide, L"Input", L"Monero block blob, 76 bytes" );
 				property ( surface, x, y, wide, L"Processor kernel", view.aes ? L"Interpreter with AES-NI" : L"Interpreter, software AES" );
 				property ( surface, x, y, wide, L"Dataset", value.get ( ) );

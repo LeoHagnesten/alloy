@@ -105,6 +105,7 @@ namespace ui {
 
 		};
 		bool full_dataset = true;
+		uint8_t variant = 0;
 		bool cpu = true;
 		uint32_t threads = 0;
 		uint32_t cpu_limit = 100;
@@ -214,6 +215,7 @@ namespace ui {
 		uint64_t height = 0;
 		int32_t blob_size = 0;
 		uint8_t seed [ 32 ] = { };
+		uint8_t variant = 0;
 		bool aes = false;
 		wchar_t status [ 160 ] = { };
 		wchar_t pause_reason [ 80 ] = { };

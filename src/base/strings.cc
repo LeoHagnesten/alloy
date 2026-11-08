@@ -60,6 +60,21 @@ namespace base {
 
 	}
 
+	bool same_folded ( const char* a, const char* b ) {
+
+		int32_t i = 0;
+
+		for ( ; a [ i ] && b [ i ]; i++ ) {
+
+			if ( folded ( a [ i ] ) != folded ( b [ i ] ) )
+				return false;
+
+		}
+
+		return a [ i ] == b [ i ];
+
+	}
+
 	bool same_text ( const char* a, const char* b ) {
 
 		int32_t i = 0;

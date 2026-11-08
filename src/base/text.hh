@@ -153,6 +153,12 @@ namespace base {
 
 		}
 
+		writer& hex64 ( uint64_t value ) {
+
+			return hex32 ( static_cast < uint32_t > ( value >> 32 ) ).hex32 ( static_cast < uint32_t > ( value ) );
+
+		}
+
 		writer& scaled ( double value, const unit* name ) {
 
 			static constexpr char prefixes [ ] = { 0, 'k', 'M', 'G', 'T', 'P', 'E' };

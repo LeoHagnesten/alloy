@@ -382,7 +382,7 @@ namespace mine {
 
 		base::atomic_add ( rx_users, 1u );
 
-		if ( base::atomic_load ( rx_ready ) && rx_built_for == base::atomic_load ( rx_full ) && base::same ( rx_seed, work.seed, 32 ) ) {
+		if ( base::atomic_load ( rx_ready ) && rx_built_for == base::atomic_load ( rx_full ) && base::atomic_load ( rx_kind ) == work.variant && base::same ( rx_seed, work.seed, 32 ) ) {
 
 			uint32_t generation = base::atomic_load ( rx_generation );
 
@@ -392,7 +392,7 @@ namespace mine {
 			if ( !kit.machine )
 				kit.machine = new randomx::machine;
 
-			if ( kit.machine->open ( rx_cache, base::atomic_load ( rx_state ) == DATASET_FULL ? rx_dataset : nullptr ) ) {
+			if ( kit.machine->open ( rx_cache, base::atomic_load ( rx_state ) == DATASET_FULL ? rx_dataset : nullptr, work.variant ) ) {
 
 				kit.generation = generation;
 
@@ -403,7 +403,7 @@ namespace mine {
 		}
 
 		base::atomic_add ( rx_users, ~0u );
-		build_dataset ( work.seed );
+		build_dataset ( work.seed, work.variant );
 
 		return false;
 
@@ -415,14 +415,14 @@ namespace mine {
 
 	}
 
-	void engine::build_dataset ( const uint8_t* seed ) {
+	void engine::build_dataset ( const uint8_t* seed, uint8_t kind ) {
 
 		if ( !base::atomic_replace ( rx_building, 0u, 1u ) )
 			return;
 
 		uint32_t full = base::atomic_load ( rx_full );
 
-		if ( base::atomic_load ( rx_ready ) && rx_built_for == full && base::same ( rx_seed, seed, 32 ) ) {
+		if ( base::atomic_load ( rx_ready ) && rx_built_for == full && base::atomic_load ( rx_kind ) == kind && base::same ( rx_seed, seed, 32 ) ) {
 
 			base::atomic_store ( rx_building, 0u );
 
@@ -443,7 +443,7 @@ namespace mine {
 		if ( !rx_cache )
 			rx_cache = new randomx::cache;
 
-		bool built = rx_cache->build ( seed, 32 );
+		bool built = rx_cache->build ( seed, 32, kind );
 		uint32_t state = DATASET_LIGHT;
 
 		if ( built && full ) {
@@ -471,10 +471,11 @@ namespace mine {
 
 		rx_large = state == DATASET_FULL && rx_dataset->large_pages ( );
 
-		uint64_t fitting = level3 * ( rx_large ? 4 : 3 ) / 4 / randomx::scratchpad_bytes;
+		uint64_t fitting = level3 * ( rx_large ? 4 : 3 ) / 4 / randomx::variant_of ( kind ).level3;
 
 		base::atomic_store ( rx_lanes, level3 ? static_cast < uint32_t > ( base::clamp ( fitting, 1ull, static_cast < uint64_t > ( lane_count ) ) ) : lane_count );
 		base::copy ( rx_seed, seed, 32 );
+		base::atomic_store ( rx_kind, static_cast < uint32_t > ( kind ) );
 		rx_built_for = full;
 		rx_seconds = base::seconds ( ) - began;
 		base::atomic_add ( rx_generation, 1u );
@@ -613,6 +614,11 @@ namespace mine {
 
 	void engine::run_gpu ( gpu_slot& self ) {
 
+		static constexpr double backoff [ ] = { 2.0, 5.0, 15.0, 30.0, 60.0 };
+		static constexpr uint32_t restart_limit = 6;
+		static constexpr double restart_window = 600.0;
+		static constexpr double watchdog_margin = 0.5;
+
 		struct batch {
 
 			bool live = false;
@@ -620,10 +626,11 @@ namespace mine {
 			unit work;
 			uint64_t from = 0;
 			uint64_t to = 0;
+			double sent = 0.0;
 
 		};
 
-		gpu_device device;
+		gpu_device* device = new gpu_device;
 		chain::header_hasher checker;
 		void* scratch = nullptr;
 		uint8_t digest [ 32 ];
@@ -631,28 +638,41 @@ namespace mine {
 		double debt = 0.0;
 		double measured = 0.0;
 		double last_collect = base::seconds ( );
+		double window_began = 0.0;
+		uint32_t window_restarts = 0;
+		uint32_t trim = 0;
+		uint32_t settled = 0;
 		bool cooling = false;
 		bool broken = false;
+		bool gave_up = false;
 		batch* waiting = new batch;
 		batch* next = new batch;
 
 		base::set_thread_priority ( base::PRIORITY_HIGH );
 
-		bool opened = device.open ( self.adapter );
+		auto rest_quietly = [ & ] ( double seconds ) {
 
-		base::copy_text ( self.label, base::count_of ( self.label ), device.name ( ) );
+			double until = base::seconds ( ) + seconds;
 
-		if ( !opened ) {
+			while ( !base::atomic_load ( quit ) && base::seconds ( ) < until )
+				base::sleep ( 100 );
 
-			base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_FAILED ) );
-			delete waiting;
-			delete next;
+		};
 
-			return;
+		auto allowed_again = [ & ] ( ) {
 
-		}
+			double now = base::seconds ( );
 
-		base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_RUNNING ) );
+			if ( now - window_began > restart_window ) {
+
+				window_began = now;
+				window_restarts = 0;
+
+			}
+
+			return ++window_restarts <= restart_limit;
+
+		};
 
 		auto settle = [ & ] ( batch& done ) {
 
@@ -660,11 +680,20 @@ namespace mine {
 
 			done.live = false;
 
-			if ( !device.collect ( done.slot, found, base::count_of ( found ), found_count ) ) {
+			if ( !device->collect ( done.slot, found, base::count_of ( found ), found_count ) ) {
 
 				broken = true;
 
 				return;
+
+			}
+
+			double took = base::seconds ( ) - done.sent;
+
+			if ( ++settled > 4 && took > watchdog_margin && trim < 6 ) {
+
+				trim++;
+				base::atomic_store ( self.trimmed, trim );
 
 			}
 
@@ -707,110 +736,170 @@ namespace mine {
 
 		};
 
-		while ( !base::atomic_load ( quit ) && !broken ) {
+		while ( !base::atomic_load ( quit ) && !gave_up ) {
 
-			double now = base::seconds ( );
+			bool opened = device->open ( self.adapter );
 
-			if ( now - measured >= 1.0 ) {
+			base::copy_text ( self.label, base::count_of ( self.label ), device->name ( ) );
 
-				float celsius = 0.0f;
-				uint32_t limit = base::atomic_load ( gpu_heat_limit );
+			if ( !opened ) {
 
-				measured = now;
+				device->close ( );
 
-				if ( device.temperature ( celsius ) ) {
+				if ( !base::atomic_load ( self.restarts ) || !allowed_again ( ) ) {
 
-					base::atomic_store ( self.heat, static_cast < uint32_t > ( celsius * 10.0f ) );
-
-					if ( limit && celsius >= static_cast < float > ( limit ) )
-						cooling = true;
-					else if ( !limit || celsius <= static_cast < float > ( limit ) - 4.0f )
-						cooling = false;
-
-				}
-
-			}
-
-			if ( !base::atomic_load ( gpu_wanted ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) || cooling ) {
-
-				if ( waiting->live )
-					settle ( *waiting );
-
-				if ( cooling )
-					base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_COOLING ) );
-
-				base::sleep ( 30 );
-				last_collect = base::seconds ( );
-
-				continue;
-
-			}
-
-			uint8_t kind = algorithm ( );
-			uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << base::atomic_load ( gpu_power ), kind == chain::ALGORITHM_SCRYPT ? device.capacity ( kind ) : 0u, 0u };
-			uint32_t share = base::atomic_load ( gpu_share );
-			bool overlap = share >= 100;
-
-			base::atomic_store ( self.phase, static_cast < uint32_t > ( rooms [ kind ] ? GPU_RUNNING : GPU_UNSUPPORTED ) );
-
-			next->live = claim ( true, rooms, next->work, next->from, next->to );
-
-			bool claimed = next->live;
-
-			if ( next->live ) {
-
-				uint32_t count = static_cast < uint32_t > ( next->to - next->from );
-
-				if ( next->work.algorithm != chain::ALGORITHM_SCRYPT )
-					count = ( count + 255 ) & ~255u;
-
-				if ( !device.submit ( next->work.algorithm, next->work.header, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot ) ) {
-
-					broken = true;
+					gave_up = true;
 
 					break;
 
 				}
 
-			}
-
-			if ( waiting->live )
-				settle ( *waiting );
-
-			if ( next->live && !overlap )
-				settle ( *next );
-
-			batch* kept = waiting;
-
-			waiting = next;
-			next = kept;
-
-			if ( !claimed && !waiting->live ) {
-
-				base::sleep ( rooms [ kind ] ? 20 : 100 );
-				last_collect = base::seconds ( );
+				base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_STARTING ) );
+				rest_quietly ( backoff [ base::min ( window_restarts, 5u ) - 1 ] );
 
 				continue;
 
 			}
 
-			double finished = base::seconds ( );
-
-			rest ( debt, finished - last_collect, share );
+			broken = false;
+			waiting->live = false;
+			next->live = false;
 			last_collect = base::seconds ( );
+			base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_RUNNING ) );
+
+			while ( !base::atomic_load ( quit ) && !broken ) {
+
+				double now = base::seconds ( );
+
+				if ( now - measured >= 1.0 ) {
+
+					float celsius = 0.0f;
+					uint32_t limit = base::atomic_load ( gpu_heat_limit );
+
+					measured = now;
+
+					if ( device->temperature ( celsius ) ) {
+
+						base::atomic_store ( self.heat, static_cast < uint32_t > ( celsius * 10.0f ) );
+
+						if ( limit && celsius >= static_cast < float > ( limit ) )
+							cooling = true;
+						else if ( !limit || celsius <= static_cast < float > ( limit ) - 4.0f )
+							cooling = false;
+
+					}
+
+				}
+
+				if ( !base::atomic_load ( gpu_wanted ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) || cooling ) {
+
+					if ( waiting->live )
+						settle ( *waiting );
+
+					if ( cooling )
+						base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_COOLING ) );
+
+					base::sleep ( 30 );
+					last_collect = base::seconds ( );
+
+					continue;
+
+				}
+
+				uint8_t kind = algorithm ( );
+				uint32_t power = base::max ( base::atomic_load ( gpu_power ) - base::min ( trim, base::atomic_load ( gpu_power ) - 16u ), 16u );
+				uint32_t scrypt_room = kind == chain::ALGORITHM_SCRYPT ? base::max ( device->capacity ( kind ) >> trim, 256u ) : 0u;
+				uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << power, scrypt_room, 0u };
+				uint32_t share = base::atomic_load ( gpu_share );
+				bool overlap = share >= 100;
+
+				base::atomic_store ( self.phase, static_cast < uint32_t > ( rooms [ kind ] ? GPU_RUNNING : GPU_UNSUPPORTED ) );
+
+				next->live = claim ( true, rooms, next->work, next->from, next->to );
+
+				bool claimed = next->live;
+
+				if ( next->live ) {
+
+					uint32_t count = static_cast < uint32_t > ( next->to - next->from );
+
+					if ( next->work.algorithm != chain::ALGORITHM_SCRYPT )
+						count = ( count + 255 ) & ~255u;
+
+					next->sent = base::seconds ( );
+
+					if ( !device->submit ( next->work.algorithm, next->work.header, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot ) ) {
+
+						broken = true;
+
+						break;
+
+					}
+
+				}
+
+				if ( waiting->live )
+					settle ( *waiting );
+
+				if ( next->live && !overlap && !broken )
+					settle ( *next );
+
+				batch* kept = waiting;
+
+				waiting = next;
+				next = kept;
+
+				if ( !claimed && !waiting->live ) {
+
+					base::sleep ( rooms [ kind ] ? 20 : 100 );
+					last_collect = base::seconds ( );
+
+					continue;
+
+				}
+
+				double finished = base::seconds ( );
+
+				rest ( debt, finished - last_collect, share );
+				last_collect = base::seconds ( );
+
+			}
+
+			if ( !broken ) {
+
+				if ( waiting->live )
+					settle ( *waiting );
+
+				break;
+
+			}
+
+			device->close ( );
+			delete device;
+			device = new gpu_device;
+			base::atomic_add ( self.restarts, 1u );
+
+			if ( !allowed_again ( ) ) {
+
+				gave_up = true;
+
+				break;
+
+			}
+
+			base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_STARTING ) );
+			rest_quietly ( backoff [ base::min ( window_restarts, 5u ) - 1 ] );
 
 		}
 
-		if ( waiting->live && !broken )
-			settle ( *waiting );
-
-		if ( broken )
+		if ( gave_up )
 			base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_FAILED ) );
 
 		delete waiting;
 		delete next;
 		base::release ( scratch );
-		device.close ( );
+		device->close ( );
+		delete device;
 
 	}
 

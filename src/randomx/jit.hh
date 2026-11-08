@@ -1,18 +1,10 @@
 #pragma once
 
-#include "base/base.hh"
+#include "randomx/variant.hh"
 #include <emmintrin.h>
 
 namespace randomx {
 
-	static constexpr int32_t program_size = 256;
-	static constexpr int32_t program_iterations = 2048;
-	static constexpr int32_t program_count = 8;
-	static constexpr uint32_t scratchpad_bytes = 2097152;
-	static constexpr uint32_t level1_mask = 16384 - 8;
-	static constexpr uint32_t level2_mask = 262144 - 8;
-	static constexpr uint32_t level3_mask = scratchpad_bytes - 8;
-	static constexpr uint32_t level3_line = scratchpad_bytes - 64;
 	static constexpr uint32_t dataset_line = 0x7FFFFFC0u;
 	static constexpr size_t native_room = 32768;
 
@@ -43,6 +35,7 @@ namespace randomx {
 
 		uint32_t read_registers [ 4 ] = { };
 		bool whole_loop = false;
+		const variant* rules = nullptr;
 
 	};
 

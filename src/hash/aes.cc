@@ -208,12 +208,12 @@ namespace hash {
 	}
 
 	__attribute__ ( ( target ( "aes,sse2" ) ) )
-	static void fill_4r_hardware ( const uint8_t* state, uint8_t* out, size_t size ) {
+	static void fill_4r_hardware ( const uint8_t* state, uint8_t* out, size_t size, const uint8_t ( *chosen ) [ 16 ] ) {
 
 		__m128i keys [ 8 ];
 
 		for ( int32_t i = 0; i < 8; i++ )
-			keys [ i ] = _mm_loadu_si128 ( reinterpret_cast < const __m128i* > ( fill_4r_keys [ i ] ) );
+			keys [ i ] = _mm_loadu_si128 ( reinterpret_cast < const __m128i* > ( chosen [ i ] ) );
 
 		__m128i s0 = _mm_loadu_si128 ( reinterpret_cast < const __m128i* > ( state ) );
 		__m128i s1 = _mm_loadu_si128 ( reinterpret_cast < const __m128i* > ( state + 16 ) );
@@ -297,11 +297,13 @@ namespace hash {
 
 	}
 
-	void aes_fill_4r ( const uint8_t* state, uint8_t* out, size_t size ) {
+	void aes_fill_4r ( const uint8_t* state, uint8_t* out, size_t size, const uint8_t ( *keys ) [ 16 ] ) {
+
+		const uint8_t ( *chosen ) [ 16 ] = keys ? keys : fill_4r_keys;
 
 		if ( tables.hardware ) {
 
-			fill_4r_hardware ( state, out, size );
+			fill_4r_hardware ( state, out, size, chosen );
 
 			return;
 
@@ -315,10 +317,10 @@ namespace hash {
 
 			for ( int32_t k = 0; k < 4; k++ ) {
 
-				aes_decrypt_round ( work, fill_4r_keys [ k ] );
-				aes_encrypt_round ( work + 16, fill_4r_keys [ k ] );
-				aes_decrypt_round ( work + 32, fill_4r_keys [ k + 4 ] );
-				aes_encrypt_round ( work + 48, fill_4r_keys [ k + 4 ] );
+				aes_decrypt_round ( work, chosen [ k ] );
+				aes_encrypt_round ( work + 16, chosen [ k ] );
+				aes_decrypt_round ( work + 32, chosen [ k + 4 ] );
+				aes_encrypt_round ( work + 48, chosen [ k + 4 ] );
 
 			}
 

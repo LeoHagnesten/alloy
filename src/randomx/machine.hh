@@ -18,13 +18,21 @@ namespace randomx {
 
 		~machine ( );
 
-		bool open ( const cache* light, const dataset* fast );
+		bool open ( const cache* light, const dataset* fast, uint8_t kind = VARIANT_RX0 );
 
 		void hash ( const void* input, size_t size, uint8_t* out );
+
+		void hash_core ( const void* input, size_t size, uint8_t* out );
 
 		bool compiled ( ) const {
 
 			return code.run != nullptr && !interpret;
+
+		}
+
+		uint8_t kind ( ) const {
+
+			return rules->id;
 
 		}
 
@@ -58,12 +66,15 @@ namespace randomx {
 
 		void read_dataset ( uint64_t address );
 
+		void mix_registers ( );
+
 		uint8_t* scratchpad = nullptr;
 		base::code_view code;
 		const cache* light_source = nullptr;
 		const dataset* fast_source = nullptr;
-		alignas ( 16 ) uint8_t program [ 128 + 8 * program_size ];
-		step steps [ program_size ];
+		const variant* rules = &variant_of ( VARIANT_RX0 );
+		alignas ( 16 ) uint8_t program [ 128 + 8 * program_room ];
+		step steps [ program_room ];
 		registers state;
 		uint32_t ma = 0;
 		uint32_t mx = 0;

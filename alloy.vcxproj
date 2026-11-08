@@ -43,6 +43,11 @@
   <ItemGroup>
     <None Include="src\**\*.hlsli" />
     <None Include="assets\alloy.manifest" />
+    <None Include="props\alloy.props" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="assets\alloy.ico" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="assets\alloy.rc" />
