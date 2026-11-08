@@ -101,6 +101,19 @@ namespace base {
 
 	}
 
+	bool starts_with ( const char* text, const char* prefix ) {
+
+		for ( int32_t i = 0; prefix [ i ]; i++ ) {
+
+			if ( text [ i ] != prefix [ i ] )
+				return false;
+
+		}
+
+		return true;
+
+	}
+
 	void copy_text ( wchar_t* target, int32_t room, const wchar_t* source ) {
 
 		int32_t i = 0;

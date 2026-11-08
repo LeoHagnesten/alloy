@@ -133,6 +133,7 @@ namespace pool {
 			return false;
 
 		out.height = static_cast < uint64_t > ( message.number ( message.member ( node, "height" ) ) );
+		message.text ( message.member ( node, "algo" ), out.algo, sizeof ( out.algo ) );
 
 		return out.id [ 0 ] != 0;
 

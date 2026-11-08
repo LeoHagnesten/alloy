@@ -18,6 +18,8 @@ namespace base {
 
 	bool starts_with ( const wchar_t* text, const wchar_t* prefix );
 
+	bool starts_with ( const char* text, const char* prefix );
+
 	void copy_text ( wchar_t* target, int32_t room, const wchar_t* source );
 
 	void copy_text ( char* target, int32_t room, const char* source );

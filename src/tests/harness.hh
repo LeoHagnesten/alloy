@@ -22,6 +22,8 @@ namespace tests {
 
 	void chain_tests ( );
 
+	void address_tests ( );
+
 	void randomx_tests ( );
 
 	void mining_tests ( );

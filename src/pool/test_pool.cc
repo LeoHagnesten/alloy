@@ -1,12 +1,12 @@
-#include "pool/server.hh"
+#include "pool/test_pool.hh"
 #include "randomx/machine.hh"
 #include "hash/scrypt.hh"
 #include "chain/target.hh"
 #include "net/socket.hh"
 #include "base/bits.hh"
-#include "base/clock.hh"
-#include "base/console.hh"
-#include "base/list.hh"
+#include "base/system/clock.hh"
+#include "base/system/console.hh"
+#include "base/containers/list.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
@@ -180,6 +180,7 @@ namespace pool {
 		seed [ 15 ] = 0x5A;
 		hash::sha256_twice ( seed, 16, work.blob + 43 );
 		work.blob [ 75 ] = 1;
+		work.blob [ blob_nonce_at + 3 ] = state.config.nicehash ? 0xA7 : 0;
 		work.blob_size = 76;
 		work.target = state.blob_target;
 		base::copy ( work.seed, state.seed, 32 );
@@ -521,6 +522,15 @@ namespace pool {
 		if ( message.raw_size ( nonce_node ) != 8 || message.raw_size ( result_node ) != 64 || !base::read_hex ( message.raw ( nonce_node ), 8, nonce, 4 ) || !base::read_hex ( message.raw ( result_node ), 64, claimed, 32 ) ) {
 
 			reply_blob ( client, message, id, nullptr, -1, "Malformed share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( state.config.nicehash && nonce [ 3 ] != 0xA7 ) {
+
+			reply_blob ( client, message, id, nullptr, -1, "Nonce outside your range" );
 			tally ( state, false );
 
 			return;

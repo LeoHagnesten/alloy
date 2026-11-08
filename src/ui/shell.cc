@@ -1,4 +1,6 @@
 #include "ui/shell.hh"
+#include "version.hh"
+#include "pool/presets.hh"
 #include "base/math.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -684,12 +686,29 @@ namespace ui {
 					return COMMAND_NONE;
 
 				settings_history.remember ( settings );
-				settings.algorithm = static_cast < uint8_t > ( index % chain::ALGORITHM_COUNT );
+				settings.choose_algorithm ( static_cast < uint8_t > ( index ) );
 				return COMMAND_PREFERENCES;
 
 			case CONTROL_REVEAL:
 				reveal = !reveal;
 				return COMMAND_NONE;
+
+			case CONTROL_PRESET: {
+
+				const pool::preset& known = pool::preset_at ( index );
+				pool_profile& profile = settings.pools [ known.algorithm % chain::ALGORITHM_COUNT ];
+				bool restart = data && data->running && settings.mode == MODE_POOL && known.algorithm == settings.algorithm;
+
+				settings_history.remember ( settings );
+				base::copy_text ( profile.address, base::count_of ( profile.address ), known.address );
+				base::copy_text ( profile.backup, base::count_of ( profile.backup ), known.backup );
+				profile.pin [ 0 ] = 0;
+				profile.backup_pin [ 0 ] = 0;
+				sync_fields ( );
+
+				return restart ? COMMAND_RESTART : COMMAND_PREFERENCES;
+
+			}
 
 			case CONTROL_TAB:
 				open_tab ( index, now );
@@ -711,7 +730,14 @@ namespace ui {
 					settings.pause_battery = !settings.pause_battery;
 				else if ( index == SETTING_AUTOSTART )
 					settings.autostart = !settings.autostart;
-
+				else if ( index == SETTING_PIN )
+					settings.pin_threads = !settings.pin_threads;
+				else if ( index == SETTING_LOGIN )
+					settings.launch_at_login = !settings.launch_at_login;
+				else if ( index == SETTING_TRAY )
+					settings.close_to_tray = !settings.close_to_tray;
+				else if ( index == SETTING_API )
+					settings.api_port = settings.api_port ? 0u : 4067u;
 				return COMMAND_PREFERENCES;
 
 			case CONTROL_STEP_DOWN:
@@ -743,12 +769,11 @@ namespace ui {
 				else if ( which == SETTING_KERNEL )
 					settings.kernel = option;
 				else if ( which == SETTING_ADAPTER )
-					settings.adapter = option;
+					settings.adapter = data && option >= data->adapter_count ? all_adapters : option;
 				else if ( which == SETTING_THEME )
 					settings.theme = option;
 				else if ( which == SETTING_DATASET )
 					settings.full_dataset = option == 0;
-
 				return COMMAND_PREFERENCES;
 
 			}
@@ -776,6 +801,13 @@ namespace ui {
 
 			target = &settings.intensity;
 			value = 16 + static_cast < uint32_t > ( base::round ( fraction * 10.0f ) );
+
+		} else if ( which == SETTING_HEAT ) {
+
+			uint32_t step = static_cast < uint32_t > ( base::round ( fraction * 31.0f ) );
+
+			target = &settings.gpu_heat;
+			value = step ? 59 + step : 0;
 
 		}
 
@@ -827,12 +859,21 @@ namespace ui {
 			return COMMAND_NONE;
 
 		pool_profile& profile = settings.pool ( );
-		wchar_t* target = focus == SETTING_ADDRESS ? profile.address : ( focus == SETTING_WORKER ? profile.worker : profile.password );
-		int32_t room = focus == SETTING_ADDRESS ? base::count_of ( profile.address ) : 128;
+		wchar_t* targets [ 4 ] = { profile.address, profile.backup, profile.worker, profile.password };
+		wchar_t* target = targets [ focus ];
+		int32_t room = focus <= SETTING_BACKUP ? 256 : 128;
 		bool changed = !base::same_text ( target, fields [ focus ].text );
 
-		if ( changed )
+		if ( changed ) {
+
 			settings_history.remember ( settings );
+
+			if ( focus == SETTING_ADDRESS )
+				profile.pin [ 0 ] = 0;
+			else if ( focus == SETTING_BACKUP )
+				profile.backup_pin [ 0 ] = 0;
+
+		}
 
 		base::copy_text ( target, room, fields [ focus ].text );
 		focus = -1;
@@ -924,7 +965,7 @@ namespace ui {
 
 			} else if ( code == key_tab ) {
 
-				int32_t next = ( focus + ( shift ? 2 : 1 ) ) % 3;
+				int32_t next = ( focus + ( shift ? 3 : 1 ) ) % 4;
 				command result = commit_field ( now );
 
 				focus = next;
@@ -1119,9 +1160,9 @@ namespace ui {
 	void shell::sync_fields ( ) {
 
 		const pool_profile& profile = settings.pool ( );
-		const wchar_t* values [ 3 ] = { profile.address, profile.worker, profile.password };
+		const wchar_t* values [ 4 ] = { profile.address, profile.backup, profile.worker, profile.password };
 
-		for ( int32_t i = 0; i < 3; i++ ) {
+		for ( int32_t i = 0; i < 4; i++ ) {
 
 			if ( i != focus && !base::same_text ( fields [ i ].text, values [ i ] ) )
 				fields [ i ].set ( values [ i ] );
@@ -1159,6 +1200,10 @@ namespace ui {
 			switches [ SETTING_PAUSE_ACTIVE ].jump ( settings.pause_active ? 1.0f : 0.0f );
 			switches [ SETTING_PAUSE_BATTERY ].jump ( settings.pause_battery ? 1.0f : 0.0f );
 			switches [ SETTING_AUTOSTART ].jump ( settings.autostart ? 1.0f : 0.0f );
+			switches [ SETTING_PIN ].jump ( settings.pin_threads ? 1.0f : 0.0f );
+			switches [ SETTING_LOGIN ].jump ( settings.launch_at_login ? 1.0f : 0.0f );
+			switches [ SETTING_TRAY ].jump ( settings.close_to_tray ? 1.0f : 0.0f );
+			switches [ SETTING_API ].jump ( settings.api_port ? 1.0f : 0.0f );
 			nav_marker.jump ( static_cast < float > ( shown_page ) );
 			chart_serial = view.history_serial;
 			primed = true;
@@ -1425,7 +1470,7 @@ namespace ui {
 		if ( settings.algorithm == chain::ALGORITHM_RANDOMX )
 			summary.add ( summary.size ( ) ? L"     " : L"" ).add ( settings.full_dataset ? L"Full dataset" : L"Light dataset" );
 
-		summary.add ( summary.size ( ) ? L"     Alloy 0.3" : L"Alloy 0.3" );
+		summary.add ( summary.size ( ) ? L"     Alloy " ALLOY_VERSION_TEXT : L"Alloy " ALLOY_VERSION_TEXT );
 		surface.text ( summary.get ( ), render::FONT_SMALL, render::box { width * 0.45f, bar.y, width * 0.55f - 16.0f, bar.h }, colors.faint, render::ALIGN_RIGHT );
 
 	}
@@ -1579,7 +1624,7 @@ namespace ui {
 
 	}
 
-	void shell::field ( render::surface& surface, render::box area, setting which, bool masked, double now ) {
+	void shell::field ( render::surface& surface, render::box area, setting which, bool masked, double now, bool warn ) {
 
 		int32_t slot = which;
 		text_field& item = fields [ slot ];
@@ -1614,6 +1659,8 @@ namespace ui {
 
 		if ( focused )
 			surface.outline ( area, colors.accent, 1.5f, corner );
+		else if ( warn )
+			surface.outline ( area, colors.warning, 1.25f, corner );
 		else
 			surface.outline ( area, render::blend ( colors.control_line, colors.faint, level * 0.6f ), 1.0f / zoom, corner );
 

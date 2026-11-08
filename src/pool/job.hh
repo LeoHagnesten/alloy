@@ -2,7 +2,7 @@
 
 #include "chain/algorithm.hh"
 #include "chain/header.hh"
-#include "base/json.hh"
+#include "base/formats/json.hh"
 
 namespace pool {
 
@@ -46,6 +46,7 @@ namespace pool {
 		uint64_t target = 0;
 		uint8_t seed [ 32 ] = { };
 		uint64_t height = 0;
+		char algo [ 16 ] = { };
 
 	};
 

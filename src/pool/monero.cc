@@ -55,12 +55,48 @@ namespace pool {
 		double share_difficulty = blob_difficulty ( incoming->target );
 		bool reseeded = false;
 		bool changed = false;
+		bool foreign = incoming->algo [ 0 ] && !base::same_text ( incoming->algo, "rx/0" ) && !base::same_text ( incoming->algo, "randomx" );
 
 		base::widen ( name, base::count_of ( name ), incoming->id );
+
+		if ( foreign ) {
+
+			if ( !base::same_text ( refused_algo, incoming->algo ) ) {
+
+				wchar_t algo [ 16 ];
+				base::text line;
+
+				base::copy_text ( refused_algo, sizeof ( refused_algo ), incoming->algo );
+				base::widen ( algo, base::count_of ( algo ), incoming->algo );
+				line.add ( L"The pool sent work for " ).add ( algo ).add ( L", which Alloy doesn't mine, so it waits for RandomX work" );
+				note ( EVENT_WARNING, line.get ( ) );
+
+			}
+
+			base::guard hold ( state_lock );
+
+			have_job = false;
+			advance ( );
+			delete incoming;
+
+			return;
+
+		}
+
+		refused_algo [ 0 ] = 0;
+
+		if ( incoming->blob [ blob_nonce_at + 3 ] && !nicehash ) {
+
+			nicehash = true;
+			note ( EVENT_INFO, L"The pool fixes the top nonce byte, so Alloy searches the other three" );
+
+		}
 
 		{
 
 			base::guard hold ( state_lock );
+
+			shown.nicehash = nicehash;
 
 			reseeded = have_job && !base::same ( blob_current.seed, incoming->seed, 32 );
 			changed = !have_job || share_difficulty != difficulty;
@@ -162,6 +198,15 @@ namespace pool {
 
 			line.add ( L"Signed in as " ).add ( config.worker );
 			note ( EVENT_INFO, line.get ( ) );
+
+			int32_t extensions = message.member ( result, "extensions" );
+
+			for ( int32_t i = 0; i < message.count ( extensions ); i++ ) {
+
+				if ( message.text_is ( message.item ( extensions, i ), "nicehash" ) )
+					nicehash = true;
+
+			}
 
 			int32_t job = message.member ( result, "job" );
 

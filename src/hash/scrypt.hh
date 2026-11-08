@@ -7,6 +7,7 @@ namespace hash {
 	static constexpr uint32_t scrypt_cost = 1024;
 	static constexpr size_t scrypt_scratch_bytes = scrypt_cost * 128 + 512;
 	static constexpr size_t scrypt_pair_scratch_bytes = scrypt_cost * 256 + 512;
+	static constexpr size_t scrypt_quad_scratch_bytes = scrypt_cost * 512 + 512;
 
 	class hmac_sha256 {
 
@@ -36,5 +37,7 @@ namespace hash {
 	void scrypt_header ( const uint8_t* header, uint8_t* out, void* scratch );
 
 	void scrypt_header_pair ( const uint8_t* first, const uint8_t* second, uint8_t* first_out, uint8_t* second_out, void* scratch );
+
+	void scrypt_header_quad ( const uint8_t* const* headers, uint8_t* const* outs, void* scratch );
 
 }

@@ -25,4 +25,6 @@ namespace base {
 
 	bool allow_large_pages ( );
 
+	bool set_run_at_login ( const wchar_t* name, bool on, const wchar_t* arguments );
+
 }

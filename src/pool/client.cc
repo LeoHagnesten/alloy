@@ -14,7 +14,10 @@ namespace pool {
 
 		config = value;
 		quit = 0;
+		on_backup = 0;
 		refused = false;
+		nicehash = false;
+		refused_algo [ 0 ] = 0;
 		shown = status { };
 		have_job = false;
 		authorized = false;
@@ -105,6 +108,13 @@ namespace pool {
 			base::copy ( out.blob, blob_current.blob, static_cast < size_t > ( blob_current.blob_size ) );
 			out.blob_size = static_cast < uint32_t > ( blob_current.blob_size );
 			out.nonce_at = blob_nonce_at;
+
+			if ( nicehash ) {
+
+				out.first = static_cast < uint32_t > ( blob_current.blob [ blob_nonce_at + 3 ] ) << 24;
+				out.end = static_cast < uint64_t > ( out.first ) + ( 1ull << 24 );
+
+			}
 			base::copy ( out.seed, blob_current.seed, 32 );
 			chain::target_of_top ( blob_current.target, out.target );
 
@@ -202,20 +212,54 @@ namespace pool {
 	void client::run ( ) {
 
 		uint32_t backoff = 2;
+		uint32_t failures = 0;
+		double backup_since = 0.0;
+		bool has_backup = config.backup [ 0 ] != 0;
 
 		while ( !base::atomic_load ( quit ) ) {
 
 			double began = base::seconds ( );
+			bool worked = session ( );
 
-			session ( );
-
-			if ( base::atomic_load ( quit ) || refused )
+			if ( base::atomic_load ( quit ) || ( refused && !has_backup ) )
 				break;
 
-			if ( base::seconds ( ) - began > 30.0 )
+			bool lasted = base::seconds ( ) - began > 30.0;
+
+			if ( lasted )
 				backoff = 2;
 
+			failures = worked && lasted ? 0 : failures + 1;
+
 			base::text message;
+			bool backup = base::atomic_load ( on_backup ) != 0;
+
+			if ( has_backup && !backup && ( failures >= 3 || refused ) ) {
+
+				refused = false;
+				failures = 0;
+				backoff = 2;
+				backup_since = base::seconds ( );
+				base::atomic_store ( on_backup, 1u );
+				message.add ( L"Switching to the backup pool " ).add ( config.backup );
+				note ( EVENT_WARNING, message.get ( ) );
+
+				continue;
+
+			}
+
+			if ( backup && ( base::seconds ( ) - backup_since > 600.0 || failures >= 3 || refused ) ) {
+
+				refused = false;
+				failures = 0;
+				backoff = 2;
+				base::atomic_store ( on_backup, 0u );
+				message.add ( L"Going back to the main pool " ).add ( config.address );
+				note ( EVENT_INFO, message.get ( ) );
+
+				continue;
+
+			}
 
 			message.add ( L"Trying again in " ).number ( backoff ).add ( L" s" );
 			note ( EVENT_INFO, message.get ( ) );
@@ -230,24 +274,34 @@ namespace pool {
 
 	}
 
-	void client::session ( ) {
+	bool client::session ( ) {
 
 		char host [ 256 ];
 		uint16_t port = 0;
+		bool secure = false;
 		base::text message;
+		const wchar_t* address = base::atomic_load ( on_backup ) ? config.backup : config.address;
 
-		if ( !net::split_address ( config.address, host, sizeof ( host ), port ) ) {
+		{
+
+			base::guard hold ( state_lock );
+
+			shown.on_backup = base::atomic_load ( on_backup ) != 0;
+
+		}
+
+		if ( !net::split_address ( address, host, sizeof ( host ), port, &secure ) ) {
 
 			note ( EVENT_ERROR, L"The pool address needs a host and a port, like pool.example.com:3333" );
 			refused = true;
 			set_state ( LINK_REFUSED );
 
-			return;
+			return false;
 
 		}
 
 		set_state ( LINK_CONNECTING );
-		message.add ( L"Connecting to " ).add ( config.address );
+		message.add ( L"Connecting to " ).add ( address );
 		note ( EVENT_INFO, message.get ( ) );
 
 		net::connection* connection = new net::connection;
@@ -255,11 +309,69 @@ namespace pool {
 		if ( !connection->open ( host, port, 5000 ) ) {
 
 			message.clear ( );
-			message.add ( L"Couldn't reach " ).add ( config.address );
+			message.add ( L"Couldn't reach " ).add ( address );
 			note ( EVENT_WARNING, message.get ( ) );
 			delete connection;
 
-			return;
+			return false;
+
+		}
+
+		if ( secure ) {
+
+			bool backup = base::atomic_load ( on_backup ) != 0;
+			char* pin = backup ? config.backup_pin : config.pin;
+
+			if ( !connection->start_tls ( host, 8000 ) ) {
+
+				message.clear ( );
+				message.add ( L"No secure connection to " ).add ( address ).add ( L": " ).add ( connection->tls_problem ( ) );
+				note ( EVENT_WARNING, message.get ( ) );
+				delete connection;
+
+				return false;
+
+			}
+
+			char print [ 65 ];
+			wchar_t shown_print [ 16 ];
+
+			base::write_hex ( print, connection->tls_fingerprint ( ), 32 );
+			print [ 64 ] = 0;
+			base::widen ( shown_print, base::count_of ( shown_print ), print, 12 );
+			message.clear ( );
+
+			if ( connection->tls_trusted ( ) )
+				message.add ( L"Encrypted with " ).add ( connection->tls_protocol ( ) );
+			else if ( !pin [ 0 ] ) {
+
+				base::copy_text ( pin, 65, print );
+
+				{
+
+					base::guard hold ( state_lock );
+
+					base::copy_text ( shown.learned_pin, sizeof ( shown.learned_pin ), print );
+					shown.learned_backup = backup;
+					shown.pin_serial++;
+
+				}
+
+				message.add ( L"Encrypted with " ).add ( connection->tls_protocol ( ) ).add ( L". The pool's certificate isn't one Windows trusts, so Alloy pinned it (" ).add ( shown_print ).add ( L"...) and will stop if it changes" );
+
+			} else if ( base::same_text ( pin, print ) )
+				message.add ( L"Encrypted with " ).add ( connection->tls_protocol ( ) ).add ( L", the pinned certificate matches" );
+			else {
+
+				message.add ( L"The pool's certificate changed since Alloy pinned it, so Alloy won't mine there. Change the pool address to start over if you expected this" );
+				note ( EVENT_ERROR, message.get ( ) );
+				delete connection;
+
+				return false;
+
+			}
+
+			note ( EVENT_INFO, message.get ( ) );
 
 		}
 
@@ -326,9 +438,13 @@ namespace pool {
 
 		base::guard hold ( state_lock );
 
+		bool worked = authorized;
+
 		have_job = false;
 		authorized = false;
 		base::atomic_add ( serial, 1u );
+
+		return worked;
 
 	}
 

@@ -1,10 +1,10 @@
-<p align="center"><img src="docs/logo.png" width="96" alt="Alloy"></p>
+<p align="center"><img src="docs/media/logo.png" width="96" alt="Alloy"></p>
 
 <h1 align="center">Alloy</h1>
 
 <p align="center">A SHA-256d, scrypt and RandomX miner for Windows, written from scratch in C++ with no C runtime.</p>
 
-![Overview](docs/overview.png)
+![Overview](docs/media/overview.png)
 
 Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt and Monero's RandomX on the processor and the graphics card, and talks to pools over stratum or Monero's login protocol. The hashes, the RandomX virtual machine and its compiler, the pool clients, the GPU kernels, the renderer, the PNG and GIF writers and the JSON reader are all its own code. The only outside pieces are the Windows APIs underneath: Winsock, Direct3D 11, DirectComposition, Direct2D and DirectWrite.
 
@@ -19,7 +19,7 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt and Monero's RandomX o
 - **Limits** for everything that costs power: threads, a processor usage limit, priority, kernel choice, GPU intensity and a GPU usage limit, plus pausing while the computer is in use or on battery.
 - **An interface** that animates at the display's refresh rate, explains a setting when you rest the cursor on it, undoes any change with Ctrl+Z, and stops drawing entirely while minimized so the hardware stays on mining.
 
-![Switching algorithms](docs/algorithms.gif)
+![Switching algorithms](docs/media/algorithms.gif)
 
 ## Speed
 
@@ -36,9 +36,9 @@ Release build on a Ryzen 7 5800X and an RTX 4070:
 
 Large pages usually make RandomX faster still, because the dataset reads stop missing the TLB. Windows only hands them out to accounts with the "Lock pages in memory" right, so run `Alloy.exe --allow-large-pages` once from an administrator terminal, then sign out and back in. The log says whether the dataset landed in large pages.
 
-![RandomX](docs/randomx.png)
+![RandomX](docs/media/randomx.png)
 
-![Tour](docs/tour.gif)
+![Tour](docs/media/tour.gif)
 
 ## Building
 
@@ -67,7 +67,7 @@ Alloy.exe --test-pool --algorithm randomx --port 3335
 Alloy.exe --mine 127.0.0.1:3335 --algorithm randomx
 ```
 
-![Settings](docs/settings.png)
+![Settings](docs/media/settings.png)
 
 ## Layout
 

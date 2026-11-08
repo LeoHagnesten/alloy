@@ -23,6 +23,8 @@ namespace base {
 
 	void set_thread_priority ( thread_priority level );
 
+	bool pin_thread ( uint32_t index );
+
 	void yield ( );
 
 	class lock {

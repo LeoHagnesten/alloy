@@ -17,7 +17,7 @@
       <WarningLevel>Level3</WarningLevel>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;SECURITY_WIN32;SCHANNEL_USE_BLACKLISTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(alloy_root)src;$(alloy_shaders);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
       <SDLCheck>false</SDLCheck>
@@ -43,11 +43,11 @@
       <AdditionalOptions>/O3 %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
     <ResourceCompile>
-      <AdditionalIncludeDirectories>$(alloy_root)assets;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(alloy_root)assets;$(alloy_root)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;shell32.lib;advapi32.lib;dwmapi.lib;d3d11.lib;dxgi.lib;d2d1.lib;dwrite.lib;dcomp.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;shell32.lib;advapi32.lib;dwmapi.lib;d3d11.lib;dxgi.lib;d2d1.lib;dwrite.lib;dcomp.lib;ws2_32.lib;secur32.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TargetMachine>MachineX64</TargetMachine>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>

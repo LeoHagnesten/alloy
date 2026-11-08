@@ -3,10 +3,10 @@
 #include "tests/harness.hh"
 #include "pool/job.hh"
 #include "base/bits.hh"
-#include "base/gif.hh"
-#include "base/json.hh"
+#include "base/formats/gif.hh"
+#include "base/formats/json.hh"
 #include "base/math.hh"
-#include "base/png.hh"
+#include "base/formats/png.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
 

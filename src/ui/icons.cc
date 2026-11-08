@@ -179,6 +179,12 @@ namespace ui {
 
 			}
 
+			case ICON_ARROW:
+				segment ( 3.0f, 8.0f, 12.5f, 8.0f );
+				segment ( 9.0f, 4.5f, 12.5f, 8.0f );
+				segment ( 9.0f, 11.5f, 12.5f, 8.0f );
+				break;
+
 		}
 
 	}

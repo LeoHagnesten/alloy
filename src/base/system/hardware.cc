@@ -1,4 +1,4 @@
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 #include "base/strings.hh"
 #include <windows.h>
 #include <ntsecapi.h>
@@ -206,6 +206,41 @@ namespace base {
 		LsaClose ( policy );
 
 		return status == 0;
+
+	}
+
+	bool set_run_at_login ( const wchar_t* name, bool on, const wchar_t* arguments ) {
+
+		static const wchar_t key [ ] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+		if ( !on ) {
+
+			LSTATUS removed = RegDeleteKeyValueW ( HKEY_CURRENT_USER, key, name );
+
+			return removed == ERROR_SUCCESS || removed == ERROR_FILE_NOT_FOUND;
+
+		}
+
+		wchar_t path [ 1024 ];
+		wchar_t command [ 1200 ];
+		DWORD size = GetModuleFileNameW ( nullptr, path, 1024 );
+
+		if ( !size || size >= 1024 )
+			return false;
+
+		int32_t used = 0;
+
+		command [ used++ ] = L'"';
+
+		for ( DWORD i = 0; i < size; i++ )
+			command [ used++ ] = path [ i ];
+
+		command [ used++ ] = L'"';
+		command [ used++ ] = L' ';
+		command [ used ] = 0;
+		copy_text ( command + used, 1200 - used, arguments );
+
+		return RegSetKeyValueW ( HKEY_CURRENT_USER, key, name, REG_SZ, command, static_cast < DWORD > ( ( length ( command ) + 1 ) * sizeof ( wchar_t ) ) ) == ERROR_SUCCESS;
 
 	}
 

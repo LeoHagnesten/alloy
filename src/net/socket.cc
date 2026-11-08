@@ -1,4 +1,5 @@
 #include "net/socket.hh"
+#include "net/tls.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
@@ -69,18 +70,32 @@ namespace net {
 
 	}
 
-	bool split_address ( const wchar_t* text, char* host, int32_t room, uint16_t& port ) {
+	bool split_address ( const wchar_t* text, char* host, int32_t room, uint16_t& port, bool* secure ) {
 
 		char narrow [ 512 ];
 		int32_t start = 0;
 
 		base::narrow ( narrow, sizeof ( narrow ), text );
 
+		if ( secure )
+			*secure = false;
+
 		for ( int32_t i = 0; narrow [ i ]; i++ ) {
 
 			if ( narrow [ i ] == ':' && narrow [ i + 1 ] == '/' && narrow [ i + 2 ] == '/' ) {
 
 				start = i + 3;
+
+				for ( int32_t k = 0; k + 2 < i && secure; k++ ) {
+
+					char a = narrow [ k ] | 0x20;
+					char b = narrow [ k + 1 ] | 0x20;
+					char c = narrow [ k + 2 ] | 0x20;
+
+					if ( ( a == 's' && b == 's' && c == 'l' ) || ( a == 't' && b == 'l' && c == 's' ) )
+						*secure = true;
+
+				}
 
 				break;
 
@@ -172,6 +187,66 @@ namespace net {
 
 	}
 
+	bool connection::start_tls ( const char* host, uint32_t timeout ) {
+
+		if ( handle == closed )
+			return false;
+
+		secure = new tls_session;
+
+		if ( secure->handshake ( handle, host, timeout ) ) {
+
+			fresh = true;
+
+			return true;
+
+		}
+
+		problem_text = secure->problem ( );
+		delete secure;
+		secure = nullptr;
+		close ( );
+
+		return false;
+
+	}
+
+	const wchar_t* connection::tls_problem ( ) const {
+
+		return problem_text;
+
+	}
+
+	const wchar_t* connection::tls_protocol ( ) const {
+
+		return secure ? secure->protocol ( ) : L"";
+
+	}
+
+	bool connection::tls_trusted ( ) const {
+
+		return secure && secure->trusted ( );
+
+	}
+
+	const uint8_t* connection::tls_fingerprint ( ) const {
+
+		return secure ? secure->fingerprint ( ) : nullptr;
+
+	}
+
+	const wchar_t* connection::tls_trust_problem ( ) const {
+
+		return secure ? secure->trust_problem ( ) : L"";
+
+	}
+
+	long connection::tls_status ( ) const {
+
+		return secure ? secure->status ( ) : last_tls_status;
+
+	}
+
 	void connection::adopt ( uintptr_t socket ) {
 
 		BOOL fast = TRUE;
@@ -184,6 +259,18 @@ namespace net {
 
 	void connection::close ( ) {
 
+		if ( secure ) {
+
+			last_tls_status = secure->status ( );
+
+			if ( handle != closed )
+				secure->close ( handle );
+
+			delete secure;
+			secure = nullptr;
+
+		}
+
 		if ( handle != closed ) {
 
 			shutdown ( static_cast < SOCKET > ( handle ), SD_BOTH );
@@ -193,10 +280,22 @@ namespace net {
 
 		handle = closed;
 		pending_size = 0;
+		fresh = false;
 
 	}
 
 	bool connection::send ( const char* data, int32_t size ) {
+
+		if ( secure && handle != closed ) {
+
+			if ( secure->send ( handle, data, size ) )
+				return true;
+
+			close ( );
+
+			return false;
+
+		}
 
 		while ( handle != closed && size > 0 ) {
 
@@ -255,12 +354,28 @@ namespace net {
 
 			}
 
-			if ( !wait_for ( handle, false, wait ) )
+			bool draining = fresh;
+
+			if ( !draining && !wait_for ( handle, false, wait ) )
 				return 0;
 
-			int received = recv ( static_cast < SOCKET > ( handle ), pending + pending_size, line_room - pending_size, 0 );
+			int received = 0;
 
-			if ( received <= 0 ) {
+			if ( secure ) {
+
+				fresh = false;
+				received = secure->receive ( handle, pending + pending_size, line_room - pending_size, !draining );
+
+			} else {
+
+				received = recv ( static_cast < SOCKET > ( handle ), pending + pending_size, line_room - pending_size, 0 );
+
+				if ( received == 0 )
+					received = -1;
+
+			}
+
+			if ( received < 0 ) {
 
 				close ( );
 
@@ -269,7 +384,9 @@ namespace net {
 			}
 
 			pending_size += received;
-			wait = 0;
+
+			if ( !draining )
+				wait = 0;
 
 		}
 

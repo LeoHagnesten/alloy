@@ -1,4 +1,4 @@
-#include "base/png.hh"
+#include "base/formats/png.hh"
 #include "base/bits.hh"
 
 namespace base {

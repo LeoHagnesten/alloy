@@ -2,7 +2,7 @@
 
 #include "chain/header.hh"
 #include "chain/algorithm.hh"
-#include "base/threads.hh"
+#include "base/system/threads.hh"
 
 namespace randomx {
 
@@ -15,6 +15,7 @@ namespace randomx {
 namespace mine {
 
 	static constexpr uint32_t max_lanes = 256;
+	static constexpr uint32_t max_gpus = 8;
 	static constexpr uint64_t nonce_space = 0x100000000ull;
 	static constexpr uint32_t blob_room = 256;
 
@@ -76,8 +77,11 @@ namespace mine {
 		bool gpu = false;
 		uint32_t gpu_percent = 100;
 		uint32_t gpu_intensity = 24;
-		uint32_t adapter = 0;
+		uint32_t gpu_heat = 0;
+		uint32_t adapters [ max_gpus ] = { };
+		uint32_t adapter_count = 1;
 		bool full_dataset = true;
+		bool pin_threads = true;
 
 	};
 
@@ -88,6 +92,7 @@ namespace mine {
 		GPU_RUNNING,
 		GPU_FAILED,
 		GPU_UNSUPPORTED,
+		GPU_COOLING,
 
 	};
 
@@ -145,11 +150,7 @@ namespace mine {
 
 		uint64_t lane_hashes ( uint32_t lane ) const;
 
-		uint64_t gpu_hashes ( ) const {
-
-			return base::atomic_load ( gpu_done );
-
-		}
+		uint64_t gpu_hashes ( ) const;
 
 		uint64_t best ( ) const {
 
@@ -183,21 +184,43 @@ namespace mine {
 
 		}
 
-		gpu_state gpu_status ( ) const {
+		uint32_t gpu_count ( ) const {
 
-			return static_cast < gpu_state > ( base::atomic_load ( gpu_phase ) );
+			return gpus_started;
+
+		}
+
+		gpu_state gpu_status ( ) const;
+
+		gpu_state gpu_status ( uint32_t index ) const {
+
+			return static_cast < gpu_state > ( base::atomic_load ( gpus [ index ].phase ) );
 
 		}
 
-		uint32_t gpu_errors ( ) const {
+		uint64_t gpu_hashes ( uint32_t index ) const {
 
-			return base::atomic_load ( gpu_faults );
+			return base::atomic_load ( gpus [ index ].done );
 
 		}
+
+		float gpu_temperature ( uint32_t index ) const {
+
+			return static_cast < float > ( base::atomic_load ( gpus [ index ].heat ) ) / 10.0f;
+
+		}
+
+		uint32_t gpu_errors ( ) const;
 
 		const wchar_t* gpu_name ( ) const {
 
-			return gpu_label;
+			return gpus [ 0 ].label;
+
+		}
+
+		const wchar_t* gpu_name ( uint32_t index ) const {
+
+			return gpus [ index ].label;
 
 		}
 
@@ -236,6 +259,19 @@ namespace mine {
 
 		};
 
+		struct alignas ( 64 ) gpu_slot {
+
+			engine* owner = nullptr;
+			uint32_t adapter = 0;
+			void* thread = nullptr;
+			volatile uint64_t done = 0;
+			volatile uint32_t phase = GPU_OFF;
+			volatile uint32_t faults = 0;
+			volatile uint32_t heat = 0;
+			wchar_t label [ 128 ] = { };
+
+		};
+
 		struct tools;
 
 		static unsigned long lane_main ( void* context );
@@ -244,7 +280,7 @@ namespace mine {
 
 		void run_lane ( lane& self );
 
-		void run_gpu ( );
+		void run_gpu ( gpu_slot& self );
 
 		bool claim ( bool gpu, const uint32_t* gpu_rooms, unit& work, uint64_t& from, uint64_t& to );
 
@@ -267,7 +303,8 @@ namespace mine {
 		hash::compressor compress = hash::sha256_block;
 		lane* lane_list = nullptr;
 		uint32_t lane_count = 0;
-		void* gpu_thread = nullptr;
+		gpu_slot gpus [ max_gpus ];
+		uint32_t gpus_started = 0;
 		bool active = false;
 		base::lock claim_lock;
 		unit current;
@@ -281,16 +318,13 @@ namespace mine {
 		volatile uint32_t wanted_threads = 0;
 		volatile uint32_t cpu_share = 100;
 		volatile uint32_t priority = base::PRIORITY_LOW;
+		volatile uint32_t pinning = 1;
 		volatile uint32_t seen_algorithm = chain::ALGORITHM_SHA256D;
 		volatile uint32_t gpu_wanted = 0;
 		volatile uint32_t gpu_share = 100;
 		volatile uint32_t gpu_power = 24;
-		volatile uint32_t gpu_adapter = 0;
-		volatile uint32_t gpu_phase = GPU_OFF;
-		volatile uint32_t gpu_faults = 0;
-		volatile uint64_t gpu_done = 0;
+		volatile uint32_t gpu_heat_limit = 0;
 		volatile uint64_t best_top = ~0ull;
-		wchar_t gpu_label [ 128 ] = { };
 		randomx::cache* rx_cache = nullptr;
 		randomx::dataset* rx_dataset = nullptr;
 		uint8_t rx_seed [ 32 ] = { };
@@ -298,6 +332,7 @@ namespace mine {
 		double rx_seconds = 0.0;
 		bool rx_large = false;
 		uint64_t level3 = 0;
+		bool wide_scrypt = false;
 		volatile uint32_t rx_lanes = max_lanes;
 		volatile uint32_t rx_full = 1;
 		volatile uint32_t rx_ready = 0;

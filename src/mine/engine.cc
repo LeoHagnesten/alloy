@@ -1,14 +1,14 @@
 #include "mine/engine.hh"
-#include "mine/gpu.hh"
+#include "mine/gpu/device.hh"
 #include "randomx/machine.hh"
 #include "hash/aes.hh"
 #include "hash/scrypt.hh"
 #include "chain/target.hh"
 #include "base/bits.hh"
-#include "base/clock.hh"
+#include "base/system/clock.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 
 namespace mine {
 
@@ -63,6 +63,7 @@ namespace mine {
 		compress = extensions && settings.choice != KERNEL_PORTABLE ? hash::sha256_block_extensions : hash::sha256_block;
 		lane_count = base::min ( cpu.threads, max_lanes );
 		level3 = cpu.level3;
+		wide_scrypt = cpu.avx2;
 
 		if ( !rx_ready )
 			rx_lanes = lane_count;
@@ -76,11 +77,11 @@ namespace mine {
 		cursor = 0;
 		best_top = ~0ull;
 		seen_algorithm = settings.algorithm;
-		gpu_done = 0;
-		gpu_faults = 0;
-		gpu_phase = GPU_OFF;
-		gpu_label [ 0 ] = 0;
-		gpu_adapter = settings.adapter;
+		gpus_started = 0;
+
+		for ( gpu_slot& slot : gpus )
+			slot = gpu_slot { };
+
 		lane_list = new lane [ lane_count ];
 		active = true;
 		apply ( settings );
@@ -107,13 +108,18 @@ namespace mine {
 		for ( uint32_t i = 0; i < lane_count; i++ )
 			base::join_thread ( lane_list [ i ].thread );
 
-		base::join_thread ( gpu_thread );
-		gpu_thread = nullptr;
+		for ( uint32_t i = 0; i < gpus_started; i++ ) {
+
+			base::join_thread ( gpus [ i ].thread );
+			gpus [ i ].thread = nullptr;
+			base::atomic_store ( gpus [ i ].phase, static_cast < uint32_t > ( GPU_OFF ) );
+
+		}
+
 		delete [ ] lane_list;
 		lane_list = nullptr;
 		lane_count = 0;
 		active = false;
-		base::atomic_store ( gpu_phase, static_cast < uint32_t > ( GPU_OFF ) );
 
 		if ( base::atomic_load ( rx_state ) == DATASET_BUILDING )
 			base::atomic_store ( rx_state, static_cast < uint32_t > ( DATASET_NONE ) );
@@ -125,17 +131,70 @@ namespace mine {
 		base::atomic_store ( wanted_threads, base::min ( settings.threads, lane_count ) );
 		base::atomic_store ( cpu_share, base::clamp ( settings.cpu_percent, 5u, 100u ) );
 		base::atomic_store ( priority, static_cast < uint32_t > ( settings.priority ) );
+		base::atomic_store ( pinning, settings.pin_threads ? 1u : 0u );
 		base::atomic_store ( gpu_share, base::clamp ( settings.gpu_percent, 5u, 100u ) );
 		base::atomic_store ( gpu_power, base::clamp ( settings.gpu_intensity, 16u, 26u ) );
+		base::atomic_store ( gpu_heat_limit, settings.gpu_heat );
 		base::atomic_store ( gpu_wanted, settings.gpu ? 1u : 0u );
 		base::atomic_store ( rx_full, settings.full_dataset ? 1u : 0u );
 
-		if ( active && settings.gpu && !gpu_thread ) {
+		if ( !active || !settings.gpu || gpus_started )
+			return;
 
-			base::atomic_store ( gpu_phase, static_cast < uint32_t > ( GPU_STARTING ) );
-			gpu_thread = base::start_thread ( &gpu_main, this );
+		uint32_t count = base::clamp ( settings.adapter_count, 1u, max_gpus );
+
+		for ( uint32_t i = 0; i < count; i++ ) {
+
+			gpu_slot& slot = gpus [ i ];
+
+			slot.owner = this;
+			slot.adapter = settings.adapters [ i ];
+			slot.phase = GPU_STARTING;
+			slot.thread = base::start_thread ( &gpu_main, &slot );
 
 		}
+
+		gpus_started = count;
+
+	}
+
+	uint64_t engine::gpu_hashes ( ) const {
+
+		uint64_t sum = 0;
+
+		for ( uint32_t i = 0; i < gpus_started; i++ )
+			sum += base::atomic_load ( gpus [ i ].done );
+
+		return sum;
+
+	}
+
+	uint32_t engine::gpu_errors ( ) const {
+
+		uint32_t sum = 0;
+
+		for ( uint32_t i = 0; i < gpus_started; i++ )
+			sum += base::atomic_load ( gpus [ i ].faults );
+
+		return sum;
+
+	}
+
+	gpu_state engine::gpu_status ( ) const {
+
+		static const uint8_t rank [ ] = { 0, 2, 5, 1, 3, 4 };
+		uint32_t best = GPU_OFF;
+
+		for ( uint32_t i = 0; i < gpus_started; i++ ) {
+
+			uint32_t phase = base::atomic_load ( gpus [ i ].phase );
+
+			if ( rank [ phase ] > rank [ best ] )
+				best = phase;
+
+		}
+
+		return static_cast < gpu_state > ( best );
 
 	}
 
@@ -189,7 +248,9 @@ namespace mine {
 
 	unsigned long engine::gpu_main ( void* context ) {
 
-		static_cast < engine* > ( context )->run_gpu ( );
+		gpu_slot* self = static_cast < gpu_slot* > ( context );
+
+		self->owner->run_gpu ( *self );
 
 		return 0;
 
@@ -430,6 +491,9 @@ namespace mine {
 		uint32_t applied = ~0u;
 		double debt = 0.0;
 
+		if ( base::atomic_load ( pinning ) )
+			base::pin_thread ( self.index );
+
 		while ( !base::atomic_load ( quit ) ) {
 
 			bool spare = algorithm ( ) == chain::ALGORITHM_RANDOMX && self.index >= base::atomic_load ( rx_lanes );
@@ -492,27 +556,38 @@ namespace mine {
 			} else if ( work.algorithm == chain::ALGORITHM_SCRYPT ) {
 
 				if ( !kit.scratch )
-					kit.scratch = base::allocate ( hash::scrypt_pair_scratch_bytes );
+					kit.scratch = base::allocate ( hash::scrypt_quad_scratch_bytes );
 
-				chain::header first = work.header;
-				chain::header second = work.header;
-				uint64_t waiting = nonce_space;
-				uint8_t spare [ 32 ];
+				chain::header headers [ 4 ] = { work.header, work.header, work.header, work.header };
+				uint8_t results [ 4 ] [ 32 ];
+				uint64_t ready_from = nonce_space;
+				uint32_t group = wide_scrypt ? 4 : 2;
 
 				auto hash_one = [ & ] ( uint32_t nonce, uint8_t* digest ) {
 
-					if ( nonce == waiting ) {
+					if ( nonce >= ready_from && nonce < ready_from + group ) {
 
-						base::copy ( digest, spare, 32 );
+						base::copy ( digest, results [ nonce - ready_from ], 32 );
 
 						return;
 
 					}
 
-					first.set_nonce ( nonce );
-					second.set_nonce ( nonce + 1 );
-					hash::scrypt_header_pair ( first.bytes, second.bytes, digest, spare, kit.scratch );
-					waiting = static_cast < uint64_t > ( nonce ) + 1;
+					for ( uint32_t i = 0; i < group; i++ )
+						headers [ i ].set_nonce ( nonce + i );
+
+					if ( group == 4 ) {
+
+						const uint8_t* inputs [ 4 ] = { headers [ 0 ].bytes, headers [ 1 ].bytes, headers [ 2 ].bytes, headers [ 3 ].bytes };
+						uint8_t* outputs [ 4 ] = { results [ 0 ], results [ 1 ], results [ 2 ], results [ 3 ] };
+
+						hash::scrypt_header_quad ( inputs, outputs, kit.scratch );
+
+					} else
+						hash::scrypt_header_pair ( headers [ 0 ].bytes, headers [ 1 ].bytes, results [ 0 ], results [ 1 ], kit.scratch );
+
+					ready_from = nonce;
+					base::copy ( digest, results [ 0 ], 32 );
 
 				};
 
@@ -536,7 +611,17 @@ namespace mine {
 
 	}
 
-	void engine::run_gpu ( ) {
+	void engine::run_gpu ( gpu_slot& self ) {
+
+		struct batch {
+
+			bool live = false;
+			int32_t slot = 0;
+			unit work;
+			uint64_t from = 0;
+			uint64_t to = 0;
+
+		};
 
 		gpu_device device;
 		chain::header_hasher checker;
@@ -544,69 +629,51 @@ namespace mine {
 		uint8_t digest [ 32 ];
 		uint32_t found [ 32 ];
 		double debt = 0.0;
+		double measured = 0.0;
+		double last_collect = base::seconds ( );
+		bool cooling = false;
+		bool broken = false;
+		batch* waiting = new batch;
+		batch* next = new batch;
 
 		base::set_thread_priority ( base::PRIORITY_HIGH );
 
-		if ( !device.open ( base::atomic_load ( gpu_adapter ) ) ) {
+		bool opened = device.open ( self.adapter );
 
-			base::copy_text ( gpu_label, base::count_of ( gpu_label ), device.name ( ) );
-			base::atomic_store ( gpu_phase, static_cast < uint32_t > ( GPU_FAILED ) );
+		base::copy_text ( self.label, base::count_of ( self.label ), device.name ( ) );
+
+		if ( !opened ) {
+
+			base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_FAILED ) );
+			delete waiting;
+			delete next;
 
 			return;
 
 		}
 
-		base::copy_text ( gpu_label, base::count_of ( gpu_label ), device.name ( ) );
-		base::atomic_store ( gpu_phase, static_cast < uint32_t > ( GPU_RUNNING ) );
+		base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_RUNNING ) );
 
-		while ( !base::atomic_load ( quit ) ) {
+		auto settle = [ & ] ( batch& done ) {
 
-			if ( !base::atomic_load ( gpu_wanted ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) ) {
-
-				base::sleep ( 30 );
-
-				continue;
-
-			}
-
-			uint8_t kind = algorithm ( );
-			uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << base::atomic_load ( gpu_power ), kind == chain::ALGORITHM_SCRYPT ? device.capacity ( kind ) : 0u, 0u };
-
-			base::atomic_store ( gpu_phase, static_cast < uint32_t > ( rooms [ kind ] ? GPU_RUNNING : GPU_UNSUPPORTED ) );
-
-			unit work;
-			uint64_t from = 0;
-			uint64_t to = 0;
-
-			if ( !claim ( true, rooms, work, from, to ) ) {
-
-				base::sleep ( rooms [ kind ] ? 20 : 100 );
-
-				continue;
-
-			}
-
-			bool scrypt = work.algorithm == chain::ALGORITHM_SCRYPT;
-			uint32_t threshold = base::load_little ( work.target + 28 );
-			uint32_t count = static_cast < uint32_t > ( to - from );
 			uint32_t found_count = 0;
-			double started = base::seconds ( );
 
-			if ( !scrypt )
-				count = ( count + 255 ) & ~255u;
+			done.live = false;
 
-			if ( !device.search ( work.algorithm, work.header, static_cast < uint32_t > ( from ), count, threshold, found, base::count_of ( found ), found_count ) ) {
+			if ( !device.collect ( done.slot, found, base::count_of ( found ), found_count ) ) {
 
-				base::atomic_store ( gpu_phase, static_cast < uint32_t > ( GPU_FAILED ) );
+				broken = true;
 
-				break;
+				return;
 
 			}
 
-			chain::header header = work.header;
+			bool scrypt = done.work.algorithm == chain::ALGORITHM_SCRYPT;
+			uint32_t threshold = base::load_little ( done.work.target + 28 );
+			chain::header header = done.work.header;
 
 			if ( found_count && !scrypt )
-				checker.prepare ( work.header, compress );
+				checker.prepare ( done.work.header, compress );
 
 			if ( found_count && scrypt && !scratch )
 				scratch = base::allocate ( hash::scrypt_scratch_bytes );
@@ -623,7 +690,7 @@ namespace mine {
 
 				if ( base::load_little ( digest + 28 ) > threshold ) {
 
-					base::atomic_add ( gpu_faults, 1u );
+					base::atomic_add ( self.faults, 1u );
 
 					continue;
 
@@ -631,16 +698,117 @@ namespace mine {
 
 				base::atomic_lower ( best_top, chain::top_bits ( digest ) );
 
-				if ( chain::meets ( digest, work.target ) )
-					report ( work, found [ i ], digest );
+				if ( chain::meets ( digest, done.work.target ) )
+					report ( done.work, found [ i ], digest );
 
 			}
 
-			base::atomic_add ( gpu_done, to - from );
-			rest ( debt, base::seconds ( ) - started, base::atomic_load ( gpu_share ) );
+			base::atomic_add ( self.done, done.to - done.from );
+
+		};
+
+		while ( !base::atomic_load ( quit ) && !broken ) {
+
+			double now = base::seconds ( );
+
+			if ( now - measured >= 1.0 ) {
+
+				float celsius = 0.0f;
+				uint32_t limit = base::atomic_load ( gpu_heat_limit );
+
+				measured = now;
+
+				if ( device.temperature ( celsius ) ) {
+
+					base::atomic_store ( self.heat, static_cast < uint32_t > ( celsius * 10.0f ) );
+
+					if ( limit && celsius >= static_cast < float > ( limit ) )
+						cooling = true;
+					else if ( !limit || celsius <= static_cast < float > ( limit ) - 4.0f )
+						cooling = false;
+
+				}
+
+			}
+
+			if ( !base::atomic_load ( gpu_wanted ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) || cooling ) {
+
+				if ( waiting->live )
+					settle ( *waiting );
+
+				if ( cooling )
+					base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_COOLING ) );
+
+				base::sleep ( 30 );
+				last_collect = base::seconds ( );
+
+				continue;
+
+			}
+
+			uint8_t kind = algorithm ( );
+			uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << base::atomic_load ( gpu_power ), kind == chain::ALGORITHM_SCRYPT ? device.capacity ( kind ) : 0u, 0u };
+			uint32_t share = base::atomic_load ( gpu_share );
+			bool overlap = share >= 100;
+
+			base::atomic_store ( self.phase, static_cast < uint32_t > ( rooms [ kind ] ? GPU_RUNNING : GPU_UNSUPPORTED ) );
+
+			next->live = claim ( true, rooms, next->work, next->from, next->to );
+
+			bool claimed = next->live;
+
+			if ( next->live ) {
+
+				uint32_t count = static_cast < uint32_t > ( next->to - next->from );
+
+				if ( next->work.algorithm != chain::ALGORITHM_SCRYPT )
+					count = ( count + 255 ) & ~255u;
+
+				if ( !device.submit ( next->work.algorithm, next->work.header, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot ) ) {
+
+					broken = true;
+
+					break;
+
+				}
+
+			}
+
+			if ( waiting->live )
+				settle ( *waiting );
+
+			if ( next->live && !overlap )
+				settle ( *next );
+
+			batch* kept = waiting;
+
+			waiting = next;
+			next = kept;
+
+			if ( !claimed && !waiting->live ) {
+
+				base::sleep ( rooms [ kind ] ? 20 : 100 );
+				last_collect = base::seconds ( );
+
+				continue;
+
+			}
+
+			double finished = base::seconds ( );
+
+			rest ( debt, finished - last_collect, share );
+			last_collect = base::seconds ( );
 
 		}
 
+		if ( waiting->live && !broken )
+			settle ( *waiting );
+
+		if ( broken )
+			base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_FAILED ) );
+
+		delete waiting;
+		delete next;
 		base::release ( scratch );
 		device.close ( );
 

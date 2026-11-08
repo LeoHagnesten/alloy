@@ -5,9 +5,10 @@
 #include "chain/header.hh"
 #include "chain/target.hh"
 #include "base/bits.hh"
-#include "base/clock.hh"
+#include "base/system/clock.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
+#include "base/system/hardware.hh"
 #include "base/text.hh"
 
 namespace tests {
@@ -116,6 +117,73 @@ namespace tests {
 		note.add ( L"one thread hashes scrypt at " ).decimal ( together / 1000.0, 2 ).add ( L" kH/s in pairs against " ).decimal ( alone / 1000.0, 2 ).add ( L" kH/s alone" );
 		check ( together > alone, note.get ( ) );
 		base::release ( pair_scratch );
+
+		base::processor cpu;
+
+		base::detect ( cpu );
+
+		if ( cpu.avx2 ) {
+
+			void* quad_scratch = base::allocate ( hash::scrypt_quad_scratch_bytes );
+			chain::header group [ 4 ];
+			uint8_t wide [ 4 ] [ 32 ];
+			uint8_t lone [ 32 ];
+			bool quads = true;
+
+			for ( uint32_t round = 0; round < 3 && quads; round++ ) {
+
+				const uint8_t* inputs [ 4 ];
+				uint8_t* outputs [ 4 ];
+
+				for ( int32_t i = 0; i < 4; i++ ) {
+
+					group [ i ] = genesis;
+					group [ i ].set_nonce ( 2084524493u - 2 + round * 4 + static_cast < uint32_t > ( i ) );
+					inputs [ i ] = group [ i ].bytes;
+					outputs [ i ] = wide [ i ];
+
+				}
+
+				hash::scrypt_header_quad ( inputs, outputs, quad_scratch );
+
+				for ( int32_t i = 0; i < 4 && quads; i++ ) {
+
+					hash::scrypt_header ( group [ i ].bytes, lone, scratch );
+					quads = base::same ( lone, wide [ i ], 32 );
+
+				}
+
+			}
+
+			check ( quads, L"four nonces at once with AVX2 give the same results as one at a time" );
+
+			began = base::seconds ( );
+			count = 0;
+
+			while ( base::seconds ( ) - began < 0.25 ) {
+
+				const uint8_t* inputs [ 4 ];
+				uint8_t* outputs [ 4 ];
+
+				for ( int32_t i = 0; i < 4; i++ ) {
+
+					group [ i ].set_nonce ( count + static_cast < uint32_t > ( i ) );
+					inputs [ i ] = group [ i ].bytes;
+					outputs [ i ] = wide [ i ];
+
+				}
+
+				hash::scrypt_header_quad ( inputs, outputs, quad_scratch );
+				count += 4;
+
+			}
+
+			note.clear ( );
+			note.add ( L"with AVX2 one thread hashes scrypt at " ).decimal ( count / ( base::seconds ( ) - began ) / 1000.0, 2 ).add ( L" kH/s" );
+			check ( count > 0, note.get ( ) );
+			base::release ( quad_scratch );
+
+		}
 		base::release ( scratch );
 
 	}

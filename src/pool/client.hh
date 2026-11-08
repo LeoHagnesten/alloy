@@ -2,8 +2,8 @@
 
 #include "pool/job.hh"
 #include "mine/engine.hh"
-#include "base/clock.hh"
-#include "base/ring.hh"
+#include "base/system/clock.hh"
+#include "base/containers/ring.hh"
 
 namespace net {
 
@@ -53,8 +53,11 @@ namespace pool {
 
 		uint8_t algorithm = chain::ALGORITHM_SHA256D;
 		wchar_t address [ 256 ] = { };
+		wchar_t backup [ 256 ] = { };
 		wchar_t worker [ 128 ] = { };
 		wchar_t password [ 128 ] = { };
+		char pin [ 65 ] = { };
+		char backup_pin [ 65 ] = { };
 
 	};
 
@@ -78,6 +81,11 @@ namespace pool {
 		uint64_t height = 0;
 		int32_t blob_size = 0;
 		uint8_t seed [ 32 ] = { };
+		bool on_backup = false;
+		bool nicehash = false;
+		char learned_pin [ 65 ] = { };
+		bool learned_backup = false;
+		uint32_t pin_serial = 0;
 
 	};
 
@@ -134,7 +142,7 @@ namespace pool {
 
 		void run ( );
 
-		void session ( );
+		bool session ( );
 
 		bool handle ( const char* text, int32_t size );
 
@@ -169,6 +177,7 @@ namespace pool {
 		settings config;
 		void* thread = nullptr;
 		volatile uint32_t quit = 0;
+		volatile uint32_t on_backup = 0;
 		volatile uint32_t serial = 0;
 		base::lock state_lock;
 		status shown;
@@ -176,6 +185,8 @@ namespace pool {
 		blob_job blob_current;
 		char login_id [ 128 ] = { };
 		double last_keepalive = 0.0;
+		bool nicehash = false;
+		char refused_algo [ 16 ] = { };
 		session_nonce nonce;
 		double difficulty = 1.0;
 		double next_difficulty = 1.0;

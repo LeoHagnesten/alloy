@@ -8,7 +8,7 @@ namespace app {
 
 	uint32_t run_command ( wchar_t** arguments, int32_t count );
 
-	uint32_t open_window ( );
+	uint32_t open_window ( bool minimized );
 
 #ifdef ALLOY_DEBUG
 

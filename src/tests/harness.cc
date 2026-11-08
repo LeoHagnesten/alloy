@@ -2,8 +2,8 @@
 
 #include "tests/harness.hh"
 #include "app/settings.hh"
-#include "base/clock.hh"
-#include "base/console.hh"
+#include "base/system/clock.hh"
+#include "base/system/console.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
@@ -55,6 +55,7 @@ namespace tests {
 		{ L"hash", hash_tests },
 		{ L"scrypt", scrypt_tests },
 		{ L"chain", chain_tests },
+		{ L"address", address_tests },
 		{ L"randomx", randomx_tests },
 		{ L"mining", mining_tests },
 		{ L"pool", pool_tests },

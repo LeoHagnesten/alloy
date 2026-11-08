@@ -1,7 +1,7 @@
 #include "hash/scrypt.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
-#include <emmintrin.h>
+#include <immintrin.h>
 
 namespace hash {
 
@@ -436,6 +436,187 @@ namespace hash {
 		romix_pair ( first_blocks, second_blocks, reinterpret_cast < __m128i* > ( at ) );
 		pbkdf2_sha256 ( first_key, first_blocks, 128, 1, first_out, 32 );
 		pbkdf2_sha256 ( second_key, second_blocks, 128, 1, second_out, 32 );
+
+	}
+
+	__attribute__ ( ( target ( "avx2" ) ) ) static inline __m256i spin_wide ( __m256i value, __m256i sum, int32_t count ) {
+
+		return _mm256_xor_si256 ( _mm256_xor_si256 ( value, _mm256_slli_epi32 ( sum, count ) ), _mm256_srli_epi32 ( sum, 32 - count ) );
+
+	}
+
+	__attribute__ ( ( target ( "avx2" ) ) ) static inline void salsa_wide ( __m256i* one, __m256i* two ) {
+
+		__m256i a0 = one [ 0 ];
+		__m256i a1 = one [ 1 ];
+		__m256i a2 = one [ 2 ];
+		__m256i a3 = one [ 3 ];
+		__m256i b0 = two [ 0 ];
+		__m256i b1 = two [ 1 ];
+		__m256i b2 = two [ 2 ];
+		__m256i b3 = two [ 3 ];
+
+		for ( int32_t i = 0; i < 8; i += 2 ) {
+
+			a1 = spin_wide ( a1, _mm256_add_epi32 ( a0, a3 ), 7 );
+			b1 = spin_wide ( b1, _mm256_add_epi32 ( b0, b3 ), 7 );
+			a2 = spin_wide ( a2, _mm256_add_epi32 ( a1, a0 ), 9 );
+			b2 = spin_wide ( b2, _mm256_add_epi32 ( b1, b0 ), 9 );
+			a3 = spin_wide ( a3, _mm256_add_epi32 ( a2, a1 ), 13 );
+			b3 = spin_wide ( b3, _mm256_add_epi32 ( b2, b1 ), 13 );
+			a0 = spin_wide ( a0, _mm256_add_epi32 ( a3, a2 ), 18 );
+			b0 = spin_wide ( b0, _mm256_add_epi32 ( b3, b2 ), 18 );
+			a1 = _mm256_shuffle_epi32 ( a1, 0x93 );
+			b1 = _mm256_shuffle_epi32 ( b1, 0x93 );
+			a2 = _mm256_shuffle_epi32 ( a2, 0x4E );
+			b2 = _mm256_shuffle_epi32 ( b2, 0x4E );
+			a3 = _mm256_shuffle_epi32 ( a3, 0x39 );
+			b3 = _mm256_shuffle_epi32 ( b3, 0x39 );
+			a3 = spin_wide ( a3, _mm256_add_epi32 ( a0, a1 ), 7 );
+			b3 = spin_wide ( b3, _mm256_add_epi32 ( b0, b1 ), 7 );
+			a2 = spin_wide ( a2, _mm256_add_epi32 ( a3, a0 ), 9 );
+			b2 = spin_wide ( b2, _mm256_add_epi32 ( b3, b0 ), 9 );
+			a1 = spin_wide ( a1, _mm256_add_epi32 ( a2, a3 ), 13 );
+			b1 = spin_wide ( b1, _mm256_add_epi32 ( b2, b3 ), 13 );
+			a0 = spin_wide ( a0, _mm256_add_epi32 ( a1, a2 ), 18 );
+			b0 = spin_wide ( b0, _mm256_add_epi32 ( b1, b2 ), 18 );
+			a1 = _mm256_shuffle_epi32 ( a1, 0x39 );
+			b1 = _mm256_shuffle_epi32 ( b1, 0x39 );
+			a2 = _mm256_shuffle_epi32 ( a2, 0x4E );
+			b2 = _mm256_shuffle_epi32 ( b2, 0x4E );
+			a3 = _mm256_shuffle_epi32 ( a3, 0x93 );
+			b3 = _mm256_shuffle_epi32 ( b3, 0x93 );
+
+		}
+
+		one [ 0 ] = _mm256_add_epi32 ( one [ 0 ], a0 );
+		one [ 1 ] = _mm256_add_epi32 ( one [ 1 ], a1 );
+		one [ 2 ] = _mm256_add_epi32 ( one [ 2 ], a2 );
+		one [ 3 ] = _mm256_add_epi32 ( one [ 3 ], a3 );
+		two [ 0 ] = _mm256_add_epi32 ( two [ 0 ], b0 );
+		two [ 1 ] = _mm256_add_epi32 ( two [ 1 ], b1 );
+		two [ 2 ] = _mm256_add_epi32 ( two [ 2 ], b2 );
+		two [ 3 ] = _mm256_add_epi32 ( two [ 3 ], b3 );
+
+	}
+
+	__attribute__ ( ( target ( "avx2" ) ) ) static inline void mix_wide ( __m256i* one, __m256i* two ) {
+
+		for ( int32_t k = 0; k < 4; k++ ) {
+
+			one [ k ] = _mm256_xor_si256 ( one [ k ], one [ 4 + k ] );
+			two [ k ] = _mm256_xor_si256 ( two [ k ], two [ 4 + k ] );
+
+		}
+
+		salsa_wide ( one, two );
+
+		for ( int32_t k = 0; k < 4; k++ ) {
+
+			one [ 4 + k ] = _mm256_xor_si256 ( one [ 4 + k ], one [ k ] );
+			two [ 4 + k ] = _mm256_xor_si256 ( two [ 4 + k ], two [ k ] );
+
+		}
+
+		salsa_wide ( one + 4, two + 4 );
+
+	}
+
+	__attribute__ ( ( target ( "avx2" ) ) ) static inline __m256i gather_rows ( const __m256i* table, uint32_t low, uint32_t high, int32_t k ) {
+
+		__m128i bottom = _mm_load_si128 ( reinterpret_cast < const __m128i* > ( table + low * 8 + k ) );
+		__m128i top = _mm_load_si128 ( reinterpret_cast < const __m128i* > ( table + high * 8 + k ) + 1 );
+
+		return _mm256_inserti128_si256 ( _mm256_castsi128_si256 ( bottom ), top, 1 );
+
+	}
+
+	__attribute__ ( ( target ( "avx2" ) ) ) static void romix_quad ( uint8_t* const* blocks, __m256i* tables ) {
+
+		__m256i* one_table = tables;
+		__m256i* two_table = tables + scrypt_cost * 8;
+		__m256i one [ 8 ];
+		__m256i two [ 8 ];
+		__m128i lanes [ 4 ] [ 8 ];
+
+		for ( int32_t h = 0; h < 4; h++ ) {
+
+			lanes_in ( blocks [ h ], lanes [ h ] );
+			lanes_in ( blocks [ h ] + 64, lanes [ h ] + 4 );
+
+		}
+
+		for ( int32_t k = 0; k < 8; k++ ) {
+
+			one [ k ] = _mm256_inserti128_si256 ( _mm256_castsi128_si256 ( lanes [ 0 ] [ k ] ), lanes [ 1 ] [ k ], 1 );
+			two [ k ] = _mm256_inserti128_si256 ( _mm256_castsi128_si256 ( lanes [ 2 ] [ k ] ), lanes [ 3 ] [ k ], 1 );
+
+		}
+
+		for ( uint32_t i = 0; i < scrypt_cost; i++ ) {
+
+			for ( int32_t k = 0; k < 8; k++ ) {
+
+				_mm256_store_si256 ( one_table + i * 8 + k, one [ k ] );
+				_mm256_store_si256 ( two_table + i * 8 + k, two [ k ] );
+
+			}
+
+			mix_wide ( one, two );
+
+		}
+
+		for ( uint32_t i = 0; i < scrypt_cost; i++ ) {
+
+			uint32_t mask = scrypt_cost - 1;
+			uint32_t a = static_cast < uint32_t > ( _mm256_extract_epi32 ( one [ 4 ], 0 ) ) & mask;
+			uint32_t b = static_cast < uint32_t > ( _mm256_extract_epi32 ( one [ 4 ], 4 ) ) & mask;
+			uint32_t c = static_cast < uint32_t > ( _mm256_extract_epi32 ( two [ 4 ], 0 ) ) & mask;
+			uint32_t d = static_cast < uint32_t > ( _mm256_extract_epi32 ( two [ 4 ], 4 ) ) & mask;
+
+			for ( int32_t k = 0; k < 8; k++ ) {
+
+				one [ k ] = _mm256_xor_si256 ( one [ k ], gather_rows ( one_table, a, b, k ) );
+				two [ k ] = _mm256_xor_si256 ( two [ k ], gather_rows ( two_table, c, d, k ) );
+
+			}
+
+			mix_wide ( one, two );
+
+		}
+
+		for ( int32_t k = 0; k < 8; k++ ) {
+
+			lanes [ 0 ] [ k ] = _mm256_castsi256_si128 ( one [ k ] );
+			lanes [ 1 ] [ k ] = _mm256_extracti128_si256 ( one [ k ], 1 );
+			lanes [ 2 ] [ k ] = _mm256_castsi256_si128 ( two [ k ] );
+			lanes [ 3 ] [ k ] = _mm256_extracti128_si256 ( two [ k ], 1 );
+
+		}
+
+		for ( int32_t h = 0; h < 4; h++ ) {
+
+			lanes_out ( lanes [ h ], blocks [ h ] );
+			lanes_out ( lanes [ h ] + 4, blocks [ h ] + 64 );
+
+		}
+
+	}
+
+	void scrypt_header_quad ( const uint8_t* const* headers, uint8_t* const* outs, void* scratch ) {
+
+		uintptr_t at = ( reinterpret_cast < uintptr_t > ( scratch ) + 63 ) & ~static_cast < uintptr_t > ( 63 );
+		uint8_t blocks [ 4 ] [ 128 ];
+		uint8_t* places [ 4 ] = { blocks [ 0 ], blocks [ 1 ], blocks [ 2 ], blocks [ 3 ] };
+		hmac_sha256 keys [ 4 ] = { hmac_sha256 ( headers [ 0 ], 80 ), hmac_sha256 ( headers [ 1 ], 80 ), hmac_sha256 ( headers [ 2 ], 80 ), hmac_sha256 ( headers [ 3 ], 80 ) };
+
+		for ( int32_t h = 0; h < 4; h++ )
+			pbkdf2_sha256 ( keys [ h ], headers [ h ], 80, 1, blocks [ h ], 128 );
+
+		romix_quad ( places, reinterpret_cast < __m256i* > ( at ) );
+
+		for ( int32_t h = 0; h < 4; h++ )
+			pbkdf2_sha256 ( keys [ h ], blocks [ h ], 128, 1, outs [ h ], 32 );
 
 	}
 

@@ -1,9 +1,11 @@
 #include "app/commands.hh"
+#include "version.hh"
 #include "app/session.hh"
 #include "app/settings.hh"
-#include "pool/server.hh"
-#include "base/clock.hh"
-#include "base/console.hh"
+#include "pool/test_pool.hh"
+#include "net/socket.hh"
+#include "base/system/clock.hh"
+#include "base/system/console.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
 
@@ -34,11 +36,12 @@ namespace app {
 		uint32_t job_seconds = 30;
 		uint32_t size = 256;
 		bool stills = false;
+		bool http = false;
 		ui::preferences settings;
 
 	};
 
-	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window" };
+	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window", L"--tls-check" };
 
 	bool is_command ( wchar_t** arguments, int32_t count ) {
 
@@ -55,7 +58,7 @@ namespace app {
 
 	static void usage ( ) {
 
-		base::print_line ( L"Alloy 0.3, a SHA-256d, scrypt and RandomX miner written from scratch" );
+		base::print_line ( L"Alloy " ALLOY_VERSION_TEXT L", a SHA-256d, scrypt and RandomX miner written from scratch" );
 		base::print_line ( L"" );
 		base::print_line ( L"  Alloy.exe                                   open the window" );
 		base::print_line ( L"  Alloy.exe --bench [algorithm] [--seconds n] measure the hashrate" );
@@ -325,6 +328,79 @@ namespace app {
 
 	}
 
+#ifdef ALLOY_DEBUG
+
+	static uint32_t tls_check ( const wchar_t* target, bool http ) {
+
+		char host [ 256 ];
+		uint16_t port = 0;
+		net::connection* link = new net::connection;
+		base::text note;
+		uint32_t code = 1;
+
+		if ( !net::split_address ( target, host, sizeof ( host ), port ) )
+			base::print_line ( L"tls-check: give it host:port" );
+		else if ( !link->open ( host, port, 5000 ) )
+			base::print_line ( L"tls-check: couldn't reach it" );
+		else if ( !link->start_tls ( host, 8000 ) ) {
+
+			note.add ( L"tls-check: " ).add ( link->tls_problem ( ) );
+			base::print_line ( note.get ( ) );
+
+		} else {
+
+			base::line request;
+			char reply [ 512 ];
+
+			note.add ( L"handshake done with " ).add ( link->tls_protocol ( ) ).add ( L", " );
+
+			if ( link->tls_trusted ( ) )
+				note.add ( L"Windows trusts the certificate" );
+			else
+				note.add ( link->tls_trust_problem ( ) );
+
+			note.add ( L", fingerprint " ).hex ( link->tls_fingerprint ( ), 32, false );
+			base::print_line ( note.get ( ) );
+
+			if ( http )
+				request.add ( "HEAD / HTTP/1.1\r\nHost: " ).add ( host ).add ( "\r\nConnection: close\r\n\r\n" );
+			else
+				request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( pool::agent ).add ( "\"]}\n" );
+
+			int32_t size = link->send ( request.get ( ), request.size ( ) ) ? 0 : -1;
+			double began = base::seconds ( );
+
+			while ( size == 0 && base::seconds ( ) - began < 8.0 )
+				size = link->read_line ( reply, sizeof ( reply ), 200 );
+
+			if ( size > 0 ) {
+
+				wchar_t wide [ 512 ];
+
+				base::widen ( wide, 512, reply );
+				note.clear ( );
+				note.add ( L"first line back: " ).add ( wide );
+				base::print_line ( note.get ( ) );
+				code = 0;
+
+			} else {
+
+				note.clear ( );
+				note.add ( L"tls-check: no reply over the encrypted link, read " ).number ( static_cast < uint64_t > ( size < 0 ? 999 : size ) ).add ( link->is_open ( ) ? L" open " : L" closed " ).hex32 ( static_cast < uint32_t > ( link->tls_status ( ) ) );
+				base::print_line ( note.get ( ) );
+
+			}
+
+		}
+
+		delete link;
+
+		return code;
+
+	}
+
+#endif
+
 	static uint32_t test_pool ( command_line& line ) {
 
 		pool::server_settings config;
@@ -401,7 +477,7 @@ namespace app {
 					line->algorithm = value;
 					i++;
 
-				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--test" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) ) ) {
+				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--test" ) || base::same_text ( item, L"--tls-check" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) ) ) {
 
 					line->target = value;
 					i++;
@@ -420,6 +496,10 @@ namespace app {
 				line->settings.gpu = false;
 			else if ( base::same_text ( item, L"--no-cpu" ) )
 				line->settings.cpu = false;
+			else if ( base::same_text ( item, L"--no-pin" ) )
+				line->settings.pin_threads = false;
+			else if ( base::same_text ( item, L"--http" ) )
+				line->http = true;
 			else if ( !takes ) {
 
 				base::text note;
@@ -544,6 +624,8 @@ namespace app {
 			code = export_logo ( line->target, line->size );
 		else if ( base::same_text ( action, L"--smoke-window" ) )
 			code = smoke_window ( line->target );
+		else if ( base::same_text ( action, L"--tls-check" ) && line->target [ 0 ] )
+			code = tls_check ( line->target, line->http );
 #endif
 		else {
 

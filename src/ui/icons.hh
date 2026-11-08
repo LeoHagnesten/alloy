@@ -22,6 +22,7 @@ namespace ui {
 		ICON_GRAPHICS,
 		ICON_EYE,
 		ICON_HIDDEN,
+		ICON_ARROW,
 
 	};
 

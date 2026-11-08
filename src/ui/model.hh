@@ -1,7 +1,7 @@
 #pragma once
 
 #include "chain/algorithm.hh"
-#include "base/clock.hh"
+#include "base/system/clock.hh"
 
 namespace ui {
 
@@ -55,6 +55,7 @@ namespace ui {
 		GPU_WORKING,
 		GPU_BROKEN,
 		GPU_UNSUPPORTED,
+		GPU_COOLING,
 
 	};
 
@@ -68,11 +69,27 @@ namespace ui {
 
 	};
 
+	static constexpr uint32_t all_adapters = 0xFF;
+	static constexpr int32_t gpu_room = 8;
+
 	struct pool_profile {
 
 		wchar_t address [ 256 ] = { };
 		wchar_t worker [ 128 ] = { };
 		wchar_t password [ 128 ] = { };
+		wchar_t backup [ 256 ] = { };
+		char pin [ 65 ] = { };
+		char backup_pin [ 65 ] = { };
+
+	};
+
+	struct algorithm_tuning {
+
+		uint32_t threads = 0;
+		uint32_t cpu_limit = 100;
+		bool gpu = true;
+		uint32_t gpu_limit = 100;
+		uint32_t intensity = 22;
 
 	};
 
@@ -97,11 +114,17 @@ namespace ui {
 		uint32_t adapter = 0;
 		uint32_t gpu_limit = 100;
 		uint32_t intensity = 22;
+		uint32_t gpu_heat = 0;
+		bool pin_threads = true;
 		bool pause_active = false;
 		uint32_t idle_minutes = 2;
 		bool pause_battery = true;
 		bool autostart = false;
+		bool launch_at_login = false;
+		bool close_to_tray = false;
+		uint32_t api_port = 0;
 		uint8_t theme = THEME_SYSTEM;
+		algorithm_tuning tunings [ chain::ALGORITHM_COUNT ];
 
 		pool_profile& pool ( ) {
 
@@ -112,6 +135,38 @@ namespace ui {
 		const pool_profile& pool ( ) const {
 
 			return pools [ algorithm % chain::ALGORITHM_COUNT ];
+
+		}
+
+		void stash ( ) {
+
+			algorithm_tuning& slot = tunings [ algorithm % chain::ALGORITHM_COUNT ];
+
+			slot.threads = threads;
+			slot.cpu_limit = cpu_limit;
+			slot.gpu = gpu;
+			slot.gpu_limit = gpu_limit;
+			slot.intensity = intensity;
+
+		}
+
+		void unstash ( ) {
+
+			const algorithm_tuning& slot = tunings [ algorithm % chain::ALGORITHM_COUNT ];
+
+			threads = slot.threads ? slot.threads : threads;
+			cpu_limit = slot.cpu_limit;
+			gpu = slot.gpu;
+			gpu_limit = slot.gpu_limit;
+			intensity = slot.intensity;
+
+		}
+
+		void choose_algorithm ( uint8_t next ) {
+
+			stash ( );
+			algorithm = static_cast < uint8_t > ( next % chain::ALGORITHM_COUNT );
+			unstash ( );
 
 		}
 
@@ -185,6 +240,15 @@ namespace ui {
 		uint64_t gpu_hashes = 0;
 		uint8_t gpu_state = GPU_IDLE;
 		wchar_t gpu_name [ 128 ] = { };
+		int32_t gpu_count = 0;
+		wchar_t gpu_names [ gpu_room ] [ 128 ] = { };
+		float gpu_rates [ gpu_room ] = { };
+		float gpu_heat [ gpu_room ] = { };
+		uint8_t gpu_states [ gpu_room ] = { };
+		bool large_pages = false;
+		bool on_backup = false;
+		bool nicehash = false;
+		uint32_t api_port = 0;
 		share_row shares [ share_room ];
 		int32_t share_count = 0;
 		uint64_t share_serial = 0;

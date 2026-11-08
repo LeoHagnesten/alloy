@@ -1,7 +1,7 @@
-#include "base/gif.hh"
+#include "base/formats/gif.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
-#include "base/sort.hh"
+#include "base/containers/sort.hh"
 
 namespace base {
 

@@ -3,7 +3,7 @@
 #include "hash/blake2b.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 #include <xmmintrin.h>
 
 namespace randomx {

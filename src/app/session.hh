@@ -1,10 +1,12 @@
 #pragma once
 
+#include "app/api.hh"
 #include "ui/model.hh"
 #include "mine/engine.hh"
 #include "mine/offline.hh"
 #include "pool/client.hh"
-#include "base/system.hh"
+#include "base/strings.hh"
+#include "base/system/hardware.hh"
 
 namespace app {
 
@@ -58,13 +60,37 @@ namespace app {
 
 		}
 
+		bool learned_pin ( uint8_t& kind, bool& backup, char* out, int32_t room ) {
+
+			if ( !pin_waiting )
+				return false;
+
+			pin_waiting = false;
+			kind = algorithm;
+			backup = pin_backup;
+			base::copy_text ( out, room, pin_learned );
+
+			return true;
+
+		}
+
 		uint32_t suggested_threads ( ) const {
 
 			return shown->adapter_count && cpu.threads > 1 ? cpu.threads - 1 : cpu.threads;
 
 		}
 
+		uint16_t api_bound ( ) const {
+
+			return api.port ( );
+
+		}
+
 	private:
+
+		void sync_api ( const ui::preferences& settings );
+
+		void publish ( const ui::preferences& settings );
 
 		void sample ( double now );
 
@@ -91,6 +117,14 @@ namespace app {
 		uint64_t last_total = 0;
 		uint64_t last_gpu = 0;
 		uint64_t lane_last [ ui::lane_room ] = { };
+		uint64_t gpu_last [ ui::gpu_room ] = { };
+		status_api api;
+		uint32_t api_port = 0;
+		double published = 0.0;
+		uint32_t pin_serial = 0;
+		bool pin_backup = false;
+		bool pin_waiting = false;
+		char pin_learned [ 65 ] = { };
 		bool paused = false;
 		uint32_t genesis_from = 0;
 

@@ -2,14 +2,14 @@
 
 #include "tests/harness.hh"
 #include "app/session.hh"
-#include "pool/server.hh"
+#include "pool/test_pool.hh"
 #include "net/socket.hh"
 #include "chain/target.hh"
-#include "base/clock.hh"
-#include "base/json.hh"
+#include "base/system/clock.hh"
+#include "base/formats/json.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 #include "base/text.hh"
 
 namespace tests {
@@ -115,7 +115,7 @@ namespace tests {
 
 	}
 
-	static void mine_on ( uint8_t algorithm, double difficulty, uint32_t reseed, bool gpu, uint32_t wanted, double limit ) {
+	static void mine_on ( uint8_t algorithm, double difficulty, uint32_t reseed, bool gpu, uint32_t wanted, double limit, bool nicehash = false ) {
 
 		pool::test_server* server = new pool::test_server;
 		pool::server_settings config;
@@ -126,6 +126,7 @@ namespace tests {
 		config.difficulty = difficulty;
 		config.job_seconds = 3;
 		config.reseed_jobs = reseed;
+		config.nicehash = nicehash;
 
 		if ( !server->start ( config ) ) {
 
@@ -158,6 +159,9 @@ namespace tests {
 
 			bool reseeded = !reseed || ( count_logs ( view, L"The RandomX seed changed" ) > 0 && view.dataset == ui::DATASET_FULL );
 
+			if ( nicehash && !view.nicehash )
+				return false;
+
 			return view.accepted >= wanted && count_logs ( view, L"New job " ) >= ( reseed ? 3 : 2 ) && view.link == ui::PHASE_READY && reseeded;
 
 		} );
@@ -173,7 +177,7 @@ namespace tests {
 		note.add ( chain::algorithm_name ( algorithm ) ).add ( L" mines on its test pool" );
 
 		if ( algorithm == chain::ALGORITHM_RANDOMX )
-			note.add ( reseed ? L" through a seed change" : L"" ).add ( L" with the full dataset" );
+			note.add ( reseed ? L" through a seed change" : L"" ).add ( nicehash ? L" in NiceHash mode" : L"" ).add ( L" with the full dataset" );
 		else if ( gpu )
 			note.add ( L" with the CPU and GPU" );
 
@@ -190,6 +194,50 @@ namespace tests {
 		delete run;
 		server->stop ( );
 		delete server;
+
+	}
+
+	static bool ask_api ( uint16_t port, const char* host, const char* path, char* status, char* body, int32_t room ) {
+
+		net::connection link;
+		base::line request;
+		bool past_headers = false;
+		bool first = true;
+
+		status [ 0 ] = 0;
+		body [ 0 ] = 0;
+
+		if ( !link.open ( "127.0.0.1", port, 2000 ) )
+			return false;
+
+		request.add ( "GET " ).add ( path ).add ( " HTTP/1.1\r\nHost: " ).add ( host ).add ( "\r\n\r\n" );
+		link.send ( request.get ( ), request.size ( ) );
+
+		double began = base::seconds ( );
+		char line [ 4096 ];
+
+		while ( base::seconds ( ) - began < 3.0 && link.is_open ( ) ) {
+
+			line [ 0 ] = 1;
+
+			int32_t size = link.read_line ( line, sizeof ( line ), 100 );
+
+			if ( size < 0 )
+				break;
+
+			if ( size == 0 && line [ 0 ] == 0 )
+				past_headers = true;
+			else if ( size > 0 && first ) {
+
+				base::copy_text ( status, room, line );
+				first = false;
+
+			} else if ( size > 0 && past_headers )
+				base::copy_text ( body, room, line );
+
+		}
+
+		return status [ 0 ] != 0;
 
 	}
 
@@ -329,6 +377,20 @@ namespace tests {
 		run->stop ( );
 		check ( retrying, L"an unreachable pool backs off and retries" );
 
+		run->clear_log ( );
+		base::copy_text ( settings.pool ( ).backup, base::count_of ( settings.pool ( ).backup ), address.get ( ) );
+		run->start ( settings );
+
+		bool failed_over = wait_until ( *run, settings, 30.0, [ ] ( const ui::snapshot& view ) {
+
+			return view.on_backup && view.accepted >= 2 && view.link == ui::PHASE_READY;
+
+		} );
+
+		run->stop ( );
+		check ( failed_over, L"after three failed tries on the main pool the miner moves to the backup pool and gets shares accepted" );
+		settings.pool ( ).backup [ 0 ] = 0;
+
 		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), L"no port here" );
 		run->start ( settings );
 
@@ -345,8 +407,26 @@ namespace tests {
 		server->stop ( );
 		delete server;
 
+		app::status_api* api = new app::status_api;
+		char status [ 256 ];
+		char body [ 4096 ];
+		static const char json [ ] = "{\"hashrate\":{\"total\":1234.5}}\n";
+		bool served = api->start ( 0 );
+		base::writer < char, 32 > host;
+
+		host.add ( "127.0.0.1:" ).number ( api->port ( ) );
+		api->publish ( json, base::length ( json ) );
+		served = served && ask_api ( api->port ( ), host.get ( ), "/api.json", status, body, sizeof ( body ) ) && base::starts_with ( status, "HTTP/1.1 200" ) && base::same_text ( body, "{\"hashrate\":{\"total\":1234.5}}" );
+
+		bool guarded = ask_api ( api->port ( ), "attacker.example", "/api.json", status, body, sizeof ( body ) ) && base::starts_with ( status, "HTTP/1.1 403" ) && !body [ 0 ];
+		bool unknown_path = ask_api ( api->port ( ), host.get ( ), "/settings", status, body, sizeof ( body ) ) && base::starts_with ( status, "HTTP/1.1 404" );
+
+		check ( served, L"the stats API serves the latest JSON on 127.0.0.1" );
+		check ( guarded && unknown_path, L"it refuses requests whose Host isn't this machine, so web pages can't read it, and knows only its own path" );
+		delete api;
+
 		mine_on ( chain::ALGORITHM_SCRYPT, 2.0, 0, true, 8, 25.0 );
-		mine_on ( chain::ALGORITHM_RANDOMX, 1000.0, 2, false, 8, 45.0 );
+		mine_on ( chain::ALGORITHM_RANDOMX, 1000.0, 2, false, 8, 45.0, true );
 
 	}
 

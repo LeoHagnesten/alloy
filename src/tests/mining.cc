@@ -2,14 +2,14 @@
 
 #include "tests/harness.hh"
 #include "mine/engine.hh"
-#include "mine/gpu.hh"
+#include "mine/gpu/device.hh"
 #include "mine/offline.hh"
 #include "hash/scrypt.hh"
 #include "chain/target.hh"
 #include "base/bits.hh"
-#include "base/clock.hh"
+#include "base/system/clock.hh"
 #include "base/memory.hh"
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 #include "base/text.hh"
 
 namespace tests {
@@ -320,6 +320,72 @@ namespace tests {
 		note.clear ( );
 		note.add ( L"the GPU runs at " ).scaled ( full, L"H/s" ).add ( L" and a 40% limit holds it to " ).number ( static_cast < uint64_t > ( ratio * 100.0 + 0.5 ) ).put ( L'%' );
 		check ( full > 1e8 && ratio > 0.25 && ratio < 0.55, note.get ( ) );
+
+		mine::gpu_device* card = new mine::gpu_device;
+		float celsius = 0.0f;
+		bool warm = card->open ( 0 ) && card->temperature ( celsius );
+
+		note.clear ( );
+		note.add ( L"the driver reports the card's temperature, " ).decimal ( celsius, 0 ).add ( L" degrees" );
+		check ( warm && celsius > 5.0f && celsius < 120.0f, note.get ( ) );
+		delete card;
+
+		mine::gpu_device* software = new mine::gpu_device;
+		bool warp = software->open ( mine::software_adapter );
+		uint32_t* software_tops = new uint32_t [ 256 ];
+		bool portable = warp && software->sample ( chain::ALGORITHM_SHA256D, source, genesis_nonce - 128, 256, software_tops );
+
+		for ( uint32_t i = 0; i < 256 && portable; i++ ) {
+
+			hasher.prepare ( source, hash::sha256_block );
+			hasher.hash ( genesis_nonce - 128 + i, digest );
+			portable = software_tops [ i ] == base::load_little ( digest + 28 );
+
+		}
+
+		check ( portable, L"Microsoft's WARP renderer runs the SHA-256d kernel and matches the CPU on 256 nonces" );
+
+		if ( room >= 1024 && warp ) {
+
+			void* scratch = base::allocate ( hash::scrypt_scratch_bytes );
+			bool agree = software->sample ( chain::ALGORITHM_SCRYPT, coin, coin.nonce ( ) - 16, 32, software_tops );
+			chain::header probe = coin;
+
+			for ( uint32_t i = 0; i < 32 && agree; i++ ) {
+
+				probe.set_nonce ( coin.nonce ( ) - 16 + i );
+				hash::scrypt_header ( probe.bytes, digest, scratch );
+				agree = software_tops [ i ] == base::load_little ( digest + 28 );
+
+			}
+
+			check ( agree, L"WARP runs the three scrypt kernels and matches the CPU on 32 nonces" );
+			base::release ( scratch );
+
+		}
+
+		delete [ ] software_tops;
+		delete software;
+
+		origin.reset ( genesis_nonce - 120000000 );
+		limits.gpu_percent = 100;
+		limits.adapter_count = 2;
+		limits.adapters [ 0 ] = 0;
+		limits.adapters [ 1 ] = mine::software_adapter;
+		limits.gpu_intensity = 20;
+		engine->start ( &origin, limits );
+		solved = wait_for_solution ( origin, 40.0 );
+
+		uint64_t first_card = engine->gpu_hashes ( 0 );
+		uint64_t second_card = engine->gpu_hashes ( 1 );
+
+		faults = engine->gpu_errors ( );
+		engine->stop ( );
+		note.clear ( );
+		note.add ( L"two devices mine together and find the genesis nonce: " ).decimal ( first_card / 1e6, 0 ).add ( L" M hashes on the card, " ).decimal ( second_card / 1e6, 1 ).add ( L" M on WARP" );
+		check ( solved && origin.nonce ( ) == genesis_nonce && first_card > 0 && second_card > 0 && faults == 0, note.get ( ) );
+		limits.adapter_count = 1;
+		limits.adapters [ 0 ] = 0;
 
 		delete engine;
 

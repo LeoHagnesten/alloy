@@ -3,14 +3,15 @@
 #include "app/settings.hh"
 #include "ui/shell.hh"
 #include "render/surface.hh"
-#include "base/clipboard.hh"
-#include "base/clock.hh"
-#include "base/console.hh"
-#include "base/files.hh"
-#include "base/png.hh"
-#include "base/system.hh"
+#include "base/system/clipboard.hh"
+#include "base/system/clock.hh"
+#include "base/system/console.hh"
+#include "base/system/files.hh"
+#include "base/formats/png.hh"
+#include "base/system/hardware.hh"
 #include "base/text.hh"
 #include <windows.h>
+#include <shellapi.h>
 #include <dwmapi.h>
 
 namespace app {
@@ -19,6 +20,10 @@ namespace app {
 	static constexpr float default_height = 800.0f;
 	static constexpr float minimum_width = 980.0f;
 	static constexpr float minimum_height = 640.0f;
+	static constexpr UINT tray_message = WM_APP + 1;
+	static constexpr UINT_PTR menu_show = 1;
+	static constexpr UINT_PTR menu_toggle = 2;
+	static constexpr UINT_PTR menu_quit = 3;
 
 	struct host {
 
@@ -32,10 +37,120 @@ namespace app {
 		bool dirty = true;
 		bool tracking = false;
 		bool frame_tracking = false;
+		bool tray_shown = false;
+		bool told_tray = false;
+		bool quitting = false;
+		bool login_applied = false;
+		bool login_known = false;
+		UINT taskbar_created = 0;
 		double save_at = 0.0;
+		double tip_at = 0.0;
 		base::list < double >* frames = nullptr;
 
 	};
+
+	static void tray_text ( host& self, wchar_t* out, int32_t room ) {
+
+		const ui::snapshot& view = self.run->view ( );
+		base::text line;
+
+		line.add ( L"Alloy" );
+
+		if ( view.running && view.paused )
+			line.add ( L", paused" );
+		else if ( view.running )
+			line.add ( L", " ).add ( chain::algorithm_name ( view.algorithm ) ).add ( L" at " ).scaled ( view.rate, L"H/s" );
+		else
+			line.add ( L", not mining" );
+
+		base::copy_text ( out, room, line.get ( ) );
+
+	}
+
+	static void sync_tray ( host& self ) {
+
+		NOTIFYICONDATAW data = { sizeof ( data ) };
+
+		data.hWnd = self.window;
+		data.uID = 1;
+
+		if ( self.settings.close_to_tray && !self.tray_shown ) {
+
+			data.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+			data.uCallbackMessage = tray_message;
+			data.hIcon = static_cast < HICON > ( LoadImageW ( GetModuleHandleW ( nullptr ), MAKEINTRESOURCEW ( 1 ), IMAGE_ICON, GetSystemMetrics ( SM_CXSMICON ), GetSystemMetrics ( SM_CYSMICON ), LR_DEFAULTCOLOR ) );
+			tray_text ( self, data.szTip, base::count_of ( data.szTip ) );
+			self.tray_shown = Shell_NotifyIconW ( NIM_ADD, &data ) != FALSE;
+
+		} else if ( !self.settings.close_to_tray && self.tray_shown ) {
+
+			Shell_NotifyIconW ( NIM_DELETE, &data );
+			self.tray_shown = false;
+
+			if ( !IsWindowVisible ( self.window ) )
+				ShowWindow ( self.window, SW_SHOW );
+
+		}
+
+	}
+
+	static void refresh_tray ( host& self, double now ) {
+
+		if ( !self.tray_shown || now < self.tip_at )
+			return;
+
+		NOTIFYICONDATAW data = { sizeof ( data ) };
+
+		self.tip_at = now + 1.0;
+		data.hWnd = self.window;
+		data.uID = 1;
+		data.uFlags = NIF_TIP;
+		tray_text ( self, data.szTip, base::count_of ( data.szTip ) );
+		Shell_NotifyIconW ( NIM_MODIFY, &data );
+
+	}
+
+	static void hide_to_tray ( host& self ) {
+
+		ShowWindow ( self.window, SW_HIDE );
+
+		if ( self.told_tray )
+			return;
+
+		NOTIFYICONDATAW data = { sizeof ( data ) };
+
+		self.told_tray = true;
+		data.hWnd = self.window;
+		data.uID = 1;
+		data.uFlags = NIF_INFO;
+		data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
+		base::copy_text ( data.szInfoTitle, base::count_of ( data.szInfoTitle ), L"Alloy is still running" );
+		base::copy_text ( data.szInfo, base::count_of ( data.szInfo ), self.run->running ( ) ? L"Mining carries on here. Click the icon to open the window again." : L"Click the icon to open the window again, or quit from its menu." );
+		Shell_NotifyIconW ( NIM_MODIFY, &data );
+
+	}
+
+	static void show_from_tray ( host& self ) {
+
+		ShowWindow ( self.window, IsIconic ( self.window ) ? SW_RESTORE : SW_SHOW );
+		SetForegroundWindow ( self.window );
+		self.dirty = true;
+
+	}
+
+	static void sync_login ( host& self ) {
+
+		if ( settings_frozen ( ) || ( self.login_known && self.login_applied == self.settings.launch_at_login ) )
+			return;
+
+		if ( base::set_run_at_login ( L"Alloy", self.settings.launch_at_login, L"--minimized" ) ) {
+
+			self.login_applied = self.settings.launch_at_login;
+			self.login_known = true;
+
+		}
+
+	}
 
 	static float dips ( host& self, LPARAM lparam, bool vertical ) {
 
@@ -72,6 +187,8 @@ namespace app {
 			case ui::COMMAND_PREFERENCES:
 				self.run->apply ( self.settings );
 				apply_theme ( self );
+				sync_tray ( self );
+				sync_login ( self );
 				self.save_at = base::seconds ( ) + 0.6;
 				break;
 
@@ -480,12 +597,88 @@ namespace app {
 			}
 
 			case WM_CLOSE:
+				if ( self->settings.close_to_tray && self->tray_shown && !self->quitting ) {
+
+					handle ( *self, self->view->blur ( now ) );
+					hide_to_tray ( *self );
+
+					return 0;
+
+				}
+
 				DestroyWindow ( window );
 				return 0;
 
-			case WM_DESTROY:
+			case WM_DESTROY: {
+
+				NOTIFYICONDATAW data = { sizeof ( data ) };
+
+				data.hWnd = window;
+				data.uID = 1;
+
+				if ( self->tray_shown )
+					Shell_NotifyIconW ( NIM_DELETE, &data );
+
+				self->tray_shown = false;
 				PostQuitMessage ( 0 );
+
 				return 0;
+
+			}
+
+			case tray_message: {
+
+				UINT event = LOWORD ( lparam );
+
+				if ( event == WM_LBUTTONUP || event == NIN_SELECT || event == NIN_KEYSELECT ) {
+
+					show_from_tray ( *self );
+
+					return 0;
+
+				}
+
+				if ( event != WM_RBUTTONUP && event != WM_CONTEXTMENU )
+					return 0;
+
+				HMENU menu = CreatePopupMenu ( );
+				POINT spot;
+
+				AppendMenuW ( menu, MF_STRING, menu_show, L"Open Alloy" );
+				AppendMenuW ( menu, MF_STRING, menu_toggle, self->run->running ( ) ? L"Stop mining" : L"Start mining" );
+				AppendMenuW ( menu, MF_SEPARATOR, 0, nullptr );
+				AppendMenuW ( menu, MF_STRING, menu_quit, L"Quit Alloy" );
+				GetCursorPos ( &spot );
+				SetForegroundWindow ( window );
+
+				UINT_PTR chosen = TrackPopupMenu ( menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, spot.x, spot.y, 0, window, nullptr );
+
+				DestroyMenu ( menu );
+				PostMessageW ( window, WM_NULL, 0, 0 );
+
+				if ( chosen == menu_show )
+					show_from_tray ( *self );
+				else if ( chosen == menu_toggle )
+					handle ( *self, ui::COMMAND_TOGGLE );
+				else if ( chosen == menu_quit ) {
+
+					self->quitting = true;
+					PostMessageW ( window, WM_CLOSE, 0, 0 );
+
+				}
+
+				return 0;
+
+			}
+
+		}
+
+		if ( self->taskbar_created && message == self->taskbar_created ) {
+
+			self->tray_shown = false;
+			sync_tray ( *self );
+
+			return 0;
 
 		}
 
@@ -544,6 +737,8 @@ namespace app {
 		if ( self->surface.open_window ( self->window, client.right, client.bottom, self->scale ) )
 			paint ( *self, true );
 
+		self->taskbar_created = RegisterWindowMessageW ( L"TaskbarCreated" );
+
 		return self;
 
 	}
@@ -586,6 +781,21 @@ namespace app {
 			if ( self->run->tick ( now, self->settings ) )
 				self->dirty = true;
 
+			refresh_tray ( *self, now );
+
+			uint8_t kind = 0;
+			bool backup = false;
+			char pin [ 65 ];
+
+			if ( self->run->learned_pin ( kind, backup, pin, sizeof ( pin ) ) && pin [ 0 ] ) {
+
+				ui::pool_profile& profile = self->settings.pools [ kind % chain::ALGORITHM_COUNT ];
+
+				base::copy_text ( backup ? profile.backup_pin : profile.pin, 65, pin );
+				self->save_at = now + 0.6;
+
+			}
+
 			if ( self->save_at > 0.0 && now >= self->save_at ) {
 
 				save_settings ( self->settings );
@@ -619,7 +829,26 @@ namespace app {
 
 	}
 
-	uint32_t open_window ( ) {
+	uint32_t open_window ( bool minimized ) {
+
+		HANDLE single = CreateMutexW ( nullptr, TRUE, L"Local\\AlloyMinerWindow" );
+
+		if ( single && GetLastError ( ) == ERROR_ALREADY_EXISTS ) {
+
+			HWND other = FindWindowW ( L"AlloyWindow", nullptr );
+
+			if ( other && !minimized ) {
+
+				ShowWindow ( other, IsIconic ( other ) ? SW_RESTORE : SW_SHOW );
+				SetForegroundWindow ( other );
+
+			}
+
+			CloseHandle ( single );
+
+			return 0;
+
+		}
 
 		host* self = create_host ( );
 
@@ -627,11 +856,21 @@ namespace app {
 
 			destroy_host ( self );
 
+			if ( single )
+				CloseHandle ( single );
+
 			return 1;
 
 		}
 
-		ShowWindow ( self->window, SW_SHOW );
+		sync_tray ( *self );
+		sync_login ( *self );
+		self->run->apply ( self->settings );
+
+		if ( !minimized )
+			ShowWindow ( self->window, SW_SHOW );
+		else if ( !self->tray_shown )
+			ShowWindow ( self->window, SW_SHOWMINNOACTIVE );
 
 		if ( self->settings.autostart )
 			self->run->start ( self->settings );
@@ -639,6 +878,9 @@ namespace app {
 		pump ( self, -1.0 );
 		self->window = nullptr;
 		destroy_host ( self );
+
+		if ( single )
+			CloseHandle ( single );
 
 		return 0;
 

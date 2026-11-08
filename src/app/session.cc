@@ -1,7 +1,8 @@
 #include "app/session.hh"
+#include "version.hh"
 #include "chain/target.hh"
-#include "mine/gpu.hh"
-#include "base/clock.hh"
+#include "mine/gpu/device.hh"
+#include "base/system/clock.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
@@ -28,7 +29,7 @@ namespace app {
 
 	}
 
-	static mine::limits limits_of ( const ui::preferences& settings ) {
+	static mine::limits limits_of ( const ui::preferences& settings, int32_t adapters ) {
 
 		mine::limits out;
 
@@ -39,9 +40,24 @@ namespace app {
 		out.gpu = settings.gpu;
 		out.gpu_percent = settings.gpu_limit;
 		out.gpu_intensity = settings.intensity;
-		out.adapter = settings.adapter;
+		out.gpu_heat = settings.gpu_heat;
+		out.pin_threads = settings.pin_threads;
 		out.full_dataset = settings.full_dataset;
 		out.algorithm = algorithm_of ( settings );
+
+		if ( settings.adapter == ui::all_adapters && adapters > 1 ) {
+
+			out.adapter_count = static_cast < uint32_t > ( base::min ( adapters, static_cast < int32_t > ( mine::max_gpus ) ) );
+
+			for ( uint32_t i = 0; i < out.adapter_count; i++ )
+				out.adapters [ i ] = i;
+
+		} else {
+
+			out.adapter_count = 1;
+			out.adapters [ 0 ] = settings.adapter == ui::all_adapters ? 0 : settings.adapter;
+
+		}
 
 		return out;
 
@@ -108,6 +124,9 @@ namespace app {
 		if ( state == mine::GPU_UNSUPPORTED )
 			return ui::GPU_UNSUPPORTED;
 
+		if ( state == mine::GPU_COOLING )
+			return ui::GPU_COOLING;
+
 		return state == mine::GPU_FAILED ? ui::GPU_BROKEN : ui::GPU_IDLE;
 
 	}
@@ -152,6 +171,7 @@ namespace app {
 	bool session::start ( const ui::preferences& settings ) {
 
 		stop ( );
+		sync_api ( settings );
 
 		ui::snapshot& view = *shown;
 
@@ -212,6 +232,9 @@ namespace app {
 
 			link.algorithm = algorithm;
 			base::copy_text ( link.address, base::count_of ( link.address ), profile.address );
+			base::copy_text ( link.backup, base::count_of ( link.backup ), profile.backup );
+			base::copy_text ( link.pin, sizeof ( link.pin ), profile.pin );
+			base::copy_text ( link.backup_pin, sizeof ( link.backup_pin ), profile.backup_pin );
 			base::copy_text ( link.worker, base::count_of ( link.worker ), profile.worker );
 			base::copy_text ( link.password, base::count_of ( link.password ), profile.password );
 			client.start ( link );
@@ -224,7 +247,7 @@ namespace app {
 
 		}
 
-		engine.start ( feed, limits_of ( settings ) );
+		engine.start ( feed, limits_of ( settings, shown->adapter_count ) );
 		active = true;
 		paused = false;
 		started = base::seconds ( );
@@ -232,6 +255,10 @@ namespace app {
 		last_tick = started;
 		last_total = 0;
 		last_gpu = 0;
+		base::zero ( gpu_last, sizeof ( gpu_last ) );
+		pin_serial = 0;
+		pin_waiting = false;
+		view.gpu_count = 0;
 		base::zero ( lane_last, sizeof ( lane_last ) );
 		view.running = true;
 		view.lane_count = static_cast < int32_t > ( engine.lanes ( ) );
@@ -296,6 +323,8 @@ namespace app {
 
 	void session::apply ( const ui::preferences& settings ) {
 
+		sync_api ( settings );
+
 		if ( active && ( settings.mode != mode || settings.adapter != adapter || settings.kernel != kernel || algorithm_of ( settings ) != algorithm ) ) {
 
 			start ( settings );
@@ -306,7 +335,7 @@ namespace app {
 
 		if ( active ) {
 
-			engine.apply ( limits_of ( settings ) );
+			engine.apply ( limits_of ( settings, shown->adapter_count ) );
 			shown->extensions = engine.uses_extensions ( );
 
 		}
@@ -496,6 +525,15 @@ namespace app {
 			view.cpu_rate = cpu_total;
 			view.gpu_rate = static_cast < double > ( gpu_total - last_gpu ) / span;
 			last_gpu = gpu_total;
+
+			for ( uint32_t i = 0; i < engine.gpu_count ( ) && i < static_cast < uint32_t > ( ui::gpu_room ); i++ ) {
+
+				uint64_t done = engine.gpu_hashes ( i );
+
+				view.gpu_rates [ i ] = static_cast < float > ( static_cast < double > ( done - gpu_last [ i ] ) / span );
+				gpu_last [ i ] = done;
+
+			}
 			last_total = total;
 			last_sample = now;
 
@@ -521,7 +559,17 @@ namespace app {
 		view.faults = engine.gpu_errors ( );
 		view.gpu_state = gpu_phase_of ( engine.gpu_status ( ) );
 		view.active_threads = engine.working_threads ( );
+		view.large_pages = engine.dataset_large ( );
+		view.gpu_count = static_cast < int32_t > ( base::min ( engine.gpu_count ( ), static_cast < uint32_t > ( ui::gpu_room ) ) );
 		base::copy_text ( view.gpu_name, base::count_of ( view.gpu_name ), engine.gpu_name ( ) );
+
+		for ( int32_t i = 0; i < view.gpu_count; i++ ) {
+
+			view.gpu_states [ i ] = gpu_phase_of ( engine.gpu_status ( static_cast < uint32_t > ( i ) ) );
+			view.gpu_heat [ i ] = engine.gpu_temperature ( static_cast < uint32_t > ( i ) );
+			base::copy_text ( view.gpu_names [ i ], base::count_of ( view.gpu_names [ i ] ), engine.gpu_name ( static_cast < uint32_t > ( i ) ) );
+
+		}
 
 		uint8_t dataset = algorithm == chain::ALGORITHM_RANDOMX ? dataset_phase_of ( engine.dataset_status ( ) ) : static_cast < uint8_t > ( ui::DATASET_NONE );
 
@@ -570,6 +618,18 @@ namespace app {
 			view.branches = link.branches;
 			view.coinbase_size = link.coinbase_size;
 			view.height = link.height;
+			view.on_backup = link.on_backup;
+
+			if ( link.pin_serial != pin_serial ) {
+
+				pin_serial = link.pin_serial;
+				pin_backup = link.learned_backup;
+				base::copy_text ( pin_learned, sizeof ( pin_learned ), link.learned_pin );
+				pin_waiting = true;
+
+			}
+
+			view.nicehash = link.nicehash;
 			view.blob_size = link.blob_size;
 			base::copy ( view.seed, link.seed, 32 );
 			base::copy ( view.previous, link.previous, 32 );
@@ -666,7 +726,73 @@ namespace app {
 
 		}
 
+		if ( api.running ( ) && now - published >= 1.0 ) {
+
+			published = now;
+			publish ( settings );
+
+		}
+
 		return changed || logs != shown->log_serial || shares != shown->share_serial;
+
+	}
+
+	void session::sync_api ( const ui::preferences& settings ) {
+
+		if ( settings.api_port == api_port )
+			return;
+
+		api.stop ( );
+		api_port = settings.api_port;
+
+		if ( api_port && !api.start ( static_cast < uint16_t > ( api_port ) ) )
+			log ( ui::LEVEL_WARNING, L"Couldn't open the stats API, the port is probably taken" );
+
+		published = 0.0;
+
+	}
+
+	void session::publish ( const ui::preferences& settings ) {
+
+		static const char* const modes [ ] = { "pool", "benchmark", "genesis" };
+		static const char* const gpu_states [ ] = { "idle", "starting", "working", "failed", "unsupported", "cooling" };
+		const ui::snapshot& view = *shown;
+		base::line* out = new base::line;
+		char text [ 512 ];
+
+		auto quoted = [ & ] ( const wchar_t* value ) {
+
+			base::narrow ( text, sizeof ( text ), value );
+			base::add_json_string ( *out, text );
+
+		};
+
+		out->add ( "{\"version\":\"" ALLOY_VERSION_TEXT "\",\"algorithm\":" );
+		quoted ( chain::algorithm_key ( view.running ? view.algorithm : settings.algorithm ) );
+		out->add ( ",\"mode\":\"" ).add ( modes [ ( view.running ? view.mode : settings.mode ) % 3 ] );
+		out->add ( "\",\"running\":" ).add ( view.running ? "true" : "false" ).add ( ",\"paused\":" ).add ( view.paused ? "true" : "false" );
+		out->add ( ",\"uptime\":" ).decimal ( view.uptime, 1 ).add ( ",\"hashes\":" ).number ( view.hashes );
+		out->add ( ",\"hashrate\":{\"total\":" ).decimal ( view.rate, 1 ).add ( ",\"average\":" ).decimal ( view.average, 1 ).add ( ",\"peak\":" ).decimal ( view.peak, 1 );
+		out->add ( ",\"cpu\":" ).decimal ( view.cpu_rate, 1 ).add ( ",\"gpu\":" ).decimal ( view.gpu_rate, 1 ).add ( "},\"threads\":" ).number ( view.active_threads );
+		out->add ( ",\"shares\":{\"accepted\":" ).number ( view.accepted ).add ( ",\"rejected\":" ).number ( view.rejected ).add ( ",\"stale\":" ).number ( view.stale ).put ( '}' );
+		out->add ( ",\"difficulty\":" ).decimal ( view.difficulty, 4 ).add ( ",\"best\":" ).decimal ( view.best, 1 );
+		out->add ( ",\"pool\":{\"address\":" );
+		quoted ( view.on_backup ? settings.pool ( ).backup : settings.pool ( ).address );
+		out->add ( ",\"backup\":" ).add ( view.on_backup ? "true" : "false" ).add ( ",\"connected\":" ).add ( view.link == ui::PHASE_READY ? "true" : "false" );
+		out->add ( ",\"latency\":" ).decimal ( view.latency, 1 ).add ( ",\"height\":" ).number ( view.height ).add ( "},\"gpus\":[" );
+
+		for ( int32_t i = 0; i < view.gpu_count; i++ ) {
+
+			out->add ( i ? ",{\"name\":" : "{\"name\":" );
+			quoted ( view.gpu_names [ i ] );
+			out->add ( ",\"hashrate\":" ).decimal ( view.gpu_rates [ i ], 1 ).add ( ",\"temperature\":" ).decimal ( view.gpu_heat [ i ], 1 );
+			out->add ( ",\"state\":\"" ).add ( gpu_states [ view.gpu_states [ i ] % 6 ] ).add ( "\"}" );
+
+		}
+
+		out->add ( "]}\n" );
+		api.publish ( out->get ( ), out->size ( ) );
+		delete out;
 
 	}
 

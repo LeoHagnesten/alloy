@@ -3,7 +3,7 @@
 #include "tests/harness.hh"
 #include "hash/sha256.hh"
 #include "base/memory.hh"
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 
 namespace tests {
 

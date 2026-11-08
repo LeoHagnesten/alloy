@@ -1,7 +1,7 @@
 #include "randomx/dataset.hh"
-#include "base/clock.hh"
+#include "base/system/clock.hh"
 #include "base/memory.hh"
-#include "base/threads.hh"
+#include "base/system/threads.hh"
 
 namespace randomx {
 

@@ -31,12 +31,14 @@ namespace ui {
 		CONTROL_CHOICE,
 		CONTROL_ALGORITHM,
 		CONTROL_REVEAL,
+		CONTROL_PRESET,
 
 	};
 
 	enum setting : uint8_t {
 
 		SETTING_ADDRESS,
+		SETTING_BACKUP,
 		SETTING_WORKER,
 		SETTING_PASSWORD,
 		SETTING_CPU,
@@ -54,6 +56,11 @@ namespace ui {
 		SETTING_AUTOSTART,
 		SETTING_THEME,
 		SETTING_DATASET,
+		SETTING_PIN,
+		SETTING_HEAT,
+		SETTING_LOGIN,
+		SETTING_TRAY,
+		SETTING_API,
 		SETTING_COUNT,
 
 	};
@@ -332,7 +339,7 @@ namespace ui {
 
 		void slider ( render::surface& surface, render::box area, setting which, float fraction, const wchar_t* value, bool enabled, double now );
 
-		void field ( render::surface& surface, render::box area, setting which, bool masked, double now );
+		void field ( render::surface& surface, render::box area, setting which, bool masked, double now, bool warn = false );
 
 		void caption ( render::surface& surface, render::box area, const wchar_t* text );
 
@@ -390,12 +397,12 @@ namespace ui {
 		float mouse_x = -1.0f;
 		float mouse_y = -1.0f;
 		int32_t focus = -1;
-		text_field fields [ 3 ];
-		field_memory field_history [ 3 ];
+		text_field fields [ 4 ];
+		field_memory field_history [ 4 ];
 		settings_memory settings_history;
 		bool reveal = false;
-		render::box field_boxes [ 3 ];
-		float field_shift [ 3 ] = { };
+		render::box field_boxes [ 4 ];
+		float field_shift [ 4 ] = { };
 		double caret_since = 0.0;
 		int32_t dragging = -1;
 		render::box slider_boxes [ SETTING_COUNT ];

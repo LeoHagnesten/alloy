@@ -1,11 +1,13 @@
-#include "mine/gpu.hh"
+#include "mine/gpu/device.hh"
 #include "base/bits.hh"
-#include "base/com.hh"
+#include "base/system/com.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include <windows.h>
+#include <winternl.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <d3dkmthk.h>
 #include "sha256d.h"
 #include "scrypt_start.h"
 #include "scrypt_mix.h"
@@ -76,7 +78,7 @@ namespace mine {
 	int32_t list_adapters ( adapter_info* out, int32_t room ) {
 
 		int32_t count = 0;
-		IDXGIAdapter1* none = find_adapter ( ~0u, out, room, count );
+		IDXGIAdapter1* none = find_adapter ( ~0u - 1, out, room, count );
 
 		drop ( none );
 
@@ -94,30 +96,43 @@ namespace mine {
 
 		close ( );
 
-		int32_t count = 0;
-		IDXGIAdapter1* chosen = find_adapter ( adapter, nullptr, 0, count );
-
-		if ( !chosen ) {
-
-			base::copy_text ( label, base::count_of ( label ), L"No graphics adapter" );
-
-			return false;
-
-		}
-
-		DXGI_ADAPTER_DESC1 description;
-
-		if ( SUCCEEDED ( chosen->GetDesc1 ( &description ) ) ) {
-
-			base::copy_text ( label, base::count_of ( label ), description.Description );
-			video_memory = description.DedicatedVideoMemory;
-
-		}
-
 		static const D3D_FEATURE_LEVEL levels [ ] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
-		bool ok = SUCCEEDED ( D3D11CreateDevice ( chosen, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_SINGLETHREADED, levels, 2, D3D11_SDK_VERSION, &device, nullptr, &context ) );
+		bool ok = false;
 
-		chosen->Release ( );
+		if ( adapter == software_adapter ) {
+
+			base::copy_text ( label, base::count_of ( label ), L"Microsoft Basic Render Driver" );
+			ok = SUCCEEDED ( D3D11CreateDevice ( nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_SINGLETHREADED, levels, 2, D3D11_SDK_VERSION, &device, nullptr, &context ) );
+
+		} else {
+
+			int32_t count = 0;
+			IDXGIAdapter1* chosen = find_adapter ( adapter, nullptr, 0, count );
+
+			if ( !chosen ) {
+
+				base::copy_text ( label, base::count_of ( label ), L"No graphics adapter" );
+
+				return false;
+
+			}
+
+			DXGI_ADAPTER_DESC1 description;
+
+			if ( SUCCEEDED ( chosen->GetDesc1 ( &description ) ) ) {
+
+				base::copy_text ( label, base::count_of ( label ), description.Description );
+				video_memory = description.DedicatedVideoMemory;
+				luid_low = description.AdapterLuid.LowPart;
+				luid_high = description.AdapterLuid.HighPart;
+				has_luid = true;
+
+			}
+
+			ok = SUCCEEDED ( D3D11CreateDevice ( chosen, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_SINGLETHREADED, levels, 2, D3D11_SDK_VERSION, &device, nullptr, &context ) );
+			chosen->Release ( );
+
+		}
 
 		IDXGIDevice* dxgi = nullptr;
 
@@ -138,26 +153,30 @@ namespace mine {
 		layout.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 		ok = ok && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &constants ) );
 
-		layout = { };
-		layout.ByteWidth = sample_room * 4;
-		layout.Usage = D3D11_USAGE_DEFAULT;
-		layout.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
-		layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-		ok = ok && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &results ) );
+		for ( int32_t i = 0; i < 2 && ok; i++ ) {
 
-		layout.Usage = D3D11_USAGE_STAGING;
-		layout.BindFlags = 0;
-		layout.MiscFlags = 0;
-		layout.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-		ok = ok && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &readback ) );
+			layout = { };
+			layout.ByteWidth = sample_room * 4;
+			layout.Usage = D3D11_USAGE_DEFAULT;
+			layout.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+			layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+			ok = SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &results [ i ] ) );
 
-		D3D11_UNORDERED_ACCESS_VIEW_DESC shape = { };
+			layout.Usage = D3D11_USAGE_STAGING;
+			layout.BindFlags = 0;
+			layout.MiscFlags = 0;
+			layout.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			ok = ok && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &readback [ i ] ) );
 
-		shape.Format = DXGI_FORMAT_R32_TYPELESS;
-		shape.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-		shape.Buffer.NumElements = sample_room;
-		shape.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
-		ok = ok && SUCCEEDED ( device->CreateUnorderedAccessView ( results, &shape, &view ) );
+			D3D11_UNORDERED_ACCESS_VIEW_DESC shape = { };
+
+			shape.Format = DXGI_FORMAT_R32_TYPELESS;
+			shape.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+			shape.Buffer.NumElements = sample_room;
+			shape.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+			ok = ok && SUCCEEDED ( device->CreateUnorderedAccessView ( results [ i ], &shape, &views [ i ] ) );
+
+		}
 
 		if ( !ok ) {
 
@@ -179,9 +198,15 @@ namespace mine {
 		drop ( states );
 		drop ( table_view );
 		drop ( table );
-		drop ( view );
-		drop ( readback );
-		drop ( results );
+
+		for ( int32_t i = 0; i < 2; i++ ) {
+
+			drop ( views [ i ] );
+			drop ( readback [ i ] );
+			drop ( results [ i ] );
+
+		}
+
 		drop ( constants );
 
 		for ( ID3D11ComputeShader*& stage : scrypt_stages )
@@ -190,8 +215,21 @@ namespace mine {
 		drop ( shader );
 		drop ( context );
 		drop ( device );
+
+		if ( kernel_adapter ) {
+
+			D3DKMT_CLOSEADAPTER closing = { };
+
+			closing.hAdapter = kernel_adapter;
+			D3DKMTCloseAdapter ( &closing );
+
+		}
+
+		kernel_adapter = 0;
+		has_luid = false;
 		scrypt_room = 0;
 		scrypt_failed = false;
+		next_slot = 0;
 
 	}
 
@@ -294,7 +332,48 @@ namespace mine {
 
 	}
 
-	bool gpu_device::dispatch ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, bool sampling ) {
+	bool gpu_device::temperature ( float& celsius ) {
+
+		if ( !has_luid )
+			return false;
+
+		if ( !kernel_adapter ) {
+
+			D3DKMT_OPENADAPTERFROMLUID opening = { };
+
+			opening.AdapterLuid.LowPart = luid_low;
+			opening.AdapterLuid.HighPart = luid_high;
+
+			if ( D3DKMTOpenAdapterFromLuid ( &opening ) != 0 ) {
+
+				has_luid = false;
+
+				return false;
+
+			}
+
+			kernel_adapter = opening.hAdapter;
+
+		}
+
+		D3DKMT_ADAPTER_PERFDATA data = { };
+		D3DKMT_QUERYADAPTERINFO query = { };
+
+		query.hAdapter = kernel_adapter;
+		query.Type = KMTQAITYPE_ADAPTERPERFDATA;
+		query.pPrivateDriverData = &data;
+		query.PrivateDriverDataSize = sizeof ( data );
+
+		if ( D3DKMTQueryAdapterInfo ( &query ) != 0 || !data.Temperature )
+			return false;
+
+		celsius = static_cast < float > ( data.Temperature ) / 10.0f;
+
+		return true;
+
+	}
+
+	bool gpu_device::dispatch ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, bool sampling, int32_t slot ) {
 
 		bool scrypt = algorithm == chain::ALGORITHM_SCRYPT;
 
@@ -351,57 +430,68 @@ namespace mine {
 		context->Unmap ( constants, 0 );
 
 		static const UINT zeros [ 4 ] = { };
+		ID3D11UnorderedAccessView* bound [ 3 ] = { views [ slot ], table_view, state_view };
 
-		ID3D11UnorderedAccessView* views [ 3 ] = { view, table_view, state_view };
-
-		context->ClearUnorderedAccessViewUint ( view, zeros );
+		context->ClearUnorderedAccessViewUint ( views [ slot ], zeros );
 		context->CSSetConstantBuffers ( 0, 1, &constants );
-		context->CSSetUnorderedAccessViews ( 0, scrypt ? 3 : 1, views, nullptr );
+		context->CSSetUnorderedAccessViews ( 0, scrypt ? 3 : 1, bound, nullptr );
 
-		if ( !scrypt ) {
+		if ( scrypt ) {
+
+			for ( ID3D11ComputeShader* stage : scrypt_stages ) {
+
+				context->CSSetShader ( stage, nullptr, 0 );
+				context->Dispatch ( across, down, 1 );
+
+			}
+
+		} else {
 
 			context->CSSetShader ( shader, nullptr, 0 );
 			context->Dispatch ( across, down, 1 );
 
-			return true;
-
 		}
 
-		for ( ID3D11ComputeShader* stage : scrypt_stages ) {
+		uint32_t words = sampling ? base::min ( count, sample_room ) : 32;
+		D3D11_BOX box = { 0, 0, 0, words * 4, 1, 1 };
 
-			context->CSSetShader ( stage, nullptr, 0 );
-			context->Dispatch ( across, down, 1 );
-
-		}
+		context->CopySubresourceRegion ( readback [ slot ], 0, 0, 0, 0, results [ slot ], 0, &box );
+		context->Flush ( );
 
 		return true;
 
 	}
 
-	bool gpu_device::read ( uint32_t* out, uint32_t words ) {
+	bool gpu_device::read ( int32_t slot, uint32_t* out, uint32_t words ) {
 
-		D3D11_BOX box = { 0, 0, 0, words * 4, 1, 1 };
 		D3D11_MAPPED_SUBRESOURCE mapped;
 
-		context->CopySubresourceRegion ( readback, 0, 0, 0, 0, results, 0, &box );
-
-		if ( FAILED ( context->Map ( readback, 0, D3D11_MAP_READ, 0, &mapped ) ) )
+		if ( FAILED ( context->Map ( readback [ slot ], 0, D3D11_MAP_READ, 0, &mapped ) ) )
 			return false;
 
 		base::copy ( out, mapped.pData, words * 4 );
-		context->Unmap ( readback, 0 );
+		context->Unmap ( readback [ slot ], 0 );
 
 		return true;
 
 	}
 
-	bool gpu_device::search ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, uint32_t* found, uint32_t room, uint32_t& found_count ) {
+	bool gpu_device::submit ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, int32_t& slot ) {
+
+		slot = next_slot;
+		next_slot ^= 1;
+
+		return dispatch ( algorithm, header, first, count, threshold, false, slot );
+
+	}
+
+	bool gpu_device::collect ( int32_t slot, uint32_t* found, uint32_t room, uint32_t& found_count ) {
 
 		uint32_t words [ 32 ];
 
 		found_count = 0;
 
-		if ( !dispatch ( algorithm, header, first, count, threshold, false ) || !read ( words, 32 ) )
+		if ( !read ( slot, words, 32 ) )
 			return false;
 
 		found_count = base::min ( base::min ( words [ 0 ], 31u ), room );
@@ -413,6 +503,16 @@ namespace mine {
 
 	}
 
+	bool gpu_device::search ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t threshold, uint32_t* found, uint32_t room, uint32_t& found_count ) {
+
+		int32_t slot = 0;
+
+		found_count = 0;
+
+		return submit ( algorithm, header, first, count, threshold, slot ) && collect ( slot, found, room, found_count );
+
+	}
+
 	bool gpu_device::sample ( uint8_t algorithm, const chain::header& header, uint32_t first, uint32_t count, uint32_t* tops ) {
 
 		count = base::min ( count, sample_room );
@@ -420,7 +520,11 @@ namespace mine {
 		if ( algorithm == chain::ALGORITHM_SCRYPT )
 			count = base::min ( count, capacity ( algorithm ) );
 
-		return count && dispatch ( algorithm, header, first, count, 0, true ) && read ( tops, count );
+		int32_t slot = next_slot;
+
+		next_slot ^= 1;
+
+		return count && dispatch ( algorithm, header, first, count, 0, true, slot ) && read ( slot, tops, count );
 
 	}
 

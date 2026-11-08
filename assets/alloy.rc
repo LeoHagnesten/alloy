@@ -1,12 +1,13 @@
 #include <windows.h>
+#include "version.hh"
 
 1 ICON "alloy.ico"
 
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "alloy.manifest"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,1,0,0
-PRODUCTVERSION 0,1,0,0
+FILEVERSION ALLOY_VERSION
+PRODUCTVERSION ALLOY_VERSION
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -16,10 +17,10 @@ BEGIN
 		BEGIN
 			VALUE "CompanyName", "Alloy"
 			VALUE "FileDescription", "Alloy miner"
-			VALUE "FileVersion", "0.1.0.0"
+			VALUE "FileVersion", ALLOY_VERSION_TEXT
 			VALUE "InternalName", "Alloy"
 			VALUE "ProductName", "Alloy"
-			VALUE "ProductVersion", "0.1.0.0"
+			VALUE "ProductVersion", ALLOY_VERSION_TEXT
 			VALUE "OriginalFilename", "Alloy.exe"
 		END
 	END

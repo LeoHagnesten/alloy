@@ -8,9 +8,11 @@ namespace net {
 
 	bool startup ( );
 
-	bool split_address ( const wchar_t* text, char* host, int32_t room, uint16_t& port );
+	bool split_address ( const wchar_t* text, char* host, int32_t room, uint16_t& port, bool* secure = nullptr );
 
 	bool wait_any ( const uintptr_t* handles, int32_t count, uint32_t wait );
+
+	class tls_session;
 
 	class connection {
 
@@ -29,6 +31,26 @@ namespace net {
 		}
 
 		bool open ( const char* host, uint16_t port, uint32_t timeout );
+
+		bool start_tls ( const char* host, uint32_t timeout );
+
+		bool tls_trusted ( ) const;
+
+		const uint8_t* tls_fingerprint ( ) const;
+
+		const wchar_t* tls_trust_problem ( ) const;
+
+		const wchar_t* tls_problem ( ) const;
+
+		const wchar_t* tls_protocol ( ) const;
+
+		long tls_status ( ) const;
+
+		bool secured ( ) const {
+
+			return secure != nullptr;
+
+		}
 
 		void adopt ( uintptr_t socket );
 
@@ -55,6 +77,10 @@ namespace net {
 	private:
 
 		uintptr_t handle = ~static_cast < uintptr_t > ( 0 );
+		tls_session* secure = nullptr;
+		bool fresh = false;
+		const wchar_t* problem_text = L"";
+		long last_tls_status = 0;
 		char pending [ line_room ] = { };
 		int32_t pending_size = 0;
 

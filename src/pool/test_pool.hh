@@ -1,7 +1,7 @@
 #pragma once
 
 #include "pool/job.hh"
-#include "base/threads.hh"
+#include "base/system/threads.hh"
 
 namespace pool {
 
@@ -12,6 +12,7 @@ namespace pool {
 		double difficulty = 0.01;
 		uint32_t job_seconds = 30;
 		uint32_t reseed_jobs = 0;
+		bool nicehash = false;
 		bool verbose = false;
 
 	};

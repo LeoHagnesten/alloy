@@ -5,10 +5,10 @@
 #include "hash/aes.hh"
 #include "hash/blake2b.hh"
 #include "base/bits.hh"
-#include "base/clock.hh"
+#include "base/system/clock.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
-#include "base/system.hh"
+#include "base/system/hardware.hh"
 #include "base/text.hh"
 
 namespace tests {
