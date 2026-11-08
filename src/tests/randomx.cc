@@ -111,6 +111,20 @@ namespace tests {
 		hash::blake2b_once ( digest, 64, "", 0 );
 		check ( hex_is ( digest, 64, "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce" ), L"Blake2b-512 of the empty string matches" );
 
+		{
+
+			uint8_t key [ 64 ];
+
+			for ( int32_t i = 0; i < 64; i++ )
+				key [ i ] = static_cast < uint8_t > ( i );
+
+			hash::blake2b keyed ( 64, key, 64 );
+
+			keyed.end ( digest );
+			check ( hex_is ( digest, 64, "10ebb67700b1868efb4417987acf4690ae9d972fb7a590c2f02871799aaa4786b5e996e8f0f4eb981fc214b005f42d2ff4233499391653df7aefcbc13fc51568" ), L"keyed Blake2b-512 matches the reference answer for an empty message" );
+
+		}
+
 		base::processor cpu;
 
 		base::detect ( cpu );

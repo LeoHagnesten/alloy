@@ -62,6 +62,7 @@ namespace ui {
 
 		paint_metrics ( surface, view, metrics );
 		paint_chart ( surface, view, chart, now );
+		paint_chart_gear ( surface, chart, now );
 		surface.rule ( area.x, area.right ( ), chart.bottom ( ) + 12.0f, colors.divider );
 		paint_devices ( surface, view, render::box { lower.x, lower.y, split - 28.0f, lower.h } );
 		surface.column ( lower.x + split, lower.y - 13.0f, area.bottom ( ), colors.divider );
@@ -241,29 +242,66 @@ namespace ui {
 
 	}
 
+	static void clock_label ( base::text& out, int32_t back, bool seconds ) {
+
+		base::wall_time now = base::local_time ( );
+		int32_t moment = ( static_cast < int32_t > ( now.hour ) * 3600 + now.minute * 60 + now.second - back + 86400 * 2 ) % 86400;
+
+		out.clear ( );
+		out.padded ( static_cast < uint32_t > ( moment / 3600 ), 2 ).put ( L':' ).padded ( static_cast < uint32_t > ( moment / 60 % 60 ), 2 );
+
+		if ( seconds )
+			out.put ( L':' ).padded ( static_cast < uint32_t > ( moment % 60 ), 2 );
+
+	}
+
 	void shell::paint_chart ( render::surface& surface, const snapshot& view, render::box area, double now ) {
 
 		static constexpr float gutter = 84.0f;
-		static const wchar_t* const spans [ 3 ] = { L"last two minutes", L"last ten minutes", L"last hour" };
-		static const wchar_t* const marks [ 3 ] [ 2 ] = { { L"2 min ago", L"1 min ago" }, { L"10 min ago", L"5 min ago" }, { L"1 hour ago", L"30 min ago" } };
-		static constexpr int32_t windows [ 3 ] = { chart_window, 600, 3600 };
-		static constexpr int32_t sizes [ 3 ] = { 1, 3, 15 };
+		static const wchar_t* const spans [ 5 ] = { L"last minute", L"last two minutes", L"last ten minutes", L"last half hour", L"last hour" };
+		static const wchar_t* const marks [ 5 ] [ 2 ] = { { L"1 min ago", L"30 s ago" }, { L"2 min ago", L"1 min ago" }, { L"10 min ago", L"5 min ago" }, { L"30 min ago", L"15 min ago" }, { L"1 hour ago", L"30 min ago" } };
+		static constexpr int32_t windows [ 5 ] = { 60, chart_window, 600, 1800, 3600 };
+		static constexpr int32_t sizes [ 5 ] = { 1, 1, 3, 10, 15 };
 		static constexpr int32_t smoothings [ 3 ] = { 1, 5, 30 };
-		uint8_t span = settings.chart_span % 3;
+		static constexpr int32_t updates [ 3 ] = { 1, 5, 15 };
+		uint8_t span = settings.chart_span % 5;
 		int32_t window = windows [ span ];
 		int32_t size = sizes [ span ];
 		int32_t smooth = smoothings [ settings.chart_smoothing % 3 ];
+		int32_t every = updates [ settings.chart_update % 3 ];
+		uint8_t style = settings.chart_style % 3;
 		render::box plot = { area.x, area.y + 30.0f, area.w - gutter, area.h - 30.0f - 20.0f };
 		int32_t count = view.history_count;
-		int32_t first = base::max ( 0, count - window - 1 );
 		float highest = 0.0f;
+
+		if ( every > 1 && count > every )
+			count -= static_cast < int32_t > ( ( view.history_first + static_cast < uint64_t > ( count ) ) % static_cast < uint64_t > ( every ) );
+
+		int32_t first = base::max ( 0, count - window - 1 );
 
 		caption ( surface, render::box { area.x, area.y, 200.0f, 16.0f }, L"HASHRATE" );
 		surface.text ( spans [ span ], render::FONT_SMALL, render::box { plot.right ( ) - 200.0f, area.y, 200.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
 		surface.rule ( plot.x, plot.right ( ), plot.bottom ( ), colors.control_line );
-		surface.text ( marks [ span ] [ 0 ], render::FONT_SMALL, render::box { plot.x, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint );
-		surface.text ( marks [ span ] [ 1 ], render::FONT_SMALL, render::box { plot.middle_x ( ) - 60.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_CENTER );
-		surface.text ( L"now", render::FONT_SMALL, render::box { plot.right ( ) - 120.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
+
+		if ( settings.chart_clock ) {
+
+			base::text label;
+			bool seconds = window <= 600;
+
+			clock_label ( label, window, seconds );
+			surface.text ( label.get ( ), render::FONT_SMALL, render::box { plot.x, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint );
+			clock_label ( label, window / 2, seconds );
+			surface.text ( label.get ( ), render::FONT_SMALL, render::box { plot.middle_x ( ) - 60.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_CENTER );
+			clock_label ( label, 0, seconds );
+			surface.text ( label.get ( ), render::FONT_SMALL, render::box { plot.right ( ) - 120.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
+
+		} else {
+
+			surface.text ( marks [ span ] [ 0 ], render::FONT_SMALL, render::box { plot.x, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint );
+			surface.text ( marks [ span ] [ 1 ], render::FONT_SMALL, render::box { plot.middle_x ( ) - 60.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_CENTER );
+			surface.text ( L"now", render::FONT_SMALL, render::box { plot.right ( ) - 120.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
+
+		}
 
 		if ( count < 2 ) {
 
@@ -344,8 +382,32 @@ namespace ui {
 		}
 
 		float step = plot.w / static_cast < float > ( window - 1 );
-		float t = static_cast < float > ( ( now - chart_since ) / chart_slide );
-		float shift = t < 1.0f ? step * ( 1.0f - base::ease_out ( t ) ) : 0.0f;
+		float shift = 0.0f;
+
+		if ( every == 1 ) {
+
+			float t = static_cast < float > ( ( now - chart_since ) / chart_slide );
+
+			shift = t < 1.0f ? step * ( 1.0f - base::ease_out ( t ) ) : 0.0f;
+
+		} else {
+
+			uint64_t end = view.history_first + static_cast < uint64_t > ( count );
+
+			if ( end != chart_end ) {
+
+				chart_jump = chart_end && end > chart_end ? static_cast < int32_t > ( base::min ( end - chart_end, static_cast < uint64_t > ( every ) ) ) : 0;
+				chart_end = end;
+				chart_end_since = now;
+
+			}
+
+			float t = static_cast < float > ( ( now - chart_end_since ) / chart_slide );
+
+			shift = t < 1.0f ? step * static_cast < float > ( chart_jump ) * ( 1.0f - base::ease_out ( t ) ) : 0.0f;
+
+		}
+
 		float points [ ( chart_room + 3 ) * 2 ];
 
 		for ( int32_t i = 0; i < used; i++ ) {
@@ -363,18 +425,163 @@ namespace ui {
 
 		surface.push_clip ( render::box { plot.x, plot.y - 6.0f, plot.w + 6.0f, plot.h + 6.0f } );
 
-		points [ used * 2 ] = last_x;
-		points [ used * 2 + 1 ] = plot.bottom ( );
-		points [ used * 2 + 2 ] = points [ 0 ];
-		points [ used * 2 + 3 ] = plot.bottom ( );
-		surface.shaded ( points, used + 2, render::faded ( colors.accent, 0.26f ), render::faded ( colors.accent, 0.0f ), plot.y, plot.bottom ( ) );
-		surface.polyline ( points, used, colors.accent, 1.75f );
-		surface.dot ( last_x, last_y, 4.5f, colors.content );
-		surface.dot ( last_x, last_y, 3.0f, colors.accent );
+		if ( style == 2 ) {
+
+			float bar = base::max ( step * static_cast < float > ( size ) * 0.62f, 1.5f );
+
+			for ( int32_t i = 0; i < used; i++ ) {
+
+				float top = points [ i * 2 + 1 ];
+
+				surface.fill ( render::box { points [ i * 2 ] - bar * 0.5f, top, bar, plot.bottom ( ) - top }, i == used - 1 ? colors.accent : render::faded ( colors.accent, 0.6f ) );
+
+			}
+
+		} else {
+
+			if ( style == 0 ) {
+
+				points [ used * 2 ] = last_x;
+				points [ used * 2 + 1 ] = plot.bottom ( );
+				points [ used * 2 + 2 ] = points [ 0 ];
+				points [ used * 2 + 3 ] = plot.bottom ( );
+				surface.shaded ( points, used + 2, render::faded ( colors.accent, 0.26f ), render::faded ( colors.accent, 0.0f ), plot.y, plot.bottom ( ) );
+
+			}
+
+			surface.polyline ( points, used, colors.accent, 1.75f );
+			surface.dot ( last_x, last_y, 4.5f, colors.content );
+			surface.dot ( last_x, last_y, 3.0f, colors.accent );
+
+		}
+
 		surface.pop_clip ( );
 
 	}
 
+	void shell::sync_gear ( double now ) {
+
+		bool wanted = shown_page == PAGE_OVERVIEW && !setup_open && ( chart_area.contains ( mouse_x, mouse_y ) || chart_menu || keyboard_at ( CONTROL_CHART_GEAR, 0 ) );
+
+		if ( wanted == gear_wanted )
+			return;
+
+		gear_wanted = wanted;
+		gear_fade.duration = wanted ? 0.16f : 0.24f;
+		gear_fade.go ( wanted ? 1.0f : 0.0f, now );
+
+	}
+
+	void shell::close_chart_menu ( double now ) {
+
+		if ( !chart_menu )
+			return;
+
+		chart_menu = false;
+		menu_fade.duration = 0.1f;
+		menu_fade.go ( 0.0f, now );
+		sync_gear ( now );
+
+	}
+
+	void shell::paint_chart_gear ( render::surface& surface, render::box area, double now ) {
+
+		chart_area = render::box { area.x, area.y - 8.0f, area.w, area.h + 8.0f };
+		gear_box = render::box { area.right ( ) - 24.0f, area.y - 5.0f, 24.0f, 24.0f };
+		sync_gear ( now );
+		add_hit ( gear_box, CONTROL_CHART_GEAR, 0 );
+		add_hint ( gear_box, L"Graph options: the type, how far back it reaches, how often it moves, smoothing and the time labels." );
+
+		float shown = gear_fade.at ( now );
+
+		if ( shown <= 0.0f )
+			return;
+
+		float level = chart_menu ? 1.0f : glow ( CONTROL_CHART_GEAR, 0, now );
+
+		surface.push_fade ( shown );
+
+		if ( level > 0.0f )
+			surface.fill ( gear_box, render::faded ( colors.control_hover, level ), corner );
+
+		draw_icon ( surface, ICON_GEAR, gear_box.x + 4.0f, gear_box.y + 4.0f, 16.0f, render::blend ( colors.muted, colors.text, level ) );
+		surface.pop_fade ( );
+
+	}
+
+	void shell::paint_chart_menu ( render::surface& surface, double now ) {
+
+		static const wchar_t* const styles [ ] = { L"Area", L"Line", L"Bars" };
+		static const wchar_t* const spans [ ] = { L"1 min", L"2 min", L"10 min", L"30 min", L"1 hour" };
+		static const wchar_t* const updates [ ] = { L"1 s", L"5 s", L"15 s" };
+		static const wchar_t* const smoothings [ ] = { L"Off", L"5 s", L"30 s" };
+		static const wchar_t* const times [ ] = { L"Ago", L"Clock" };
+		static constexpr float wide = 404.0f;
+		static constexpr float line = 42.0f;
+		float shown = menu_fade.at ( now );
+
+		if ( shown <= 0.0f || shown_page != PAGE_OVERVIEW || setup_open )
+			return;
+
+		float tall = 16.0f + 24.0f + line * 5.0f + 14.0f + 30.0f + 16.0f;
+		float top = base::min ( chart_area.bottom ( ) + 2.0f, height - status_height - 8.0f - tall );
+		float saved_top = hit_top;
+		float saved_bottom = hit_bottom;
+
+		menu_box = render::box { base::max ( gear_box.right ( ) - wide, sidebar_width + 8.0f ), base::max ( top, title_height + 8.0f ), wide, tall };
+
+		if ( !chart_menu ) {
+
+			hit_top = 1e9f;
+			hit_bottom = -1e9f;
+
+		}
+
+		surface.push_fade ( shown );
+		surface.fill ( render::box { menu_box.x - 1.0f, menu_box.y + 1.0f, menu_box.w + 2.0f, menu_box.h + 3.0f }, render::rgb ( 0x000000, 0.10f ), corner + 3.0f );
+		surface.fill ( render::box { menu_box.x, menu_box.y + 1.0f, menu_box.w, menu_box.h + 1.0f }, render::rgb ( 0x000000, 0.12f ), corner + 2.0f );
+		surface.fill ( menu_box, colors.tip, corner + 2.0f );
+		surface.outline ( menu_box, colors.control_line, 1.0f / zoom, corner + 2.0f );
+		add_hit ( menu_box, CONTROL_CHART_MENU, 0 );
+		menu_hints = hint_count;
+
+		float x = menu_box.x + 16.0f;
+		float inner = wide - 32.0f;
+		float y = menu_box.y + 16.0f;
+
+		caption ( surface, render::box { x, y, inner, 16.0f }, L"GRAPH" );
+		y += 24.0f;
+
+		auto row = [ & ] ( const wchar_t* label, const wchar_t* tip, const wchar_t* const* labels, int32_t count, int32_t selected, setting which, float control, bool last ) {
+
+			render::box place = { x, y, inner, line };
+
+			surface.text ( label, render::FONT_BODY, render::box { x, y, 120.0f, line }, colors.text );
+			add_hint ( place, tip );
+			segmented ( surface, render::box { x + inner - control, y + 6.0f, control, 30.0f }, labels, count, selected, CONTROL_CHOICE, which * 16, true, now );
+			y += line;
+
+			if ( !last )
+				surface.rule ( x, x + inner, y - 0.5f, colors.divider );
+
+		};
+
+		row ( L"Type", L"Area fills under the line, Line draws only the line, and Bars draws one bar for each point.", styles, 3, settings.chart_style % 3, SETTING_CHART_STYLE, 204.0f, false );
+		row ( L"Span", L"How far back the graph reaches. Alloy keeps an hour of samples either way.", spans, 5, settings.chart_span % 5, SETTING_CHART_SPAN, 268.0f, false );
+		row ( L"Update", L"How often the graph moves on. Alloy still measures every second; a slower graph is calmer to watch.", updates, 3, settings.chart_update % 3, SETTING_CHART_UPDATE, 204.0f, false );
+		row ( L"Smoothing", L"Averages each point over the seconds before it, which hides the second to second jitter.", smoothings, 3, settings.chart_smoothing % 3, SETTING_CHART_SMOOTHING, 204.0f, false );
+		row ( L"Time labels", L"Ago counts back from now. Clock shows the time of day under the graph.", times, 2, settings.chart_clock % 2, SETTING_CHART_TIME, 204.0f, true );
+
+		bool standard = settings.chart_style == 0 && settings.chart_span == 1 && settings.chart_update == 0 && settings.chart_smoothing == 0 && settings.chart_clock == 0;
+
+		y += 14.0f;
+		surface.text ( L"Saved with your settings", render::FONT_SMALL, render::box { x, y, inner - 170.0f, 30.0f }, colors.faint );
+		button ( surface, render::box { x + inner - 160.0f, y, 160.0f, 30.0f }, L"Reset to default", ICON_ARROW, CONTROL_CHART_RESET, 0, false, !standard, now );
+		surface.pop_fade ( );
+		hit_top = saved_top;
+		hit_bottom = saved_bottom;
+
+	}
 	void shell::paint_devices ( render::surface& surface, const snapshot& view, render::box area ) {
 
 		float rate_right = area.right ( ) - 112.0f;

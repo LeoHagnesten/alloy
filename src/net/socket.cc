@@ -354,7 +354,7 @@ namespace net {
 
 			}
 
-			bool draining = fresh;
+			bool draining = fresh || ( secure && secure->buffered ( ) );
 
 			if ( !draining && !wait_for ( handle, false, wait ) )
 				return 0;
@@ -411,7 +411,7 @@ namespace net {
 		if ( handle == closed )
 			return -1;
 
-		bool draining = fresh;
+		bool draining = fresh || ( secure && secure->buffered ( ) );
 
 		if ( !draining && !wait_for ( handle, false, wait ) )
 			return 0;

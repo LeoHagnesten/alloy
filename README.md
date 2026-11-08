@@ -48,6 +48,9 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt, Monero's RandomX and 
 **The interface**
 
 - Animates at the display's refresh rate, explains a setting when you rest the cursor on it, undoes any change with Ctrl+Z, works from the keyboard alone, and stops drawing while minimized so the hardware stays on mining.
+- The hashrate graph keeps its standard look until you rest the cursor on it; then a gear fades in with the graph's type (area, line or bars), span (a minute to an hour), update rate, smoothing and clock or relative time labels.
+
+![Graph options](docs/media/graph-options.png)
 
 ![Switching algorithms](docs/media/algorithms.gif)
 
@@ -150,6 +153,8 @@ src/version.hh           the version, shared by the code and the resource file
 ## Tests
 
 A Debug build runs its suite with `Alloy.exe --test`, or one group with `--test kaspa`. It checks SHA-256 against FIPS 180, scrypt and PBKDF2 against RFC 7914, Blake2b against RFC 7693, cSHAKE against SP 800-185, ChaCha20-Poly1305 against RFC 8439, HMAC against RFC 4231, BIP340 signatures and BIP324's ElligatorSwift key exchange against their reference vectors, the Bitcoin and Litecoin genesis blocks, RandomX against its reference programs in both modes, every GPU kernel against the processor, and full sessions on a test pool for every algorithm, solo mining against a node that checks each block in full, and Stratum V2 through the whole handshake. It also covers the schedule, profiles, the history file, the API's access rules, keyboard navigation, undo, and that animated text and hints land on exactly the pixels they rest on.
+
+`Alloy.exe --test online` checks against the real networks instead: a live Kaspa block's header hash and proof of work, signing in and getting jobs from Kaspa, Bitcoin and Monero pools (over TLS too), shares accepted by a Kaspa pool and by the Stratum V2 reference project's hosted pool, and solo templates from a public monerod.
 
 `Alloy.exe --smoke-window shot.png` checks the real window: the custom frame's hit testing, that animations run at the display's refresh rate while mining, and that a hidden or minimized window draws nothing. `Alloy.exe --capture <folder>` records the screenshots and clips above from a headless run.
 

@@ -44,6 +44,8 @@ namespace tests {
 
 	void sv2_tests ( );
 
+	void online_tests ( );
+
 	void sv2_crypto_tests ( );
 
 }

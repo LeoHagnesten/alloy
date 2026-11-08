@@ -408,16 +408,6 @@ namespace ui {
 		section ( L"APPEARANCE", false );
 		segmented ( surface, row ( L"Theme", L"System follows the light or dark setting in Windows.", 252.0f, 30.0f ), themes, 3, settings.theme, CONTROL_CHOICE, SETTING_THEME * 16, true, now );
 
-		{
-
-			static const wchar_t* const spans [ ] = { L"2 minutes", L"10 minutes", L"1 hour" };
-			static const wchar_t* const smoothings [ ] = { L"Off", L"5 seconds", L"30 seconds" };
-
-			segmented ( surface, row ( L"Hashrate graph", L"How far back the graph on Overview reaches. Alloy keeps an hour of samples either way.", 324.0f, 30.0f ), spans, 3, settings.chart_span % 3, CONTROL_CHOICE, SETTING_CHART_SPAN * 16, true, now );
-			segmented ( surface, row ( L"Graph smoothing", L"Averages each point over the seconds before it, which hides the second to second jitter.", 324.0f, 30.0f ), smoothings, 3, settings.chart_smoothing % 3, CONTROL_CHOICE, SETTING_CHART_SMOOTHING * 16, true, now );
-
-		}
-
 		section ( L"ABOUT", false );
 		surface.text ( L"Alloy " ALLOY_VERSION_TEXT, render::FONT_BODY, row ( L"Version", L"SHA-256, scrypt, RandomX, the pool protocols, the shaders and this window are all written from scratch.", 200.0f, 30.0f ), colors.muted, render::ALIGN_RIGHT );
 		surface.text ( L"Leo Hagnesten", render::FONT_BODY, row ( L"Author", L"Designed and written by Leo Hagnesten.", 200.0f, 30.0f ), colors.muted, render::ALIGN_RIGHT );

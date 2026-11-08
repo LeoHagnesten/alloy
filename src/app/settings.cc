@@ -48,7 +48,10 @@ namespace app {
 
 	static const char* const day_names [ ] = { "mon", "tue", "wed", "thu", "fri", "sat", "sun" };
 	static const char* const currency_names [ ] = { "usd", "eur", "gbp", "sek" };
-	static const char* const span_names [ ] = { "2m", "10m", "1h" };
+	static const char* const style_names [ ] = { "area", "line", "bars" };
+	static const char* const span_names [ ] = { "1m", "2m", "10m", "30m", "1h" };
+	static const char* const update_names [ ] = { "1s", "5s", "15s" };
+	static const char* const clock_names [ ] = { "ago", "clock" };
 	static const char* const smoothing_names [ ] = { "off", "5s", "30s" };
 
 	static uint32_t day_mask ( const char* value ) {
@@ -277,8 +280,14 @@ namespace app {
 					base::copy_text ( out.api_token, sizeof ( out.api_token ), value );
 				else if ( base::same_text ( key, "theme" ) )
 					out.theme = pick ( theme_names, value, out.theme );
+				else if ( base::same_text ( key, "graph_style" ) )
+					out.chart_style = pick ( style_names, value, out.chart_style );
 				else if ( base::same_text ( key, "graph_span" ) )
 					out.chart_span = pick ( span_names, value, out.chart_span );
+				else if ( base::same_text ( key, "graph_update" ) )
+					out.chart_update = pick ( update_names, value, out.chart_update );
+				else if ( base::same_text ( key, "graph_time" ) )
+					out.chart_clock = pick ( clock_names, value, out.chart_clock );
 				else if ( base::same_text ( key, "graph_smoothing" ) )
 					out.chart_smoothing = pick ( smoothing_names, value, out.chart_smoothing );
 
@@ -426,8 +435,11 @@ namespace app {
 		out.add ( "api_control=" ).add ( copy->api_control ? "yes" : "no" ).add ( "\r\n" );
 		out.add ( "api_token=" ).add ( copy->api_token ).add ( "\r\n" );
 		out.add ( "theme=" ).add ( theme_names [ copy->theme % 3 ] ).add ( "\r\n" );
-		out.add ( "graph_span=" ).add ( span_names [ copy->chart_span % 3 ] ).add ( "\r\n" );
+		out.add ( "graph_style=" ).add ( style_names [ copy->chart_style % 3 ] ).add ( "\r\n" );
+		out.add ( "graph_span=" ).add ( span_names [ copy->chart_span % 5 ] ).add ( "\r\n" );
+		out.add ( "graph_update=" ).add ( update_names [ copy->chart_update % 3 ] ).add ( "\r\n" );
 		out.add ( "graph_smoothing=" ).add ( smoothing_names [ copy->chart_smoothing % 3 ] ).add ( "\r\n" );
+		out.add ( "graph_time=" ).add ( clock_names [ copy->chart_clock % 2 ] ).add ( "\r\n" );
 		delete copy;
 
 		bool good = !out.full ( ) && base::write_file ( path, out.get ( ), static_cast < size_t > ( out.size ( ) ) );

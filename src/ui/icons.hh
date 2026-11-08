@@ -29,6 +29,7 @@ namespace ui {
 		ICON_PAUSE,
 		ICON_SAVE,
 		ICON_KEYBOARD,
+		ICON_GEAR,
 
 	};
 

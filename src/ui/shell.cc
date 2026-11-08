@@ -343,7 +343,9 @@ namespace ui {
 
 		const hint* under = nullptr;
 
-		for ( int32_t i = hint_count - 1; i >= 0 && !under; i-- ) {
+		int32_t lowest = chart_menu && menu_box.contains ( mouse_x, mouse_y ) ? menu_hints : 0;
+
+		for ( int32_t i = hint_count - 1; i >= lowest && !under; i-- ) {
 
 			if ( hints [ i ].area.contains ( mouse_x, mouse_y ) )
 				under = &hints [ i ];
@@ -543,6 +545,8 @@ namespace ui {
 
 		}
 
+		sync_gear ( now );
+
 		return COMMAND_NONE;
 
 	}
@@ -555,6 +559,16 @@ namespace ui {
 	}
 
 	command shell::mouse_down ( float x, float y, bool shift, double now ) {
+
+		if ( chart_menu && !menu_box.contains ( x, y ) && !gear_box.contains ( x, y ) ) {
+
+			close_chart_menu ( now );
+			press_id = CONTROL_NONE;
+			keyboard_on = false;
+
+			return COMMAND_NONE;
+
+		}
 
 		const hit* item = find ( x, y );
 		command result = COMMAND_NONE;
@@ -818,6 +832,44 @@ namespace ui {
 
 			}
 
+			case CONTROL_CHART_GEAR:
+				if ( chart_menu )
+					close_chart_menu ( now );
+				else {
+
+					chart_menu = true;
+					menu_fade.duration = 0.14f;
+					menu_fade.go ( 1.0f, now );
+					sync_gear ( now );
+
+				}
+
+				return COMMAND_NONE;
+
+			case CONTROL_CHART_MENU:
+				return COMMAND_NONE;
+
+			case CONTROL_CHART_RESET: {
+
+				preferences* before = new preferences ( settings );
+
+				settings.chart_style = 0;
+				settings.chart_span = 1;
+				settings.chart_update = 0;
+				settings.chart_smoothing = 0;
+				settings.chart_clock = 0;
+
+				bool changed = !base::same ( before, &settings, sizeof ( preferences ) );
+
+				if ( changed )
+					settings_history.remember ( *before );
+
+				delete before;
+
+				return changed ? COMMAND_PREFERENCES : COMMAND_NONE;
+
+			}
+
 			case CONTROL_CHOICE: {
 
 				int32_t which = index / 16;
@@ -849,6 +901,12 @@ namespace ui {
 					settings.chart_span = option;
 				else if ( which == SETTING_CHART_SMOOTHING )
 					settings.chart_smoothing = option;
+				else if ( which == SETTING_CHART_STYLE )
+					settings.chart_style = option;
+				else if ( which == SETTING_CHART_UPDATE )
+					settings.chart_update = option;
+				else if ( which == SETTING_CHART_TIME )
+					settings.chart_clock = option;
 				else if ( which == SETTING_SCHEDULE_DAYS ) {
 
 					uint32_t flipped = settings.schedule_days ^ 1u << option;
@@ -1111,6 +1169,14 @@ namespace ui {
 	}
 
 	command shell::key ( uint32_t code, bool shift, bool control, double now ) {
+
+		if ( chart_menu && code == key_escape && focus < 0 ) {
+
+			close_chart_menu ( now );
+
+			return COMMAND_NONE;
+
+		}
 
 		if ( focus >= 0 ) {
 
@@ -1545,7 +1611,10 @@ namespace ui {
 		if ( now - page_since < page_time || now - hover_since < hover_time || now - fade_since < hover_time || now - frame_since < hover_time )
 			return true;
 
-		if ( !nav_marker.done ( now ) || !tab_left.done ( now ) || !tab_width.done ( now ) || !chart_ceiling.done ( now ) || now - chart_since < chart_time )
+		if ( !nav_marker.done ( now ) || !tab_left.done ( now ) || !tab_width.done ( now ) || !chart_ceiling.done ( now ) || now - chart_since < chart_time || now - chart_end_since < chart_time )
+			return true;
+
+		if ( !gear_fade.done ( now ) || !menu_fade.done ( now ) )
 			return true;
 
 		if ( tip_open && ( tip_closing >= 0.0 || now - tip_since < tip_show ) )
@@ -1600,6 +1669,8 @@ namespace ui {
 
 		blur ( now );
 		setup_open = false;
+		chart_menu = false;
+		menu_fade.jump ( 0.0f );
 		shown_page = which;
 		page_since = now;
 		nav_marker.duration = 0.22f;
@@ -1766,6 +1837,7 @@ namespace ui {
 
 		surface.pop_clip ( );
 		paint_status ( surface, view );
+		paint_chart_menu ( surface, now );
 		paint_focus ( surface );
 		update_tip ( now );
 		paint_tip ( surface, now );

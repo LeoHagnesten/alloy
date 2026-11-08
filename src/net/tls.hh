@@ -38,6 +38,8 @@ namespace net {
 
 		int32_t receive ( uintptr_t socket, char* plain, int32_t room, bool socket_ready );
 
+		bool buffered ( ) const;
+
 		void close ( uintptr_t socket );
 
 		long status ( ) const {
@@ -73,6 +75,8 @@ namespace net {
 		long last_status = 0;
 		char incoming [ tls_room ] = { };
 		int32_t incoming_size = 0;
+		char spare [ tls_room ] = { };
+		int32_t spare_size = 0;
 		wchar_t host_name [ 256 ] = { };
 
 	};

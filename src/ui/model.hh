@@ -184,8 +184,11 @@ namespace ui {
 		bool api_control = false;
 		char api_token [ 33 ] = { };
 		uint8_t theme = THEME_SYSTEM;
-		uint8_t chart_span = 0;
+		uint8_t chart_style = 0;
+		uint8_t chart_span = 1;
+		uint8_t chart_update = 0;
 		uint8_t chart_smoothing = 0;
+		uint8_t chart_clock = 0;
 		algorithm_tuning tunings [ chain::ALGORITHM_COUNT ];
 
 		pool_profile& pool ( ) {

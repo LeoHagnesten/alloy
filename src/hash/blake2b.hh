@@ -10,6 +10,8 @@ namespace hash {
 
 		explicit blake2b ( uint32_t output_size = 64 );
 
+		blake2b ( uint32_t output_size, const void* key, size_t key_size );
+
 		void add ( const void* data, size_t size );
 
 		void end ( void* out );

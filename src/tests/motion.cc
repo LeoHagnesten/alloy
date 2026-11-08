@@ -414,6 +414,142 @@ namespace tests {
 		delete welcome;
 		delete fresh;
 
+		{
+
+			ui::preferences* plain = new ui::preferences;
+			ui::shell* charted = new ui::shell ( *plain );
+			ui::snapshot* busy = new ui::snapshot;
+			base::list < uint8_t > pixels;
+
+			base::copy_text ( busy->cpu_name, base::count_of ( busy->cpu_name ), L"AMD Ryzen 7 5800X" );
+			busy->threads = 16;
+			busy->cores = 8;
+			busy->sha = true;
+			busy->running = true;
+			busy->rate = 2.3e9;
+			busy->history_first = 1000;
+			busy->history_count = 900;
+			busy->history_serial = 77;
+
+			for ( int32_t i = 0; i < busy->history_count; i++ )
+				busy->history [ i ] = 2.2e9f + static_cast < float > ( ( i * 7919 ) % 211 ) * 1.0e6f;
+
+			base::list < uint8_t > hovered;
+			base::list < uint8_t > after;
+			double clock = 900.0;
+			render::box gear;
+
+			auto settle = [ & ] ( base::list < uint8_t >& out ) {
+
+				clock += 2.0;
+
+				return charted->paint ( surface, *busy, clock ) && surface.capture ( out );
+
+			};
+
+			auto press = [ & ] ( float x, float y ) {
+
+				charted->mouse_move ( x, y, clock );
+				charted->mouse_down ( x, y, false, clock );
+
+				ui::command result = charted->mouse_up ( x, y, clock );
+
+				clock += 0.5;
+				charted->paint ( surface, *busy, clock );
+
+				return result;
+
+			};
+
+			charted->paint ( surface, *busy, clock );
+
+			bool drawn = settle ( pixels ) && charted->locate ( ui::CONTROL_CHART_GEAR, 0, gear );
+
+			charted->mouse_move ( gear.x - 300.0f, gear.y + 120.0f, clock );
+			drawn = drawn && settle ( hovered );
+			charted->mouse_leave ( clock );
+			drawn = drawn && settle ( after );
+			check ( drawn && !same_pixels ( pixels, hovered ) && same_pixels ( pixels, after ), L"resting the cursor on the graph fades its options gear in, and leaving puts back the exact default pixels" );
+
+			render::box choice;
+
+			press ( gear.middle_x ( ), gear.middle_y ( ) );
+
+			bool opened = charted->chart_menu_open ( ) && charted->locate ( ui::CONTROL_CHOICE, ui::SETTING_CHART_STYLE * 16 + 1, choice );
+
+			if ( opened )
+				press ( choice.middle_x ( ), choice.middle_y ( ) );
+
+			bool lined = plain->chart_style == 1;
+
+			charted->key ( 0x1B, false, false, clock );
+
+			bool closed = !charted->chart_menu_open ( );
+
+			charted->mouse_leave ( clock );
+			settle ( hovered );
+			check ( opened && lined && closed && !same_pixels ( pixels, hovered ), L"the gear opens the graph options, picking Line redraws the graph, and Escape closes them" );
+
+			press ( gear.middle_x ( ), gear.middle_y ( ) );
+
+			bool reopened = charted->chart_menu_open ( );
+			ui::command outside = press ( gear.x - 600.0f, gear.bottom ( ) + 400.0f );
+
+			check ( reopened && !charted->chart_menu_open ( ) && outside == ui::COMMAND_NONE, L"a click outside the graph options closes them without pressing what lies underneath" );
+
+			bool every = true;
+
+			for ( uint8_t style = 0; style < 3 && every; style++ ) {
+
+				for ( uint8_t span = 0; span < 5 && every; span++ ) {
+
+					for ( uint8_t update = 0; update < 3 && every; update++ ) {
+
+						plain->chart_style = style;
+						plain->chart_span = span;
+						plain->chart_update = update;
+						plain->chart_smoothing = static_cast < uint8_t > ( ( style + span ) % 3 );
+						plain->chart_clock = static_cast < uint8_t > ( update % 2 );
+						every = settle ( after );
+
+					}
+
+				}
+
+			}
+
+			plain->chart_style = 2;
+			plain->chart_span = 1;
+			plain->chart_update = 0;
+			plain->chart_smoothing = 0;
+			plain->chart_clock = 0;
+			settle ( hovered );
+			plain->chart_style = 1;
+			settle ( after );
+
+			bool bars = !same_pixels ( hovered, after );
+
+			check ( every && bars, L"every type, span, update rate, smoothing and time label setting draws, and bars differ from a line" );
+
+			plain->chart_clock = 1;
+			press ( gear.middle_x ( ), gear.middle_y ( ) );
+
+			bool reset = charted->locate ( ui::CONTROL_CHART_RESET, 0, choice );
+
+			if ( reset )
+				press ( choice.middle_x ( ), choice.middle_y ( ) );
+
+			charted->key ( 0x1B, false, false, clock );
+			charted->mouse_leave ( clock );
+			clock += 30.0;
+			settle ( after );
+			check ( reset && plain->chart_style == 0 && plain->chart_span == 1 && plain->chart_clock == 0 && same_pixels ( pixels, after ), L"Reset in the graph options brings back the standard graph pixel for pixel" );
+			delete busy;
+			delete charted;
+			delete plain;
+
+		}
+
 		delete keyed;
 		delete editing;
 		delete hinting;

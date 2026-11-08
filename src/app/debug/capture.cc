@@ -295,6 +295,32 @@ namespace app {
 		settle ( *self, static_cast < double > ( warmup ) );
 
 		shoot ( *self, L"overview-dark.png" );
+
+		render::box gear;
+
+		if ( self->view->locate ( ui::CONTROL_CHART_GEAR, 0, gear ) ) {
+
+			self->cursor = true;
+			self->cursor_x = gear.x - 260.0f;
+			self->cursor_y = gear.y + 90.0f;
+			self->view->mouse_move ( self->cursor_x, self->cursor_y, self->clock );
+			shoot ( *self, L"graph-gear-dark.png" );
+			self->cursor_x = gear.middle_x ( );
+			self->cursor_y = gear.middle_y ( );
+			self->view->mouse_move ( self->cursor_x, self->cursor_y, self->clock );
+			self->view->mouse_down ( self->cursor_x, self->cursor_y, false, self->clock );
+			self->view->mouse_up ( self->cursor_x, self->cursor_y, self->clock );
+			shoot ( *self, L"graph-options-dark.png" );
+			self->light = true;
+			shoot ( *self, L"graph-options-light.png" );
+			self->light = false;
+			self->view->key ( 0x1B, false, false, self->clock );
+			self->view->mouse_leave ( self->clock );
+			self->cursor = false;
+			self->clock += 1.0;
+
+		}
+
 		self->view->open_page ( ui::PAGE_EARNINGS, self->clock );
 		shoot ( *self, L"earnings-dark.png" );
 		self->view->open_page ( ui::PAGE_RIGS, self->clock );

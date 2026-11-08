@@ -67,6 +67,7 @@ namespace tests {
 		{ L"kaspa", kaspa_tests },
 		{ L"sv2", sv2_tests },
 		{ L"xmrig", benchmark_tests, true },
+		{ L"online", online_tests, true },
 
 	};
 

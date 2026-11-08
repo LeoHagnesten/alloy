@@ -289,6 +289,18 @@ namespace net {
 		if ( !ready )
 			return -1;
 
+		if ( spare_size ) {
+
+			int32_t size = base::min ( spare_size, room );
+
+			base::copy ( plain, spare, static_cast < size_t > ( size ) );
+			base::move ( spare, spare + size, static_cast < size_t > ( spare_size - size ) );
+			spare_size -= size;
+
+			return size;
+
+		}
+
 		if ( incoming_size < tls_room ) {
 
 			u_long waiting = 0;
@@ -371,12 +383,16 @@ namespace net {
 			if ( content && content->cbBuffer ) {
 
 				int32_t size = static_cast < int32_t > ( content->cbBuffer );
+				int32_t fit = base::min ( size, room - produced );
+				const char* decrypted = static_cast < const char* > ( content->pvBuffer );
 
-				if ( produced + size > room )
+				if ( spare_size + size - fit > tls_room )
 					return -1;
 
-				base::copy ( plain + produced, content->pvBuffer, static_cast < size_t > ( size ) );
-				produced += size;
+				base::copy ( plain + produced, decrypted, static_cast < size_t > ( fit ) );
+				base::copy ( spare + spare_size, decrypted + fit, static_cast < size_t > ( size - fit ) );
+				spare_size += size - fit;
+				produced += fit;
 
 			}
 
@@ -391,12 +407,26 @@ namespace net {
 			} else
 				incoming_size = 0;
 
-			if ( last_status == SEC_I_RENEGOTIATE )
+			if ( last_status == SEC_I_RENEGOTIATE || spare_size )
 				break;
 
 		}
 
 		return produced;
+
+	}
+
+	bool tls_session::buffered ( ) const {
+
+		if ( spare_size )
+			return true;
+
+		if ( incoming_size < 5 )
+			return false;
+
+		int32_t length = static_cast < uint8_t > ( incoming [ 3 ] ) << 8 | static_cast < uint8_t > ( incoming [ 4 ] );
+
+		return incoming_size >= 5 + length;
 
 	}
 

@@ -38,6 +38,9 @@ namespace ui {
 		CONTROL_ACTION,
 		CONTROL_NEW_TOKEN,
 		CONTROL_CARD_RESET,
+		CONTROL_CHART_GEAR,
+		CONTROL_CHART_MENU,
+		CONTROL_CHART_RESET,
 
 	};
 
@@ -84,6 +87,8 @@ namespace ui {
 		SETTING_CHART_SERIES,
 		SETTING_CHART_STYLE,
 		SETTING_CHART_SMOOTHING,
+		SETTING_CHART_UPDATE,
+		SETTING_CHART_TIME,
 		SETTING_FIAT,
 		SETTING_LOOKUPS,
 		SETTING_CURRENCY,
@@ -323,6 +328,12 @@ namespace ui {
 
 		}
 
+		bool chart_menu_open ( ) const {
+
+			return chart_menu;
+
+		}
+
 		bool keyboard_at ( control id, int32_t index ) const {
 
 			return keyboard_on && keyboard_id == id && keyboard_index == index;
@@ -391,6 +402,14 @@ namespace ui {
 		bool nudge_setting ( int32_t which, int32_t direction );
 
 		void paint_focus ( render::surface& surface );
+
+		void sync_gear ( double now );
+
+		void paint_chart_gear ( render::surface& surface, render::box area, double now );
+
+		void paint_chart_menu ( render::surface& surface, double now );
+
+		void close_chart_menu ( double now );
 
 		command commit_field ( double now );
 
@@ -537,6 +556,17 @@ namespace ui {
 		render::box scroll_area [ SCROLL_COUNT ];
 		uint64_t chart_serial = 0;
 		double chart_since = -100.0;
+		uint64_t chart_end = 0;
+		double chart_end_since = -100.0;
+		int32_t chart_jump = 1;
+		render::box chart_area;
+		render::box gear_box;
+		render::box menu_box;
+		bool chart_menu = false;
+		bool gear_wanted = false;
+		int32_t menu_hints = 0;
+		motion gear_fade;
+		motion menu_fade;
 		motion chart_ceiling;
 		float zoom = 1.0f;
 

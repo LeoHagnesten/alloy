@@ -45,6 +45,22 @@ namespace hash {
 
 	}
 
+	blake2b::blake2b ( uint32_t output_size, const void* key, size_t key_size ) : blake2b ( output_size ) {
+
+		uint8_t block [ 128 ] = { };
+
+		key_size = base::min ( key_size, static_cast < size_t > ( 64 ) );
+
+		if ( !key_size )
+			return;
+
+		state [ 0 ] ^= static_cast < uint64_t > ( key_size ) << 8;
+		base::copy ( block, key, key_size );
+		add ( block, sizeof ( block ) );
+		base::zero ( block, sizeof ( block ) );
+
+	}
+
 	void blake2b::compress ( const uint8_t* block, bool last ) {
 
 		uint64_t words [ 16 ];

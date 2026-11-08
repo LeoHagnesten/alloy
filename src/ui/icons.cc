@@ -228,6 +228,41 @@ namespace ui {
 				surface.dot ( at ( 12.0f, false ), at ( 7.0f, true ), 0.8f * unit, tint );
 				break;
 
+			case ICON_GEAR: {
+
+				static const float flank [ 4 ] [ 3 ] = { { 0.9659f, -0.2588f, 5.0f }, { 0.9877f, -0.1564f, 7.0f }, { 0.9877f, 0.1564f, 7.0f }, { 0.9659f, 0.2588f, 5.0f } };
+				float points [ 33 * 2 ];
+				float turn_cos = 1.0f;
+				float turn_sin = 0.0f;
+
+				for ( int32_t tooth = 0; tooth < 8; tooth++ ) {
+
+					for ( int32_t k = 0; k < 4; k++ ) {
+
+						float c = flank [ k ] [ 0 ] * turn_cos - flank [ k ] [ 1 ] * turn_sin;
+						float s = flank [ k ] [ 0 ] * turn_sin + flank [ k ] [ 1 ] * turn_cos;
+
+						points [ ( tooth * 4 + k ) * 2 ] = at ( 8.0f + c * flank [ k ] [ 2 ], false );
+						points [ ( tooth * 4 + k ) * 2 + 1 ] = at ( 8.0f + s * flank [ k ] [ 2 ], true );
+
+					}
+
+					float next_cos = ( turn_cos - turn_sin ) * 0.70710678f;
+					float next_sin = ( turn_sin + turn_cos ) * 0.70710678f;
+
+					turn_cos = next_cos;
+					turn_sin = next_sin;
+
+				}
+
+				points [ 64 ] = points [ 0 ];
+				points [ 65 ] = points [ 1 ];
+				surface.polyline ( points, 33, tint, stroke );
+				surface.ring ( at ( 8.0f, false ), at ( 8.0f, true ), 2.1f * unit, tint, stroke );
+				break;
+
+			}
+
 		}
 
 	}
