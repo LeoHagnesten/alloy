@@ -1,7 +1,35 @@
 #include "base/formats/json.hh"
+#include "base/memory.hh"
 #include "base/strings.hh"
 
 namespace base {
+
+	json::~json ( ) {
+
+		if ( nodes != inline_nodes )
+			delete [ ] nodes;
+
+	}
+
+	bool json::grow ( ) {
+
+		if ( capacity >= most )
+			return false;
+
+		int32_t larger = capacity * 4;
+		json_node* bigger = new json_node [ larger ];
+
+		base::copy ( bigger, nodes, sizeof ( json_node ) * static_cast < size_t > ( used ) );
+
+		if ( nodes != inline_nodes )
+			delete [ ] nodes;
+
+		nodes = bigger;
+		capacity = larger;
+
+		return true;
+
+	}
 
 	bool json::parse ( const char* text, int32_t size ) {
 
@@ -51,7 +79,7 @@ namespace base {
 
 		skip_space ( at );
 
-		if ( at >= length || used >= room || depth > 32 )
+		if ( at >= length || depth > 32 || ( used >= capacity && !grow ( ) ) )
 			return -1;
 
 		int32_t index = used++;

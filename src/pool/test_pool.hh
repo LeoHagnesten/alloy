@@ -15,6 +15,8 @@ namespace pool {
 		uint8_t variant = 0;
 		uint32_t switch_jobs = 0;
 		bool nicehash = false;
+		bool node = false;
+		bool sv2 = false;
 		bool verbose = false;
 
 	};
@@ -57,6 +59,12 @@ namespace pool {
 
 		}
 
+		const char* authority_key ( ) const {
+
+			return authority;
+
+		}
+
 		bool ready ( ) const {
 
 			return base::atomic_load ( listening ) != 0;
@@ -69,6 +77,10 @@ namespace pool {
 
 		void run ( );
 
+		void run_node ( );
+
+		void run_sv2 ( );
+
 		server_settings config;
 		void* thread = nullptr;
 		void* socket = nullptr;
@@ -79,6 +91,7 @@ namespace pool {
 		volatile uint32_t connected = 0;
 		volatile uint32_t made = 0;
 		volatile uint32_t listening = 0;
+		char authority [ 80 ] = { };
 
 	};
 

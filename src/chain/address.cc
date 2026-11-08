@@ -117,6 +117,89 @@ namespace chain {
 
 	}
 
+	bool base58_encode ( const uint8_t* bytes, int32_t size, char* out, int32_t room ) {
+
+		uint8_t digits [ 128 ] = { };
+		int32_t used = 0;
+		int32_t zeros = 0;
+
+		while ( zeros < size && !bytes [ zeros ] )
+			zeros++;
+
+		for ( int32_t i = zeros; i < size; i++ ) {
+
+			uint32_t carry = bytes [ i ];
+
+			for ( int32_t k = 0; k < used; k++ ) {
+
+				carry += static_cast < uint32_t > ( digits [ k ] ) << 8;
+				digits [ k ] = static_cast < uint8_t > ( carry % 58 );
+				carry /= 58;
+
+			}
+
+			while ( carry ) {
+
+				if ( used >= static_cast < int32_t > ( sizeof ( digits ) ) )
+					return false;
+
+				digits [ used++ ] = static_cast < uint8_t > ( carry % 58 );
+				carry /= 58;
+
+			}
+
+		}
+
+		if ( zeros + used + 1 > room )
+			return false;
+
+		int32_t at = 0;
+
+		for ( int32_t i = 0; i < zeros; i++ )
+			out [ at++ ] = '1';
+
+		for ( int32_t i = used - 1; i >= 0; i-- )
+			out [ at++ ] = base58_alphabet [ digits [ i ] ];
+
+		out [ at ] = 0;
+
+		return true;
+
+	}
+
+	bool read_authority_key ( const char* text, uint8_t* out ) {
+
+		uint8_t decoded [ 64 ];
+		uint8_t digest [ 32 ];
+		int32_t size = 0;
+
+		if ( !base58_decode ( text, decoded, sizeof ( decoded ), size ) || size != 38 || decoded [ 0 ] != 1 || decoded [ 1 ] != 0 )
+			return false;
+
+		hash::sha256_twice ( decoded, 34, digest );
+
+		if ( !base::same ( digest, decoded + 34, 4 ) )
+			return false;
+
+		base::copy ( out, decoded + 2, 32 );
+
+		return true;
+
+	}
+
+	bool write_authority_key ( const uint8_t* key, char* out, int32_t room ) {
+
+		uint8_t raw [ 38 ] = { 1, 0 };
+		uint8_t digest [ 32 ];
+
+		base::copy ( raw + 2, key, 32 );
+		hash::sha256_twice ( raw, 34, digest );
+		base::copy ( raw + 34, digest, 4 );
+
+		return base58_encode ( raw, 38, out, room );
+
+	}
+
 	bool monero_decode ( const char* text, uint8_t* out, int32_t room, int32_t& size ) {
 
 		static const int32_t block_bytes [ 12 ] = { 0, -1, 1, 2, -1, 3, 4, 5, -1, 6, 7, 8 };
@@ -285,28 +368,9 @@ namespace chain {
 
 	}
 
-	static bool cash_match ( const char* text, bool& attempted ) {
+	static bool cash_checksum ( const char* prefix, const char* body, int32_t length ) {
 
-		static const char prefix [ ] = "bitcoincash";
 		static const uint64_t generator [ 5 ] = { 0x98F2BC8E61ull, 0x79B76D99E2ull, 0xF33E5FB3C4ull, 0xAE2EABE2A8ull, 0x1E4F43E470ull };
-		const char* body = text;
-		bool prefixed = true;
-
-		attempted = false;
-
-		for ( int32_t i = 0; prefix [ i ]; i++ )
-			prefixed = prefixed && lower ( text [ i ] ) == prefix [ i ];
-
-		if ( prefixed && text [ 11 ] == ':' )
-			body = text + 12;
-		else if ( lower ( text [ 0 ] ) != 'q' && lower ( text [ 0 ] ) != 'p' )
-			return false;
-
-		int32_t length = base::length ( body );
-
-		if ( length != 42 )
-			return false;
-
 		uint64_t check = 1;
 
 		auto step = [ & ] ( uint64_t value ) {
@@ -340,9 +404,71 @@ namespace chain {
 
 		}
 
+		return ( check ^ 1 ) == 0;
+
+	}
+
+	static bool cash_match ( const char* text, bool& attempted ) {
+
+		static const char prefix [ ] = "bitcoincash";
+		const char* body = text;
+		bool prefixed = true;
+
+		attempted = false;
+
+		for ( int32_t i = 0; prefix [ i ]; i++ )
+			prefixed = prefixed && lower ( text [ i ] ) == prefix [ i ];
+
+		if ( prefixed && text [ 11 ] == ':' )
+			body = text + 12;
+		else if ( lower ( text [ 0 ] ) != 'q' && lower ( text [ 0 ] ) != 'p' )
+			return false;
+
+		int32_t length = base::length ( body );
+
+		if ( length != 42 )
+			return false;
+
+		for ( int32_t i = 0; i < length; i++ ) {
+
+			if ( find_char ( bech32_alphabet, lower ( body [ i ] ) ) < 0 )
+				return false;
+
+		}
+
 		attempted = true;
 
-		return ( check ^ 1 ) == 0;
+		return cash_checksum ( prefix, body, length );
+
+	}
+
+	static bool kaspa_match ( const char* text, bool& attempted ) {
+
+		static const char* const prefixes [ ] = { "kaspa", "kaspatest" };
+
+		attempted = false;
+
+		for ( const char* prefix : prefixes ) {
+
+			int32_t size = base::length ( prefix );
+			bool same = text [ size ] == ':';
+
+			for ( int32_t i = 0; i < size && same; i++ )
+				same = lower ( text [ i ] ) == prefix [ i ];
+
+			if ( !same )
+				continue;
+
+			const char* body = text + size + 1;
+			int32_t length = base::length ( body );
+
+			attempted = true;
+
+			return ( length == 61 || length == 63 ) && cash_checksum ( prefix, body, length );
+
+		}
+
+		return false;
 
 	}
 
@@ -379,6 +505,17 @@ namespace chain {
 
 		if ( length < 20 )
 			return out;
+
+		if ( kaspa_match ( text, attempted ) ) {
+
+			out.coin = L"Kaspa";
+			out.verdict = algorithm == ALGORITHM_KHEAVYHASH ? ADDRESS_VALID : ADDRESS_OTHER_COIN;
+
+			return out;
+
+		}
+
+		bool kaspa_like = attempted;
 
 		if ( monero_match ( text, attempted ) ) {
 
@@ -424,7 +561,7 @@ namespace chain {
 
 		bool base58_like = decoded && length >= 26 && length <= 35;
 
-		if ( monero_like || cash_like || segwit_like || base58_like )
+		if ( kaspa_like || monero_like || cash_like || segwit_like || base58_like )
 			out.verdict = ADDRESS_BROKEN;
 
 		return out;
@@ -456,4 +593,123 @@ namespace chain {
 
 	}
 
+	bool payout_script ( uint8_t algorithm, const wchar_t* worker, uint8_t* out, int32_t room, int32_t& size ) {
+
+		char text [ 160 ];
+		int32_t used = 0;
+
+		size = 0;
+
+		for ( int32_t i = 0; worker [ i ] && used < 159; i++ ) {
+
+			if ( worker [ i ] == L'.' || worker [ i ] == L'+' || worker [ i ] > 127 )
+				break;
+
+			text [ used++ ] = static_cast < char > ( worker [ i ] );
+
+		}
+
+		text [ used ] = 0;
+
+		address_check check = check_address ( algorithm, text );
+
+		if ( check.verdict != ADDRESS_VALID || room < 42 )
+			return false;
+
+		int32_t split = -1;
+
+		for ( int32_t i = 0; text [ i ]; i++ ) {
+
+			if ( text [ i ] == '1' )
+				split = i;
+
+		}
+
+		uint8_t decoded [ 80 ];
+		int32_t length = 0;
+
+		if ( base58_decode ( text, decoded, sizeof ( decoded ), length ) && length == 25 ) {
+
+			static const uint8_t script_hash [ ] = { 0x05, 0xC4, 0x32, 0x16 };
+			bool hashed = false;
+
+			for ( uint8_t prefix : script_hash )
+				hashed = hashed || decoded [ 0 ] == prefix;
+
+			if ( hashed ) {
+
+				out [ size++ ] = 0xA9;
+				out [ size++ ] = 0x14;
+				base::copy ( out + size, decoded + 1, 20 );
+				size += 20;
+				out [ size++ ] = 0x87;
+
+			} else {
+
+				out [ size++ ] = 0x76;
+				out [ size++ ] = 0xA9;
+				out [ size++ ] = 0x14;
+				base::copy ( out + size, decoded + 1, 20 );
+				size += 20;
+				out [ size++ ] = 0x88;
+				out [ size++ ] = 0xAC;
+
+			}
+
+			return true;
+
+		}
+
+		if ( split < 1 )
+			return false;
+
+		uint32_t gathered = 0;
+		int32_t bits = 0;
+		int32_t version = -1;
+		uint8_t program [ 40 ];
+		int32_t program_size = 0;
+		int32_t end = base::length ( text ) - 6;
+
+		for ( int32_t i = split + 1; i < end; i++ ) {
+
+			int32_t value = find_char ( bech32_alphabet, lower ( text [ i ] ) );
+
+			if ( value < 0 )
+				return false;
+
+			if ( version < 0 ) {
+
+				version = value;
+
+				continue;
+
+			}
+
+			gathered = gathered << 5 | static_cast < uint32_t > ( value );
+			bits += 5;
+
+			if ( bits >= 8 ) {
+
+				bits -= 8;
+
+				if ( program_size >= static_cast < int32_t > ( sizeof ( program ) ) )
+					return false;
+
+				program [ program_size++ ] = static_cast < uint8_t > ( gathered >> bits );
+
+			}
+
+		}
+
+		if ( version < 0 || version > 16 || program_size < 2 || program_size > 40 )
+			return false;
+
+		out [ size++ ] = static_cast < uint8_t > ( version ? 0x50 + version : 0 );
+		out [ size++ ] = static_cast < uint8_t > ( program_size );
+		base::copy ( out + size, program, static_cast < size_t > ( program_size ) );
+		size += program_size;
+
+		return true;
+
+	}
 }

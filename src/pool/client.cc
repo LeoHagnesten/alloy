@@ -1,5 +1,6 @@
 #include "pool/client.hh"
 #include "chain/target.hh"
+#include "chain/coinbase.hh"
 #include "net/socket.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
@@ -15,6 +16,7 @@ namespace pool {
 		config = value;
 		quit = 0;
 		on_backup = 0;
+		nudged = 0;
 		refused = false;
 		nicehash = false;
 		refused_algo [ 0 ] = 0;
@@ -123,11 +125,42 @@ namespace pool {
 
 		}
 
+		if ( kaspa_mode ( ) ) {
+
+			if ( !kaspa_nonce_high ( nonce.first, nonce.first_size, index, out.nonce_high ) )
+				return false;
+
+			base::copy ( out.blob, kaspa_current.pre_pow, 32 );
+			out.blob_size = 32;
+			out.timestamp = kaspa_current.timestamp;
+			chain::target_for ( difficulty, out.target, config.algorithm );
+
+			return true;
+
+		}
+
+		if ( sv2_on ) {
+
+			if ( index > 0xFFFF )
+				return false;
+
+			out.header = sv2_header;
+			out.header.set_time ( sv2_header.time ( ) + static_cast < uint32_t > ( index ) );
+			base::copy ( out.target, sv2_target, 32 );
+
+			return true;
+
+		}
+
 		uint8_t second [ extranonce_room ];
 
 		counter_bytes ( index, second, nonce.second_size );
 		build_header ( current, nonce, second, current.time, out.header );
-		chain::target_for ( difficulty, out.target, config.algorithm );
+
+		if ( solo_on )
+			chain::target_of ( current.bits, out.target );
+		else
+			chain::target_for ( difficulty, out.target, config.algorithm );
 
 		return true;
 
@@ -145,6 +178,7 @@ namespace pool {
 			item.second = from.index;
 			item.time = from.header.time ( );
 			item.nonce = nonce_value;
+			item.high = from.nonce_high;
 			item.difficulty = chain::difficulty_of ( chain::top_bits ( digest ), config.algorithm );
 			base::copy ( item.result, digest, 32 );
 
@@ -189,7 +223,7 @@ namespace pool {
 		known_job& slot = recent [ recent_next++ % base::count_of ( recent ) ];
 
 		slot.serial = serial;
-		base::copy_text ( slot.id, sizeof ( slot.id ), blob_mode ( ) ? blob_current.id : current.id );
+		base::copy_text ( slot.id, sizeof ( slot.id ), blob_mode ( ) ? blob_current.id : ( kaspa_mode ( ) ? kaspa_current.id : current.id ) );
 		slot.time = current.time;
 		slot.difficulty = difficulty;
 
@@ -205,8 +239,14 @@ namespace pool {
 
 	void client::pause ( uint32_t seconds ) {
 
-		for ( uint32_t i = 0; i < seconds * 10 && !base::atomic_load ( quit ); i++ )
+		for ( uint32_t i = 0; i < seconds * 10 && !base::atomic_load ( quit ) && !base::atomic_load ( nudged ); i++ )
 			base::sleep ( 100 );
+
+	}
+
+	void client::reconnect ( ) {
+
+		base::atomic_store ( nudged, 1u );
 
 	}
 
@@ -220,10 +260,19 @@ namespace pool {
 		while ( !base::atomic_load ( quit ) ) {
 
 			double began = base::seconds ( );
-			bool worked = session ( );
+			bool worked = solo_address ( ) ? solo_session ( ) : ( sv2_address ( ) ? sv2_session ( ) : session ( ) );
 
 			if ( base::atomic_load ( quit ) || ( refused && !has_backup ) )
 				break;
+
+			if ( base::atomic_exchange ( nudged, 0u ) ) {
+
+				backoff = 2;
+				failures = 0;
+
+				continue;
+
+			}
 
 			bool lasted = base::seconds ( ) - began > 30.0;
 
@@ -266,7 +315,7 @@ namespace pool {
 			note ( EVENT_INFO, message.get ( ) );
 			set_state ( LINK_WAITING );
 			pause ( backoff );
-			backoff = base::min ( backoff * 2, 60u );
+			backoff = base::atomic_exchange ( nudged, 0u ) ? 2u : base::min ( backoff * 2, 60u );
 
 		}
 
@@ -382,6 +431,7 @@ namespace pool {
 
 			have_job = false;
 			authorized = false;
+			solo_on = false;
 			nonce = session_nonce { };
 			login_id [ 0 ] = 0;
 			base::atomic_add ( serial, 1u );
@@ -402,7 +452,7 @@ namespace pool {
 
 		last_keepalive = heard;
 
-		while ( !base::atomic_load ( quit ) && connection->is_open ( ) && !refused ) {
+		while ( !base::atomic_load ( quit ) && connection->is_open ( ) && !refused && !base::atomic_load ( nudged ) ) {
 
 			int32_t size = connection->read_line ( text, net::line_room, 20 );
 
@@ -428,7 +478,9 @@ namespace pool {
 
 		}
 
-		if ( !base::atomic_load ( quit ) && !refused )
+		if ( base::atomic_load ( nudged ) )
+			note ( EVENT_INFO, L"Reconnecting to the pool after the network changed" );
+		else if ( !base::atomic_load ( quit ) && !refused )
 			note ( EVENT_WARNING, L"Lost the connection to the pool" );
 
 		delete [ ] text;
@@ -453,7 +505,24 @@ namespace pool {
 
 		base::line request;
 
-		request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( agent ).add ( "\"]}" );
+		request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( agent ).add ( kaspa_mode ( ) ? "\",\"EthereumStratum/1.0.0\"]}" : "\"]}" );
+		link->send_line ( request.get ( ) );
+
+	}
+
+	void client::authorize ( ) {
+
+		char worker [ 256 ];
+		char password [ 256 ];
+		base::line request;
+
+		base::narrow ( worker, sizeof ( worker ), config.worker );
+		base::narrow ( password, sizeof ( password ), config.password );
+		request.add ( "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[" );
+		base::add_json_string ( request, worker );
+		request.put ( ',' );
+		base::add_json_string ( request, password );
+		request.add ( "]}" );
 		link->send_line ( request.get ( ) );
 
 	}
@@ -479,6 +548,22 @@ namespace pool {
 		int32_t id = message.member ( 0, "id" );
 
 		if ( message.kind ( method ) == base::JSON_STRING ) {
+
+			if ( kaspa_mode ( ) && message.text_is ( method, "mining.notify" ) ) {
+
+				take_kaspa_job ( message, params );
+
+				return true;
+
+			}
+
+			if ( kaspa_mode ( ) && ( message.text_is ( method, "set_extranonce" ) || message.text_is ( method, "mining.set_extranonce" ) ) ) {
+
+				take_kaspa_extranonce ( message, params );
+
+				return true;
+
+			}
 
 			if ( message.text_is ( method, "mining.notify" ) ) {
 
@@ -520,6 +605,21 @@ namespace pool {
 					shown.time = incoming->time;
 					shown.branches = incoming->branch_count;
 					shown.coinbase_size = incoming->head_size + incoming->tail_size + nonce.first_size + nonce.second_size;
+
+					uint8_t* whole = new uint8_t [ coinbase_room * 2 + extranonce_room * 2 ];
+					int32_t used = 0;
+					uint64_t value = 0;
+
+					base::copy ( whole, incoming->head, static_cast < size_t > ( incoming->head_size ) );
+					used += incoming->head_size;
+					base::copy ( whole + used, nonce.first, static_cast < size_t > ( nonce.first_size ) );
+					used += nonce.first_size;
+					base::zero ( whole + used, static_cast < size_t > ( nonce.second_size ) );
+					used += nonce.second_size;
+					base::copy ( whole + used, incoming->tail, static_cast < size_t > ( incoming->tail_size ) );
+					used += incoming->tail_size;
+					shown.reward = chain::coinbase_value ( whole, used, value ) ? value : 0;
+					delete [ ] whole;
 					base::copy ( shown.previous, incoming->previous, 32 );
 					base::copy_text ( shown.job, base::count_of ( shown.job ), name );
 
@@ -643,6 +743,24 @@ namespace pool {
 
 		}
 
+		if ( number == 1 && kaspa_mode ( ) ) {
+
+			if ( message.kind ( error ) == base::JSON_ARRAY || message.kind ( error ) == base::JSON_OBJECT || ( message.kind ( result ) != base::JSON_ARRAY && !message.truth ( result ) ) ) {
+
+				note ( EVENT_ERROR, L"The pool rejected the subscription" );
+				link->close ( );
+
+				return false;
+
+			}
+
+			set_state ( LINK_AUTHORIZING );
+			authorize ( );
+
+			return true;
+
+		}
+
 		if ( number == 1 ) {
 
 			int32_t first = message.item ( result, 1 );
@@ -669,18 +787,7 @@ namespace pool {
 
 			}
 
-			char worker [ 256 ];
-			char password [ 256 ];
-			base::line request;
-
-			base::narrow ( worker, sizeof ( worker ), config.worker );
-			base::narrow ( password, sizeof ( password ), config.password );
-			request.add ( "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[" );
-			base::add_json_string ( request, worker );
-			request.put ( ',' );
-			base::add_json_string ( request, password );
-			request.add ( "]}" );
-			link->send_line ( request.get ( ) );
+			authorize ( );
 
 			return true;
 
@@ -826,7 +933,9 @@ namespace pool {
 				base::add_json_string ( request, id );
 				request.add ( ",\"nonce\":\"" ).hex ( nonce_bytes, 4, false ).add ( "\",\"result\":\"" ).hex ( item.result, 32, false ).add ( "\"}}" );
 
-			} else {
+			} else if ( kaspa_mode ( ) )
+				write_kaspa_submit ( request, request_id, id, item.high, item.nonce );
+			else {
 
 				char worker [ 256 ];
 

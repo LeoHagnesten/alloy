@@ -35,6 +35,15 @@ namespace base {
 	public:
 
 		static constexpr int32_t room = 768;
+		static constexpr int32_t most = 1 << 21;
+
+		json ( ) = default;
+
+		json ( const json& ) = delete;
+
+		json& operator = ( const json& ) = delete;
+
+		~json ( );
 
 		bool parse ( const char* text, int32_t size );
 
@@ -68,9 +77,13 @@ namespace base {
 
 		bool string_end ( int32_t& at ) const;
 
+		bool grow ( );
+
 		const char* source = nullptr;
 		int32_t length = 0;
-		json_node nodes [ room ];
+		json_node inline_nodes [ room ];
+		json_node* nodes = inline_nodes;
+		int32_t capacity = room;
 		int32_t used = 0;
 
 	};

@@ -16,6 +16,8 @@ namespace base {
 
 	bool same_folded ( const char* a, const char* b );
 
+	bool same_secret ( const char* a, const char* b );
+
 	bool same_span ( const char* span, int32_t size, const char* text );
 
 	bool starts_with ( const wchar_t* text, const wchar_t* prefix );
@@ -41,6 +43,8 @@ namespace base {
 	void write_hex ( char* out, const uint8_t* bytes, size_t count );
 
 	bool read_hex32 ( const char* text, int32_t size, uint32_t& out );
+
+	int32_t write_base64 ( char* out, int32_t room, const uint8_t* bytes, size_t count );
 
 	uint64_t read_number ( const wchar_t* text );
 

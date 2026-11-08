@@ -2,6 +2,9 @@
 
 #include "app/api.hh"
 #include "app/self_test.hh"
+#include "app/ledger.hh"
+#include "app/lookup.hh"
+#include "app/rigs.hh"
 #include "ui/model.hh"
 #include "mine/engine.hh"
 #include "mine/offline.hh"
@@ -10,6 +13,15 @@
 #include "base/system/hardware.hh"
 
 namespace app {
+
+	bool within_schedule ( const base::calendar& now, uint32_t from, uint32_t to, uint32_t days );
+
+	struct notice {
+
+		wchar_t title [ 64 ] = { };
+		wchar_t text [ 200 ] = { };
+
+	};
 
 	class session {
 
@@ -32,6 +44,26 @@ namespace app {
 		void clear_log ( );
 
 		void check_kernels ( );
+
+		void set_sleeping ( bool value );
+
+		void set_held ( bool value );
+
+		void network_changed ( );
+
+		void announce ( const wchar_t* title, const wchar_t* text );
+
+		void start_lookups ( );
+
+		void save_history ( );
+
+		bool next_notice ( notice& out );
+
+		bool holding ( ) const {
+
+			return held;
+
+		}
 
 		void set_genesis_start ( uint32_t nonce ) {
 
@@ -95,6 +127,12 @@ namespace app {
 
 		void finish_check ( const ui::preferences& settings );
 
+		bool inside_schedule ( const ui::preferences& settings ) const;
+
+		const wchar_t* pause_reason ( double now, const ui::preferences& settings );
+
+		void account ( double now, const ui::preferences& settings );
+
 		mine::limits limits_for ( const ui::preferences& settings ) const;
 
 		void sync_api ( const ui::preferences& settings );
@@ -142,6 +180,23 @@ namespace app {
 		void* checker = nullptr;
 		self_report* checked = nullptr;
 		bool portable_only = false;
+		bool sleeping = false;
+		bool held = false;
+		double apps_checked = -100.0;
+		notice notices [ 8 ];
+		uint32_t notices_pushed = 0;
+		uint32_t notices_read = 0;
+		uint32_t reject_streak = 0;
+		ledger book;
+		lookup online;
+		rig_watch watched;
+		bool lookups_on = false;
+		double ledger_carry = 0.0;
+		double ledger_saved = 0.0;
+		double accounted = 0.0;
+		uint64_t pool_reward = 0;
+		uint8_t gpu_phase_seen [ ui::gpu_room ] = { };
+		wchar_t blocking [ 96 ] = { };
 		uint32_t broken_cards [ chain::ALGORITHM_COUNT ] = { };
 
 	};

@@ -24,6 +24,7 @@ namespace app {
 		bool sha_extensions = true;
 		uint32_t broken_sha_cards = 0;
 		uint32_t broken_scrypt_cards = 0;
+		uint32_t broken_heavy_cards = 0;
 
 	};
 

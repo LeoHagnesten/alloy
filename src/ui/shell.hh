@@ -10,7 +10,10 @@ namespace ui {
 
 		PAGE_OVERVIEW,
 		PAGE_ACTIVITY,
+		PAGE_EARNINGS,
+		PAGE_RIGS,
 		PAGE_SETTINGS,
+		PAGE_HELP,
 		PAGE_COUNT,
 
 	};
@@ -32,6 +35,9 @@ namespace ui {
 		CONTROL_ALGORITHM,
 		CONTROL_REVEAL,
 		CONTROL_PRESET,
+		CONTROL_ACTION,
+		CONTROL_NEW_TOKEN,
+		CONTROL_CARD_RESET,
 
 	};
 
@@ -41,6 +47,9 @@ namespace ui {
 		SETTING_BACKUP,
 		SETTING_WORKER,
 		SETTING_PASSWORD,
+		SETTING_APPS,
+		SETTING_PROFILE_NAME,
+		SETTING_RIG,
 		SETTING_CPU,
 		SETTING_THREADS,
 		SETTING_CPU_LIMIT,
@@ -62,6 +71,28 @@ namespace ui {
 		SETTING_TRAY,
 		SETTING_API,
 		SETTING_VARIANT,
+		SETTING_FULLSCREEN,
+		SETTING_SCHEDULE,
+		SETTING_SCHEDULE_FROM,
+		SETTING_SCHEDULE_TO,
+		SETTING_SCHEDULE_DAYS,
+		SETTING_NOTIFY,
+		SETTING_HOTKEY,
+		SETTING_API_LAN,
+		SETTING_API_CONTROL,
+		SETTING_CHART_SPAN,
+		SETTING_CHART_SERIES,
+		SETTING_CHART_STYLE,
+		SETTING_CHART_SMOOTHING,
+		SETTING_FIAT,
+		SETTING_LOOKUPS,
+		SETTING_CURRENCY,
+		SETTING_PROFILE,
+		SETTING_CARD,
+		SETTING_CARD_ON,
+		SETTING_CARD_INTENSITY,
+		SETTING_CARD_LIMIT,
+		SETTING_CARD_HEAT,
 		SETTING_COUNT,
 
 	};
@@ -81,9 +112,16 @@ namespace ui {
 		SCROLL_SHARES,
 		SCROLL_LOG,
 		SCROLL_SETTINGS,
+		SCROLL_EARNINGS,
+		SCROLL_RIGS,
+		SCROLL_HELP,
+		SCROLL_SETUP,
 		SCROLL_COUNT,
 
 	};
+
+	static constexpr int32_t field_count = 7;
+	static constexpr int32_t pool_fields = 4;
 
 	struct text_field {
 
@@ -219,6 +257,14 @@ namespace ui {
 
 		void open_tab ( int32_t which, double now );
 
+		void open_setup ( double now );
+
+		bool in_setup ( ) const {
+
+			return setup_open;
+
+		}
+
 		void focus_field ( setting which, double now );
 
 		bool locate ( control id, int32_t index, render::box& out ) const;
@@ -248,6 +294,41 @@ namespace ui {
 
 		}
 
+		void fresh_token ( );
+
+		const wchar_t* pending_rig ( ) const {
+
+			return rig_entry;
+
+		}
+
+		const wchar_t* pending_profile ( ) const {
+
+			return profile_name;
+
+		}
+
+		void clear_entry ( setting which );
+
+		void reload ( ) {
+
+			focus = -1;
+			sync_fields ( );
+
+		}
+
+		int32_t argument ( ) const {
+
+			return action_argument;
+
+		}
+
+		bool keyboard_at ( control id, int32_t index ) const {
+
+			return keyboard_on && keyboard_id == id && keyboard_index == index;
+
+		}
+
 		bool editing ( ) const {
 
 			return focus >= 0;
@@ -267,6 +348,11 @@ namespace ui {
 			render::box area;
 			control id = CONTROL_NONE;
 			int32_t index = 0;
+			bool chosen = false;
+			bool hidden = false;
+			int32_t scroller = -1;
+			float top = 0.0f;
+			float bottom = 0.0f;
 
 		};
 
@@ -274,11 +360,11 @@ namespace ui {
 
 			render::box area;
 			uint64_t key = 0;
-			wchar_t text [ 200 ] = { };
+			wchar_t text [ 640 ] = { };
 
 		};
 
-		void add_hit ( render::box area, control id, int32_t index );
+		void add_hit ( render::box area, control id, int32_t index, bool chosen = false );
 
 		void add_hint ( render::box area, const wchar_t* text );
 
@@ -291,6 +377,20 @@ namespace ui {
 		float glow ( control id, int32_t index, double now ) const;
 
 		command activate ( control id, int32_t index, double now );
+
+		int32_t group_of ( control id, int32_t index ) const;
+
+		void move_keyboard ( int32_t direction, double now );
+
+		void show_keyboard ( double now );
+
+		command press_keyboard ( double now );
+
+		command nudge_keyboard ( int32_t direction, double now );
+
+		bool nudge_setting ( int32_t which, int32_t direction );
+
+		void paint_focus ( render::surface& surface );
 
 		command commit_field ( double now );
 
@@ -305,6 +405,8 @@ namespace ui {
 		int32_t caret_from ( int32_t slot, float x );
 
 		void sync_fields ( );
+
+		wchar_t* field_target ( int32_t slot, int32_t& room );
 
 		float scroll_offset ( scroller which, double now ) const;
 
@@ -330,9 +432,19 @@ namespace ui {
 
 		void paint_settings ( render::surface& surface, const snapshot& view, render::box area, double now );
 
+		void paint_earnings ( render::surface& surface, const snapshot& view, render::box area, double now );
+
+		void paint_rigs ( render::surface& surface, const snapshot& view, render::box area, double now );
+
+		void paint_help ( render::surface& surface, const snapshot& view, render::box area, double now );
+
+		void paint_setup ( render::surface& surface, const snapshot& view, render::box area, double now );
+
 		void button ( render::surface& surface, render::box area, const wchar_t* label, icon symbol, control id, int32_t index, bool primary, bool enabled, double now );
 
 		void segmented ( render::surface& surface, render::box area, const wchar_t* const* labels, int32_t count, int32_t selected, control id, int32_t base, bool enabled, double now );
+
+		void chips ( render::surface& surface, render::box area, const wchar_t* const* labels, int32_t count, uint32_t mask, setting which, bool enabled, double now );
 
 		void toggle ( render::surface& surface, render::box area, setting which, bool value, bool enabled, double now );
 
@@ -355,11 +467,12 @@ namespace ui {
 		preferences& settings;
 		const snapshot* data = nullptr;
 		palette colors = dark_palette ( );
-		hit hits [ 256 ];
+		hit hits [ 384 ];
 		int32_t hit_count = 0;
 		float hit_offset = 0.0f;
 		float hit_top = -1e9f;
 		float hit_bottom = 1e9f;
+		int32_t hit_scroller = -1;
 		hint hints [ 48 ];
 		int32_t hint_count = 0;
 		float rest_x = -1000.0f;
@@ -369,7 +482,7 @@ namespace ui {
 		bool tip_pending = false;
 		uint64_t tip_key = 0;
 		uint64_t tip_quiet = 0;
-		wchar_t tip_text [ 200 ] = { };
+		wchar_t tip_text [ 640 ] = { };
 		float tip_x = 0.0f;
 		float tip_y = 0.0f;
 		double tip_since = -100.0;
@@ -378,6 +491,7 @@ namespace ui {
 		float height = 0.0f;
 		bool maximized = false;
 		page shown_page = PAGE_OVERVIEW;
+		bool setup_open = false;
 		double page_since = -100.0;
 		motion nav_marker;
 		int32_t tab = 0;
@@ -398,12 +512,19 @@ namespace ui {
 		float mouse_x = -1.0f;
 		float mouse_y = -1.0f;
 		int32_t focus = -1;
-		text_field fields [ 4 ];
-		field_memory field_history [ 4 ];
+		text_field fields [ field_count ];
+		field_memory field_history [ field_count ];
 		settings_memory settings_history;
 		bool reveal = false;
-		render::box field_boxes [ 4 ];
-		float field_shift [ 4 ] = { };
+		render::box field_boxes [ field_count ];
+		float field_shift [ field_count ] = { };
+		wchar_t profile_name [ 64 ] = { };
+		wchar_t rig_entry [ 128 ] = { };
+		int32_t action_argument = 0;
+		int32_t card_view = 0;
+		bool keyboard_on = false;
+		control keyboard_id = CONTROL_NONE;
+		int32_t keyboard_index = 0;
 		double caret_since = 0.0;
 		int32_t dragging = -1;
 		render::box slider_boxes [ SETTING_COUNT ];

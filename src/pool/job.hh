@@ -51,6 +51,20 @@ namespace pool {
 
 	};
 
+	struct kaspa_job {
+
+		char id [ 64 ] = { };
+		uint8_t pre_pow [ 32 ] = { };
+		uint64_t timestamp = 0;
+
+	};
+
+	bool parse_kaspa_notify ( const base::json& message, int32_t params, kaspa_job& out );
+
+	void write_kaspa_notify ( base::line& out, const kaspa_job& work, bool hex_form );
+
+	bool kaspa_nonce_high ( const uint8_t* extranonce, int32_t size, uint64_t index, uint32_t& out );
+
 	bool parse_notify ( const base::json& message, int32_t params, job& out );
 
 	void write_notify ( base::line& out, const job& work );

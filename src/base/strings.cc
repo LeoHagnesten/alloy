@@ -75,6 +75,19 @@ namespace base {
 
 	}
 
+	bool same_secret ( const char* a, const char* b ) {
+
+		int32_t length_a = length ( a );
+		int32_t length_b = length ( b );
+		uint32_t difference = static_cast < uint32_t > ( length_a ^ length_b );
+
+		for ( int32_t i = 0; i < length_b; i++ )
+			difference |= static_cast < uint32_t > ( static_cast < uint8_t > ( a [ i < length_a ? i : 0 ] ) ^ static_cast < uint8_t > ( b [ i ] ) );
+
+		return difference == 0 && length_b > 0;
+
+	}
+
 	bool same_text ( const char* a, const char* b ) {
 
 		int32_t i = 0;
@@ -433,6 +446,38 @@ namespace base {
 	double read_decimal ( const char* text, int32_t size ) {
 
 		return parse_decimal ( text, size );
+
+	}
+
+	int32_t write_base64 ( char* out, int32_t room, const uint8_t* bytes, size_t count ) {
+
+		static const char alphabet [ ] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		int32_t used = 0;
+		int32_t needed = static_cast < int32_t > ( ( count + 2 ) / 3 * 4 );
+
+		if ( needed + 1 > room )
+			return -1;
+
+		for ( size_t i = 0; i < count; i += 3 ) {
+
+			uint32_t group = static_cast < uint32_t > ( bytes [ i ] ) << 16;
+
+			if ( i + 1 < count )
+				group |= static_cast < uint32_t > ( bytes [ i + 1 ] ) << 8;
+
+			if ( i + 2 < count )
+				group |= bytes [ i + 2 ];
+
+			out [ used++ ] = alphabet [ group >> 18 & 63 ];
+			out [ used++ ] = alphabet [ group >> 12 & 63 ];
+			out [ used++ ] = i + 1 < count ? alphabet [ group >> 6 & 63 ] : '=';
+			out [ used++ ] = i + 2 < count ? alphabet [ group & 63 ] : '=';
+
+		}
+
+		out [ used ] = 0;
+
+		return used;
 
 	}
 

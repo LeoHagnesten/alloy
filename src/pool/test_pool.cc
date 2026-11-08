@@ -1,6 +1,7 @@
 #include "pool/test_pool.hh"
 #include "randomx/machine.hh"
 #include "hash/scrypt.hh"
+#include "hash/heavyhash.hh"
 #include "chain/target.hh"
 #include "net/socket.hh"
 #include "base/bits.hh"
@@ -34,6 +35,7 @@ namespace pool {
 
 		job jobs [ kept_jobs ];
 		blob_job blobs [ kept_jobs ];
+		kaspa_job kaspas [ kept_jobs ];
 		uint32_t made = 0;
 
 		uint32_t newest_slot ( ) const {
@@ -42,11 +44,11 @@ namespace pool {
 
 		}
 
-		int32_t find ( const char* id, bool blob ) const {
+		int32_t find ( const char* id, uint8_t kind ) const {
 
 			for ( uint32_t i = 0; i < kept_jobs && i < made; i++ ) {
 
-				if ( base::same_text ( blob ? blobs [ i ].id : jobs [ i ].id, id ) )
+				if ( base::same_text ( kind == chain::ALGORITHM_RANDOMX ? blobs [ i ].id : ( kind == chain::ALGORITHM_KHEAVYHASH ? kaspas [ i ].id : jobs [ i ].id ), id ) )
 					return static_cast < int32_t > ( i );
 
 			}
@@ -67,6 +69,7 @@ namespace pool {
 		uint32_t seeds = 0;
 		randomx::cache* cache = nullptr;
 		randomx::machine* machine = nullptr;
+		hash::heavy_hasher* heavy = nullptr;
 		void* scratch = nullptr;
 		volatile uint32_t* good = nullptr;
 		volatile uint32_t* bad = nullptr;
@@ -192,10 +195,28 @@ namespace pool {
 
 	}
 
+	static void make_kaspa_job ( pool_state& state ) {
+
+		job_book& book = state.book;
+		kaspa_job& work = book.kaspas [ book.made % kept_jobs ];
+		uint8_t seed [ 16 ];
+
+		work = kaspa_job { };
+		name_job ( work.id, sizeof ( work.id ), book.made + 1 );
+		base::store_little ( seed, book.made + 1 );
+		base::store_little ( seed + 4, base::unix_time ( ) );
+		base::copy ( seed + 8, "alloykas", 8 );
+		hash::sha256_twice ( seed, 16, work.pre_pow );
+		work.timestamp = static_cast < uint64_t > ( base::unix_time ( ) ) * 1000 + book.made;
+
+	}
+
 	static void make_job ( pool_state& state ) {
 
 		if ( state.config.algorithm == chain::ALGORITHM_RANDOMX )
 			make_blob_job ( state );
+		else if ( state.config.algorithm == chain::ALGORITHM_KHEAVYHASH )
+			make_kaspa_job ( state );
 		else
 			make_stratum_job ( state );
 
@@ -276,7 +297,11 @@ namespace pool {
 		out.add ( "{\"id\":null,\"method\":\"mining.set_difficulty\",\"params\":[" ).decimal ( state.config.difficulty, 6 ).add ( "]}" );
 		client.link.send_line ( out.get ( ) );
 		out.clear ( );
-		write_notify ( out, book.jobs [ book.newest_slot ( ) ] );
+
+		if ( state.config.algorithm == chain::ALGORITHM_KHEAVYHASH )
+			write_kaspa_notify ( out, book.kaspas [ book.newest_slot ( ) ], book.made % 2 == 0 );
+		else
+			write_notify ( out, book.jobs [ book.newest_slot ( ) ] );
 		client.link.send_line ( out.get ( ) );
 
 	}
@@ -382,7 +407,7 @@ namespace pool {
 
 		message.text ( message.item ( params, 1 ), job_id, sizeof ( job_id ) );
 
-		int32_t slot = state.book.find ( job_id, false );
+		int32_t slot = state.book.find ( job_id, chain::ALGORITHM_SHA256D );
 
 		if ( !client.authorized ) {
 
@@ -503,7 +528,7 @@ namespace pool {
 
 		message.text ( message.member ( params, "job_id" ), job_id, sizeof ( job_id ) );
 
-		int32_t slot = state.book.find ( job_id, true );
+		int32_t slot = state.book.find ( job_id, chain::ALGORITHM_RANDOMX );
 
 		if ( !client.authorized || !message.text_is ( message.member ( params, "id" ), client.session ) ) {
 
@@ -594,6 +619,138 @@ namespace pool {
 
 	}
 
+	static void handle_kaspa ( pool_state& state, peer& client, const base::json& message ) {
+
+		int32_t id = message.member ( 0, "id" );
+		int32_t method = message.member ( 0, "method" );
+		int32_t params = message.member ( 0, "params" );
+
+		if ( message.text_is ( method, "mining.subscribe" ) ) {
+
+			base::line out;
+
+			reply ( client, message, id, "[true,\"EthereumStratum/1.0.0\"]", 0, nullptr );
+			out.add ( "{\"id\":null,\"method\":\"set_extranonce\",\"params\":[\"" ).hex ( client.nonce.first, 2, false ).add ( "\",6]}" );
+			client.link.send_line ( out.get ( ) );
+
+			return;
+
+		}
+
+		if ( message.text_is ( method, "mining.authorize" ) ) {
+
+			char worker [ 64 ];
+
+			message.text ( message.item ( params, 0 ), worker, sizeof ( worker ) );
+			base::widen ( client.worker, base::count_of ( client.worker ), worker );
+			client.authorized = true;
+			reply ( client, message, id, "true", 0, nullptr );
+			send_work ( client, state );
+
+			return;
+
+		}
+
+		if ( !message.text_is ( method, "mining.submit" ) ) {
+
+			reply ( client, message, id, nullptr, 20, "Unknown method" );
+
+			return;
+
+		}
+
+		char job_id [ 64 ];
+		int32_t nonce_node = message.item ( params, 2 );
+		const char* text = message.raw ( nonce_node );
+		int32_t size = message.raw_size ( nonce_node );
+		uint8_t bytes [ 8 ];
+
+		message.text ( message.item ( params, 1 ), job_id, sizeof ( job_id ) );
+
+		int32_t slot = state.book.find ( job_id, chain::ALGORITHM_KHEAVYHASH );
+
+		if ( size == 18 && text [ 0 ] == '0' && ( text [ 1 ] == 'x' || text [ 1 ] == 'X' ) ) {
+
+			text += 2;
+			size -= 2;
+
+		}
+
+		if ( !client.authorized ) {
+
+			reply ( client, message, id, nullptr, 24, "Unauthorized worker" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( slot < 0 ) {
+
+			reply ( client, message, id, nullptr, 21, "Job not found" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( size != 16 || !base::read_hex ( text, 16, bytes, 8 ) ) {
+
+			reply ( client, message, id, nullptr, 20, "Malformed share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( bytes [ 0 ] != client.nonce.first [ 0 ] || bytes [ 1 ] != client.nonce.first [ 1 ] ) {
+
+			reply ( client, message, id, nullptr, 20, "Nonce outside your range" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		uint8_t parts [ 12 ];
+
+		base::copy ( parts, bytes, 8 );
+		base::store_little ( parts + 8, static_cast < uint32_t > ( slot ) );
+
+		if ( !remember ( client, share_key ( parts, sizeof ( parts ) ) ) ) {
+
+			reply ( client, message, id, nullptr, 22, "Duplicate share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		const kaspa_job& work = state.book.kaspas [ slot ];
+		uint8_t digest [ 32 ];
+		uint64_t nonce = static_cast < uint64_t > ( base::load_big ( bytes ) ) << 32 | base::load_big ( bytes + 4 );
+
+		state.heavy->prepare ( work.pre_pow, work.timestamp );
+		state.heavy->hash ( nonce, digest );
+
+		if ( !chain::meets ( digest, state.target ) ) {
+
+			reply ( client, message, id, nullptr, 23, "Low difficulty share" );
+			tally ( state, false );
+
+			if ( state.config.verbose )
+				base::print_line ( L"  rejected a share below the target" );
+
+			return;
+
+		}
+
+		reply ( client, message, id, "true", 0, nullptr );
+		tally ( state, true );
+		announce ( state, client, digest );
+
+	}
+
 	bool test_server::start ( const server_settings& value ) {
 
 		stop ( );
@@ -647,6 +804,22 @@ namespace pool {
 
 	void test_server::run ( ) {
 
+		if ( config.node ) {
+
+			run_node ( );
+
+			return;
+
+		}
+
+		if ( config.sv2 ) {
+
+			run_sv2 ( );
+
+			return;
+
+		}
+
 		net::listener& listener = *static_cast < net::listener* > ( socket );
 		peer* peers = new peer [ max_peers ];
 		pool_state* state = new pool_state;
@@ -663,6 +836,9 @@ namespace pool {
 
 		if ( config.algorithm == chain::ALGORITHM_SCRYPT )
 			state->scratch = base::allocate ( hash::scrypt_scratch_bytes );
+
+		if ( config.algorithm == chain::ALGORITHM_KHEAVYHASH )
+			state->heavy = new hash::heavy_hasher;
 
 		make_job ( *state );
 
@@ -698,7 +874,7 @@ namespace pool {
 				client.seen_count = 0;
 				client.nonce = session_nonce { };
 				client.nonce.first_size = 4;
-				base::store_big ( client.nonce.first, 0xA1100000 + sessions );
+				base::store_big ( client.nonce.first, ( config.algorithm == chain::ALGORITHM_KHEAVYHASH ? 0xA7000000 : 0xA1100000 ) + ( sessions << ( config.algorithm == chain::ALGORITHM_KHEAVYHASH ? 16 : 0 ) ) );
 				name.add ( "alloy-" ).number ( sessions );
 				base::copy_text ( client.session, sizeof ( client.session ), name.get ( ) );
 				base::atomic_add ( connected, 1u );
@@ -726,6 +902,8 @@ namespace pool {
 
 					if ( blob )
 						handle_blob ( *state, client, *message );
+					else if ( config.algorithm == chain::ALGORITHM_KHEAVYHASH )
+						handle_kaspa ( *state, client, *message );
 					else
 						handle_stratum ( *state, client, *message );
 
@@ -776,6 +954,7 @@ namespace pool {
 		}
 
 		base::release ( state->scratch );
+		delete state->heavy;
 		delete state->machine;
 		delete state->cache;
 		delete [ ] text;

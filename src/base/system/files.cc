@@ -158,6 +158,24 @@ namespace base {
 
 	}
 
+	bool roaming_path ( wchar_t* out, int32_t room, const wchar_t* name ) {
+
+		wchar_t roaming [ path_room ];
+		DWORD size = GetEnvironmentVariableW ( L"APPDATA", roaming, path_room );
+
+		return size && size < path_room && join_path ( out, room, roaming, name );
+
+	}
+
+	bool temp_folder ( wchar_t* out, int32_t room, const wchar_t* name ) {
+
+		wchar_t base_path [ path_room ];
+		DWORD size = GetTempPathW ( path_room, base_path );
+
+		return size && size < path_room && join_path ( out, room, base_path, name ) && make_folder ( out );
+
+	}
+
 	bool data_subfolder ( wchar_t* out, int32_t room, const wchar_t* name ) {
 
 		wchar_t folder [ path_room ];

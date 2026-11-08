@@ -5,11 +5,13 @@
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/text.hh"
+#include "base/system/hardware.hh"
 
 namespace ui {
 
 	static constexpr uint32_t key_back = 0x08;
 	static constexpr uint32_t key_tab = 0x09;
+	static constexpr uint32_t key_space = 0x20;
 	static constexpr uint32_t key_enter = 0x0D;
 	static constexpr uint32_t key_escape = 0x1B;
 	static constexpr uint32_t key_end = 0x23;
@@ -34,8 +36,8 @@ namespace ui {
 	static constexpr float tip_room = 280.0f;
 	static constexpr float tip_margin = 8.0f;
 
-	static const wchar_t* const page_labels [ ] = { L"Overview", L"Activity", L"Settings" };
-	static const icon page_icons [ ] = { ICON_OVERVIEW, ICON_ACTIVITY, ICON_SETTINGS };
+	static const wchar_t* const page_labels [ ] = { L"Overview", L"Activity", L"Earnings", L"Rigs", L"Settings", L"Help" };
+	static const icon page_icons [ ] = { ICON_OVERVIEW, ICON_ACTIVITY, ICON_EARNINGS, ICON_RIGS, ICON_SETTINGS, ICON_HELP };
 	static const wchar_t* const mode_labels [ ] = { L"Pool", L"Benchmark", L"Genesis" };
 
 	float motion::at ( double now ) const {
@@ -294,21 +296,24 @@ namespace ui {
 
 	}
 
-	void shell::add_hit ( render::box area, control id, int32_t index ) {
+	void shell::add_hit ( render::box area, control id, int32_t index, bool chosen ) {
+
+		hit item = { area, id, index, chosen, false, hit_scroller, area.y, area.bottom ( ) };
 
 		area.y += hit_offset;
 
 		float top = base::max ( area.y, hit_top );
 		float bottom = base::min ( area.bottom ( ), hit_bottom );
 
-		if ( bottom <= top )
+		if ( bottom <= top && hit_scroller < 0 )
 			return;
 
-		area.y = top;
-		area.h = bottom - top;
+		item.hidden = bottom <= top;
+		item.area.y = item.hidden ? area.y : top;
+		item.area.h = item.hidden ? area.h : bottom - top;
 
 		if ( hit_count < base::count_of ( hits ) )
-			hits [ hit_count++ ] = hit { area, id, index };
+			hits [ hit_count++ ] = item;
 
 	}
 
@@ -441,7 +446,7 @@ namespace ui {
 
 		for ( int32_t i = hit_count - 1; i >= 0; i-- ) {
 
-			if ( hits [ i ].area.contains ( x, y ) )
+			if ( !hits [ i ].hidden && hits [ i ].area.contains ( x, y ) )
 				return &hits [ i ];
 
 		}
@@ -558,6 +563,7 @@ namespace ui {
 		press_index = item ? item->index : 0;
 		rest_since = now;
 		tip_quiet = 0;
+		keyboard_on = false;
 
 		for ( int32_t i = hint_count - 1; i >= 0 && !tip_quiet; i-- ) {
 
@@ -717,6 +723,20 @@ namespace ui {
 			case CONTROL_CLEAR_LOG:
 				return COMMAND_CLEAR_LOG;
 
+			case CONTROL_ACTION:
+				action_argument = index % 256;
+				return static_cast < command > ( index / 256 );
+
+			case CONTROL_NEW_TOKEN:
+				settings_history.remember ( settings );
+				fresh_token ( );
+				return COMMAND_PREFERENCES;
+
+			case CONTROL_CARD_RESET:
+				settings_history.remember ( settings );
+				settings.cards [ card_view % adapter_room ] = card_tuning { };
+				return COMMAND_PREFERENCES;
+
 			case CONTROL_SWITCH:
 				settings_history.remember ( settings );
 
@@ -738,6 +758,43 @@ namespace ui {
 					settings.close_to_tray = !settings.close_to_tray;
 				else if ( index == SETTING_API )
 					settings.api_port = settings.api_port ? 0u : 4067u;
+				else if ( index == SETTING_API_LAN || index == SETTING_API_CONTROL ) {
+
+					bool& flag = index == SETTING_API_LAN ? settings.api_lan : settings.api_control;
+
+					flag = !flag;
+
+					if ( flag && !settings.api_token [ 0 ] )
+						fresh_token ( );
+
+				}
+				else if ( index == SETTING_FULLSCREEN )
+					settings.pause_fullscreen = !settings.pause_fullscreen;
+				else if ( index == SETTING_SCHEDULE )
+					settings.schedule = !settings.schedule;
+				else if ( index == SETTING_NOTIFY )
+					settings.notify = !settings.notify;
+				else if ( index == SETTING_CARD_ON ) {
+
+					card_tuning& card = settings.cards [ card_view % adapter_room ];
+
+					if ( !card.custom ) {
+
+						card.custom = true;
+						card.limit = settings.gpu_limit;
+						card.intensity = settings.intensity;
+						card.heat = settings.gpu_heat;
+
+					}
+
+					card.on = !card.on;
+
+				} else if ( index == SETTING_LOOKUPS )
+					settings.lookups = !settings.lookups;
+				else if ( index == SETTING_FIAT )
+					settings.show_fiat = !settings.show_fiat;
+				else if ( index == SETTING_HOTKEY )
+					settings.hotkey = !settings.hotkey;
 				return COMMAND_PREFERENCES;
 
 			case CONTROL_STEP_DOWN:
@@ -752,6 +809,10 @@ namespace ui {
 					settings.threads = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( settings.threads ) + step, 1, static_cast < int32_t > ( threads ) ) );
 				else if ( index == SETTING_IDLE_MINUTES )
 					settings.idle_minutes = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( settings.idle_minutes ) + step, 1, 60 ) );
+				else if ( index == SETTING_SCHEDULE_FROM )
+					settings.schedule_from = static_cast < uint32_t > ( ( static_cast < int32_t > ( settings.schedule_from ) + step + 24 ) % 24 );
+				else if ( index == SETTING_SCHEDULE_TO )
+					settings.schedule_to = static_cast < uint32_t > ( ( static_cast < int32_t > ( settings.schedule_to ) + step + 24 ) % 24 );
 
 				return COMMAND_PREFERENCES;
 
@@ -761,8 +822,7 @@ namespace ui {
 
 				int32_t which = index / 16;
 				uint8_t option = static_cast < uint8_t > ( index % 16 );
-
-				settings_history.remember ( settings );
+				preferences* before = new preferences ( settings );
 
 				if ( which == SETTING_PRIORITY )
 					settings.priority = option;
@@ -776,7 +836,35 @@ namespace ui {
 					settings.full_dataset = option == 0;
 				else if ( which == SETTING_VARIANT )
 					settings.variant = option;
-				return COMMAND_PREFERENCES;
+				else if ( which == SETTING_CURRENCY )
+					settings.currency = option;
+				else if ( which == SETTING_CARD ) {
+
+					card_view = option;
+					delete before;
+
+					return COMMAND_NONE;
+
+				} else if ( which == SETTING_CHART_SPAN )
+					settings.chart_span = option;
+				else if ( which == SETTING_CHART_SMOOTHING )
+					settings.chart_smoothing = option;
+				else if ( which == SETTING_SCHEDULE_DAYS ) {
+
+					uint32_t flipped = settings.schedule_days ^ 1u << option;
+
+					settings.schedule_days = flipped ? flipped : settings.schedule_days;
+
+				}
+
+				bool changed = !base::same ( before, &settings, sizeof ( preferences ) );
+
+				if ( changed )
+					settings_history.remember ( *before );
+
+				delete before;
+
+				return changed ? COMMAND_PREFERENCES : COMMAND_NONE;
 
 			}
 
@@ -784,6 +872,29 @@ namespace ui {
 				return COMMAND_NONE;
 
 		}
+
+	}
+
+	void shell::clear_entry ( setting which ) {
+
+		int32_t room = 0;
+		wchar_t* target = field_target ( which, room );
+
+		target [ 0 ] = 0;
+		fields [ which ].set ( L"" );
+
+		if ( focus == which )
+			focus = -1;
+
+	}
+
+	void shell::fresh_token ( ) {
+
+		uint8_t bytes [ 16 ] = { };
+
+		base::random_bytes ( bytes, sizeof ( bytes ) );
+		base::write_hex ( settings.api_token, bytes, sizeof ( bytes ) );
+		settings.api_token [ 32 ] = 0;
 
 	}
 
@@ -810,6 +921,40 @@ namespace ui {
 
 			target = &settings.gpu_heat;
 			value = step ? 59 + step : 0;
+
+		}
+
+		if ( which == SETTING_CARD_INTENSITY || which == SETTING_CARD_LIMIT || which == SETTING_CARD_HEAT ) {
+
+			card_tuning& card = settings.cards [ card_view % adapter_room ];
+
+			if ( !card.custom ) {
+
+				card.custom = true;
+				card.limit = settings.gpu_limit;
+				card.intensity = settings.intensity;
+				card.heat = settings.gpu_heat;
+
+			}
+
+			if ( which == SETTING_CARD_INTENSITY ) {
+
+				target = &card.intensity;
+				value = 16 + static_cast < uint32_t > ( base::round ( fraction * 10.0f ) );
+
+			} else if ( which == SETTING_CARD_LIMIT ) {
+
+				target = &card.limit;
+				value = 10 + static_cast < uint32_t > ( base::round ( fraction * 18.0f ) ) * 5;
+
+			} else {
+
+				uint32_t step = static_cast < uint32_t > ( base::round ( fraction * 31.0f ) );
+
+				target = &card.heat;
+				value = step ? 59 + step : 0;
+
+			}
 
 		}
 
@@ -861,12 +1006,12 @@ namespace ui {
 			return COMMAND_NONE;
 
 		pool_profile& profile = settings.pool ( );
-		wchar_t* targets [ 4 ] = { profile.address, profile.backup, profile.worker, profile.password };
-		wchar_t* target = targets [ focus ];
-		int32_t room = focus <= SETTING_BACKUP ? 256 : 128;
+		int32_t room = 0;
+		wchar_t* target = field_target ( focus, room );
 		bool changed = !base::same_text ( target, fields [ focus ].text );
+		bool stored = focus < pool_fields || focus == SETTING_APPS;
 
-		if ( changed ) {
+		if ( changed && stored ) {
 
 			settings_history.remember ( settings );
 
@@ -877,13 +1022,53 @@ namespace ui {
 
 		}
 
+		int32_t was = focus;
+
 		base::copy_text ( target, room, fields [ focus ].text );
 		focus = -1;
 
-		if ( !changed )
+		if ( !changed || !stored )
 			return COMMAND_NONE;
 
-		return data && data->running && settings.mode == MODE_POOL ? COMMAND_RESTART : COMMAND_PREFERENCES;
+		return was < pool_fields && data && data->running && settings.mode == MODE_POOL ? COMMAND_RESTART : COMMAND_PREFERENCES;
+
+	}
+
+	wchar_t* shell::field_target ( int32_t slot, int32_t& room ) {
+
+		pool_profile& profile = settings.pool ( );
+
+		switch ( slot ) {
+
+			case SETTING_ADDRESS:
+				room = base::count_of ( profile.address );
+				return profile.address;
+
+			case SETTING_BACKUP:
+				room = base::count_of ( profile.backup );
+				return profile.backup;
+
+			case SETTING_WORKER:
+				room = base::count_of ( profile.worker );
+				return profile.worker;
+
+			case SETTING_PASSWORD:
+				room = base::count_of ( profile.password );
+				return profile.password;
+
+			case SETTING_APPS:
+				room = base::count_of ( settings.pause_apps );
+				return settings.pause_apps;
+
+			case SETTING_PROFILE_NAME:
+				room = base::count_of ( profile_name );
+				return profile_name;
+
+			default:
+				room = base::count_of ( rig_entry );
+				return rig_entry;
+
+		}
 
 	}
 
@@ -967,13 +1152,16 @@ namespace ui {
 
 			} else if ( code == key_tab ) {
 
-				int32_t next = ( focus + ( shift ? 3 : 1 ) ) % 4;
+				int32_t left = focus;
 				command result = commit_field ( now );
 
-				focus = next;
-				field_history [ next ].clear ( );
-				fields [ next ].anchor = 0;
-				fields [ next ].caret = fields [ next ].length;
+				keyboard_on = true;
+				keyboard_id = CONTROL_FIELD;
+				keyboard_index = left;
+				move_keyboard ( shift ? -1 : 1, now );
+
+				if ( keyboard_id == CONTROL_FIELD && keyboard_index != left )
+					focus_field ( static_cast < setting > ( keyboard_index ), now );
 
 				return result;
 
@@ -986,6 +1174,28 @@ namespace ui {
 		if ( code == key_f5 )
 			return COMMAND_TOGGLE;
 
+		if ( code == key_tab && !control ) {
+
+			move_keyboard ( shift ? -1 : 1, now );
+
+			return COMMAND_NONE;
+
+		}
+
+		if ( keyboard_on && ( code == key_enter || ( code == key_space && keyboard_id != CONTROL_FIELD ) ) )
+			return press_keyboard ( now );
+
+		if ( keyboard_on && ( code == key_left || code == key_right ) )
+			return nudge_keyboard ( code == key_right ? 1 : -1, now );
+
+		if ( keyboard_on && code == key_escape ) {
+
+			keyboard_on = false;
+
+			return COMMAND_NONE;
+
+		}
+
 		if ( control && code == key_z )
 			return undo ( shift, now );
 
@@ -996,6 +1206,284 @@ namespace ui {
 			open_page ( static_cast < page > ( code - key_one ), now );
 
 		return COMMAND_NONE;
+
+	}
+
+	int32_t shell::group_of ( control id, int32_t index ) const {
+
+		if ( id == CONTROL_CHOICE )
+			return index / 16;
+
+		if ( id == CONTROL_NAV || id == CONTROL_TAB || id == CONTROL_ALGORITHM || id == CONTROL_MODE )
+			return 0;
+
+		return index;
+
+	}
+
+	void shell::move_keyboard ( int32_t direction, double now ) {
+
+		int32_t at = -1;
+
+		for ( int32_t i = 0; i < hit_count; i++ ) {
+
+			if ( hits [ i ].id == keyboard_id && hits [ i ].index == keyboard_index )
+				at = i;
+
+		}
+
+		if ( !keyboard_on || at < 0 )
+			at = direction > 0 ? -1 : hit_count;
+
+		keyboard_on = true;
+
+		int32_t group = at >= 0 && at < hit_count ? group_of ( hits [ at ].id, hits [ at ].index ) : -1;
+		control kind = at >= 0 && at < hit_count ? hits [ at ].id : CONTROL_NONE;
+
+		for ( int32_t step = 1; step <= hit_count; step++ ) {
+
+			int32_t next = at + direction * step;
+
+			if ( next < 0 || next >= hit_count )
+				break;
+
+			const hit& item = hits [ next ];
+
+			if ( item.id == CONTROL_NONE || ( item.id == kind && group_of ( item.id, item.index ) == group ) )
+				continue;
+
+			int32_t landing = next;
+
+			for ( int32_t k = 0; k < hit_count; k++ ) {
+
+				if ( hits [ k ].id == item.id && group_of ( hits [ k ].id, hits [ k ].index ) == group_of ( item.id, item.index ) && hits [ k ].chosen ) {
+
+					landing = k;
+
+					break;
+
+				}
+
+			}
+
+			keyboard_id = hits [ landing ].id;
+			keyboard_index = hits [ landing ].index;
+			show_keyboard ( now );
+
+			return;
+
+		}
+
+	}
+
+	void shell::show_keyboard ( double now ) {
+
+		for ( int32_t i = 0; i < hit_count; i++ ) {
+
+			const hit& item = hits [ i ];
+
+			if ( item.id != keyboard_id || item.index != keyboard_index || item.scroller < 0 )
+				continue;
+
+			render::box view = scroll_area [ item.scroller ];
+			float goal = scroll_goal [ item.scroller ];
+			float margin = 24.0f;
+
+			if ( item.top - goal < view.y + margin )
+				goal = item.top - view.y - margin;
+			else if ( item.bottom - goal > view.bottom ( ) - margin )
+				goal = item.bottom - view.bottom ( ) + margin;
+
+			goal = base::round ( base::clamp ( goal, 0.0f, scroll_limit [ item.scroller ] ) * zoom ) / zoom;
+
+			if ( goal != scroll_goal [ item.scroller ] ) {
+
+				scroll_goal [ item.scroller ] = goal;
+				scroll_motion [ item.scroller ].duration = 0.2f;
+				scroll_motion [ item.scroller ].go ( goal, now );
+
+			}
+
+			return;
+
+		}
+
+	}
+
+	command shell::press_keyboard ( double now ) {
+
+		if ( keyboard_id == CONTROL_FIELD ) {
+
+			focus_field ( static_cast < setting > ( keyboard_index ), now );
+
+			return COMMAND_NONE;
+
+		}
+
+		if ( keyboard_id == CONTROL_SLIDER || keyboard_id == CONTROL_NONE )
+			return COMMAND_NONE;
+
+		return activate ( keyboard_id, keyboard_index, now );
+
+	}
+
+	bool shell::nudge_setting ( int32_t which, int32_t direction ) {
+
+		auto bump = [ & ] ( uint32_t& value, int32_t step, uint32_t low, uint32_t high ) {
+
+			uint32_t moved = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( value ) + step * direction, static_cast < int32_t > ( low ), static_cast < int32_t > ( high ) ) );
+			bool changed = moved != value;
+
+			value = moved;
+
+			return changed;
+
+		};
+
+		card_tuning& card = settings.cards [ card_view % adapter_room ];
+
+		switch ( which ) {
+
+			case SETTING_CPU_LIMIT:
+				return bump ( settings.cpu_limit, 5, 10, 100 );
+
+			case SETTING_GPU_LIMIT:
+				return bump ( settings.gpu_limit, 5, 10, 100 );
+
+			case SETTING_INTENSITY:
+				return bump ( settings.intensity, 1, 16, 26 );
+
+			case SETTING_HEAT:
+				if ( !settings.gpu_heat && direction > 0 ) {
+
+					settings.gpu_heat = 60;
+
+					return true;
+
+				}
+
+				if ( settings.gpu_heat == 60 && direction < 0 ) {
+
+					settings.gpu_heat = 0;
+
+					return true;
+
+				}
+
+				return settings.gpu_heat && bump ( settings.gpu_heat, 1, 60, 90 );
+
+			case SETTING_CARD_LIMIT:
+				card.custom = true;
+				return bump ( card.limit, 5, 10, 100 );
+
+			case SETTING_CARD_INTENSITY:
+				card.custom = true;
+				return bump ( card.intensity, 1, 16, 26 );
+
+			case SETTING_CARD_HEAT:
+				card.custom = true;
+
+				if ( !card.heat && direction > 0 ) {
+
+					card.heat = 60;
+
+					return true;
+
+				}
+
+				if ( card.heat == 60 && direction < 0 ) {
+
+					card.heat = 0;
+
+					return true;
+
+				}
+
+				return card.heat && bump ( card.heat, 1, 60, 90 );
+
+			default:
+				return false;
+
+		}
+
+	}
+
+	command shell::nudge_keyboard ( int32_t direction, double now ) {
+
+		if ( keyboard_id == CONTROL_SLIDER ) {
+
+			preferences before = settings;
+
+			if ( !nudge_setting ( keyboard_index, direction ) )
+				return COMMAND_NONE;
+
+			settings_history.remember ( before );
+
+			return COMMAND_PREFERENCES;
+
+		}
+
+		if ( keyboard_id == CONTROL_STEP_DOWN || keyboard_id == CONTROL_STEP_UP )
+			return activate ( direction > 0 ? CONTROL_STEP_UP : CONTROL_STEP_DOWN, keyboard_index, now );
+
+		int32_t group = group_of ( keyboard_id, keyboard_index );
+		const hit* current = nullptr;
+		const hit* best = nullptr;
+
+		for ( int32_t i = 0; i < hit_count; i++ ) {
+
+			if ( hits [ i ].id == keyboard_id && hits [ i ].index == keyboard_index )
+				current = &hits [ i ];
+
+		}
+
+		if ( !current )
+			return COMMAND_NONE;
+
+		bool vertical = keyboard_id == CONTROL_NAV || keyboard_id == CONTROL_ALGORITHM;
+		float origin = vertical ? current->area.y : current->area.x;
+
+		for ( int32_t i = 0; i < hit_count; i++ ) {
+
+			const hit& item = hits [ i ];
+
+			if ( item.id != keyboard_id || group_of ( item.id, item.index ) != group || &item == current )
+				continue;
+
+			float place = vertical ? item.area.y : item.area.x;
+
+			if ( ( place - origin ) * static_cast < float > ( direction ) <= 0.0f )
+				continue;
+
+			if ( !best || base::abs ( place - origin ) < base::abs ( ( vertical ? best->area.y : best->area.x ) - origin ) )
+				best = &item;
+
+		}
+
+		if ( !best )
+			return COMMAND_NONE;
+
+		keyboard_index = best->index;
+
+		return activate ( best->id, best->index, now );
+
+	}
+
+	void shell::paint_focus ( render::surface& surface ) {
+
+		if ( !keyboard_on || focus >= 0 )
+			return;
+
+		for ( int32_t i = 0; i < hit_count; i++ ) {
+
+			if ( hits [ i ].id != keyboard_id || hits [ i ].index != keyboard_index || hits [ i ].hidden )
+				continue;
+
+			surface.outline ( hits [ i ].area.inset ( -2.0f ), colors.accent, 1.5f, corner + 2.0f );
+
+			return;
+
+		}
 
 	}
 
@@ -1107,14 +1595,23 @@ namespace ui {
 
 	void shell::open_page ( page which, double now ) {
 
-		if ( which == shown_page || which >= PAGE_COUNT )
+		if ( which >= PAGE_COUNT || ( which == shown_page && !setup_open ) )
 			return;
 
 		blur ( now );
+		setup_open = false;
 		shown_page = which;
 		page_since = now;
 		nav_marker.duration = 0.22f;
 		nav_marker.go ( static_cast < float > ( which ), now );
+
+	}
+
+	void shell::open_setup ( double now ) {
+
+		blur ( now );
+		setup_open = true;
+		page_since = now;
 
 	}
 
@@ -1130,7 +1627,7 @@ namespace ui {
 
 	void shell::focus_field ( setting which, double now ) {
 
-		if ( which > SETTING_PASSWORD )
+		if ( which >= field_count )
 			return;
 
 		focus = which;
@@ -1145,7 +1642,7 @@ namespace ui {
 
 		for ( int32_t i = 0; i < hit_count; i++ ) {
 
-			if ( hits [ i ].id == id && hits [ i ].index == index ) {
+			if ( hits [ i ].id == id && hits [ i ].index == index && !hits [ i ].hidden ) {
 
 				out = hits [ i ].area;
 
@@ -1161,13 +1658,13 @@ namespace ui {
 
 	void shell::sync_fields ( ) {
 
-		const pool_profile& profile = settings.pool ( );
-		const wchar_t* values [ 4 ] = { profile.address, profile.backup, profile.worker, profile.password };
+		for ( int32_t i = 0; i < field_count; i++ ) {
 
-		for ( int32_t i = 0; i < 4; i++ ) {
+			int32_t room = 0;
+			const wchar_t* value = field_target ( i, room );
 
-			if ( i != focus && !base::same_text ( fields [ i ].text, values [ i ] ) )
-				fields [ i ].set ( values [ i ] );
+			if ( i != focus && !base::same_text ( fields [ i ].text, value ) )
+				fields [ i ].set ( value );
 
 		}
 
@@ -1206,6 +1703,14 @@ namespace ui {
 			switches [ SETTING_LOGIN ].jump ( settings.launch_at_login ? 1.0f : 0.0f );
 			switches [ SETTING_TRAY ].jump ( settings.close_to_tray ? 1.0f : 0.0f );
 			switches [ SETTING_API ].jump ( settings.api_port ? 1.0f : 0.0f );
+			switches [ SETTING_FULLSCREEN ].jump ( settings.pause_fullscreen ? 1.0f : 0.0f );
+			switches [ SETTING_SCHEDULE ].jump ( settings.schedule ? 1.0f : 0.0f );
+			switches [ SETTING_NOTIFY ].jump ( settings.notify ? 1.0f : 0.0f );
+			switches [ SETTING_HOTKEY ].jump ( settings.hotkey ? 1.0f : 0.0f );
+			switches [ SETTING_LOOKUPS ].jump ( settings.lookups ? 1.0f : 0.0f );
+			switches [ SETTING_FIAT ].jump ( settings.show_fiat ? 1.0f : 0.0f );
+			switches [ SETTING_API_LAN ].jump ( settings.api_lan ? 1.0f : 0.0f );
+			switches [ SETTING_API_CONTROL ].jump ( settings.api_control ? 1.0f : 0.0f );
 			nav_marker.jump ( static_cast < float > ( shown_page ) );
 			chart_serial = view.history_serial;
 			primed = true;
@@ -1237,10 +1742,18 @@ namespace ui {
 
 		}
 
-		if ( shown_page == PAGE_OVERVIEW )
+		if ( setup_open )
+			paint_setup ( surface, view, body, now );
+		else if ( shown_page == PAGE_OVERVIEW )
 			paint_overview ( surface, view, body, now );
 		else if ( shown_page == PAGE_ACTIVITY )
 			paint_activity ( surface, view, body, now );
+		else if ( shown_page == PAGE_EARNINGS )
+			paint_earnings ( surface, view, body, now );
+		else if ( shown_page == PAGE_RIGS )
+			paint_rigs ( surface, view, body, now );
+		else if ( shown_page == PAGE_HELP )
+			paint_help ( surface, view, body, now );
 		else
 			paint_settings ( surface, view, body, now );
 
@@ -1253,6 +1766,7 @@ namespace ui {
 
 		surface.pop_clip ( );
 		paint_status ( surface, view );
+		paint_focus ( surface );
 		update_tip ( now );
 		paint_tip ( surface, now );
 
@@ -1307,15 +1821,19 @@ namespace ui {
 
 		render::box chosen = { 10.0f, title_height + 12.0f + marker * 34.0f, sidebar_width - 20.0f, 32.0f };
 
-		surface.fill ( chosen, colors.control, corner );
-		surface.fill ( render::box { chosen.x, chosen.y + 9.0f, 3.0f, 14.0f }, colors.accent, 1.5f );
+		if ( !setup_open ) {
+
+			surface.fill ( chosen, colors.control, corner );
+			surface.fill ( render::box { chosen.x, chosen.y + 9.0f, 3.0f, 14.0f }, colors.accent, 1.5f );
+
+		}
 
 		for ( int32_t i = 0; i < PAGE_COUNT; i++ ) {
 
 			render::box item = { 10.0f, title_height + 12.0f + static_cast < float > ( i ) * 34.0f, sidebar_width - 20.0f, 32.0f };
 			float level = glow ( CONTROL_NAV, i, now );
-			bool selected = i == shown_page;
-			float closeness = base::clamp ( 1.0f - base::abs ( marker - static_cast < float > ( i ) ), 0.0f, 1.0f );
+			bool selected = i == shown_page && !setup_open;
+			float closeness = setup_open ? 0.0f : base::clamp ( 1.0f - base::abs ( marker - static_cast < float > ( i ) ), 0.0f, 1.0f );
 			render::color tint = render::blend ( render::blend ( colors.muted, colors.text, level ), colors.text, closeness );
 
 			if ( !selected && level > 0.0f )
@@ -1323,7 +1841,7 @@ namespace ui {
 
 			draw_icon ( surface, page_icons [ i ], item.x + 14.0f, item.y + 8.0f, 16.0f, tint );
 			surface.text ( page_labels [ i ], render::FONT_BODY, render::box { item.x + 40.0f, item.y, item.w - 48.0f, item.h }, tint );
-			add_hit ( item, CONTROL_NAV, i );
+			add_hit ( item, CONTROL_NAV, i, selected );
 
 		}
 
@@ -1332,6 +1850,7 @@ namespace ui {
 			L"Bitcoin's hash. The graphics card does most of the work here, and the SHA instructions help the CPU keep up.",
 			L"Litecoin and Dogecoin. Every hash needs 128 KB of scratch memory, which suits the graphics card.",
 			L"Monero. It was built for processors, so only the CPU mines it. Full mode keeps a 2 GB dataset in memory.",
+			L"Kaspa. Two Keccak hashes around a 64 by 64 matrix product, which the graphics card does best. Dedicated machines mine most of it now.",
 
 		};
 
@@ -1379,6 +1898,9 @@ namespace ui {
 		float inner = sidebar_width - 44.0f;
 		base::text line;
 
+		if ( list + static_cast < float > ( chain::ALGORITHM_COUNT ) * 42.0f + 8.0f > top )
+			return;
+
 		caption ( surface, render::box { 22.0f, top, inner, 16.0f }, L"THIS COMPUTER" );
 		draw_icon ( surface, ICON_PROCESSOR, 22.0f, top + 30.0f, 14.0f, colors.muted );
 		surface.text ( view.cpu_name, render::FONT_SMALL, render::box { 44.0f, top + 24.0f, inner - 22.0f, 18.0f }, colors.text );
@@ -1397,7 +1919,7 @@ namespace ui {
 		render::box modes = { toggle_area.x - 12.0f - 270.0f, toggle_area.y, 270.0f, 32.0f };
 		bool can_start = settings.cpu || ( settings.gpu && view.adapter_count > 0 );
 
-		surface.text ( page_labels [ shown_page ], render::FONT_HEADING, render::box { head.x + 28.0f, head.y, 260.0f, head.h }, colors.text );
+		surface.text ( setup_open ? L"Set up" : page_labels [ shown_page ], render::FONT_HEADING, render::box { head.x + 28.0f, head.y, 260.0f, head.h }, colors.text );
 
 		if ( view.running )
 			button ( surface, toggle_area, L"Stop", ICON_STOP, CONTROL_TOGGLE, 0, false, true, now );
@@ -1535,8 +2057,37 @@ namespace ui {
 
 			surface.text ( labels [ i ], i == selected ? render::FONT_SMALL_STRONG : render::FONT_SMALL, piece.inset ( 6.0f, 0.0f ), tint, render::ALIGN_CENTER );
 
-			if ( enabled && i != selected )
-				add_hit ( piece, id, base + i );
+			if ( enabled )
+				add_hit ( piece, id, base + i, i == selected );
+
+		}
+
+		if ( !enabled )
+			surface.pop_fade ( );
+
+	}
+
+	void shell::chips ( render::surface& surface, render::box area, const wchar_t* const* labels, int32_t count, uint32_t mask, setting which, bool enabled, double now ) {
+
+		float gap = 4.0f;
+		float part = ( area.w - gap * static_cast < float > ( count - 1 ) ) / static_cast < float > ( count );
+
+		if ( !enabled )
+			surface.push_fade ( 0.45f );
+
+		for ( int32_t i = 0; i < count; i++ ) {
+
+			render::box piece = { area.x + ( part + gap ) * static_cast < float > ( i ), area.y, part, area.h };
+			int32_t index = which * 16 + i;
+			bool on = mask >> i & 1u;
+			float level = enabled ? glow ( CONTROL_CHOICE, index, now ) : 0.0f;
+
+			surface.fill ( piece, on ? colors.accent_soft : render::blend ( colors.control, colors.control_hover, level ), corner );
+			surface.outline ( piece, on ? render::faded ( colors.accent, 0.6f ) : colors.control_line, 1.0f / zoom, corner );
+			surface.text ( labels [ i ], on ? render::FONT_SMALL_STRONG : render::FONT_SMALL, piece, on ? colors.accent : render::blend ( colors.muted, colors.text, level ), render::ALIGN_CENTER );
+
+			if ( enabled )
+				add_hit ( piece, CONTROL_CHOICE, index );
 
 		}
 

@@ -31,6 +31,9 @@ namespace tests {
 		{ chain::ALGORITHM_RANDOMX, "44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A", chain::ADDRESS_VALID, L"Monero" },
 		{ chain::ALGORITHM_RANDOMX, "44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3B", chain::ADDRESS_BROKEN, L"" },
 		{ chain::ALGORITHM_RANDOMX, "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", chain::ADDRESS_OTHER_COIN, L"Bitcoin" },
+		{ chain::ALGORITHM_KHEAVYHASH, "kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98", chain::ADDRESS_VALID, L"Kaspa" },
+		{ chain::ALGORITHM_KHEAVYHASH, "kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc99", chain::ADDRESS_BROKEN, L"" },
+		{ chain::ALGORITHM_RANDOMX, "kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98", chain::ADDRESS_OTHER_COIN, L"Kaspa" },
 		{ chain::ALGORITHM_SHA256D, "alloy", chain::ADDRESS_NONE, L"" },
 
 	};
@@ -67,7 +70,7 @@ namespace tests {
 
 		base::text note;
 
-		note.add ( L"Bitcoin, segwit, taproot, Bitcoin Cash, Litecoin, Dogecoin and Monero addresses check out (" ).number ( static_cast < uint64_t > ( right ) ).add ( L" of " ).number ( static_cast < uint64_t > ( base::count_of ( address_cases ) ) ).put ( L')' );
+		note.add ( L"Bitcoin, segwit, taproot, Bitcoin Cash, Litecoin, Dogecoin, Monero and Kaspa addresses check out (" ).number ( static_cast < uint64_t > ( right ) ).add ( L" of " ).number ( static_cast < uint64_t > ( base::count_of ( address_cases ) ) ).put ( L')' );
 		check ( right == base::count_of ( address_cases ), note.get ( ) );
 
 		chain::address_check worker = chain::check_worker ( chain::ALGORITHM_RANDOMX, L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A.rig" );

@@ -384,8 +384,47 @@ namespace tests {
 		note.clear ( );
 		note.add ( L"two devices mine together and find the genesis nonce: " ).decimal ( first_card / 1e6, 0 ).add ( L" M hashes on the card, " ).decimal ( second_card / 1e6, 1 ).add ( L" M on WARP" );
 		check ( solved && origin.nonce ( ) == genesis_nonce && first_card > 0 && second_card > 0 && faults == 0, note.get ( ) );
+		limits.adapter_count = 2;
+		limits.adapters [ 0 ] = 0;
+		limits.adapters [ 1 ] = mine::software_adapter;
+		limits.cards [ 1 ].custom = true;
+		limits.cards [ 1 ].on = false;
+		engine->start ( &bench, limits );
+		base::sleep ( 1500 );
+
+		uint64_t kept_on = engine->gpu_hashes ( 0 );
+		uint64_t kept_off = engine->gpu_hashes ( 1 );
+
+		engine->stop ( );
+		check ( kept_on > 0 && kept_off == 0, L"a card switched off on its own does no work while the other keeps mining" );
+		limits.cards [ 1 ] = mine::card_setting { };
 		limits.adapter_count = 1;
 		limits.adapters [ 0 ] = 0;
+		limits.gpu_intensity = 22;
+		engine->start ( &bench, limits );
+		base::sleep ( 800 );
+		engine->break_gpu ( );
+
+		double recover_began = base::seconds ( );
+		bool restarted = false;
+
+		while ( base::seconds ( ) - recover_began < 12.0 && !restarted ) {
+
+			base::sleep ( 100 );
+			restarted = engine->gpu_restarts ( 0 ) == 1 && engine->gpu_status ( 0 ) == mine::GPU_RUNNING;
+
+		}
+
+		uint64_t before_more = engine->gpu_hashes ( 0 );
+
+		base::sleep ( 600 );
+
+		uint64_t after_more = engine->gpu_hashes ( 0 );
+
+		engine->stop ( );
+		note.clear ( );
+		note.add ( L"after the card stops responding, the engine rebuilds its device in " ).decimal ( base::seconds ( ) - recover_began - 0.6, 1 ).add ( L" s and keeps hashing" );
+		check ( restarted && after_more > before_more, note.get ( ) );
 
 		delete engine;
 

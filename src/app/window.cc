@@ -1,5 +1,8 @@
 #include "app/commands.hh"
 #include "app/journal.hh"
+#include "app/tune.hh"
+#include "base/system/dialogs.hh"
+#include "app/export.hh"
 #include "app/session.hh"
 #include "app/settings.hh"
 #include "ui/shell.hh"
@@ -10,8 +13,12 @@
 #include "base/system/files.hh"
 #include "base/formats/png.hh"
 #include "base/system/hardware.hh"
+#include "base/system/processes.hh"
 #include "base/text.hh"
+#include <winsock2.h>
+#include <ws2ipdef.h>
 #include <windows.h>
+#include <iphlpapi.h>
 #include <shellapi.h>
 #include <dwmapi.h>
 
@@ -22,9 +29,12 @@ namespace app {
 	static constexpr float minimum_width = 980.0f;
 	static constexpr float minimum_height = 640.0f;
 	static constexpr UINT tray_message = WM_APP + 1;
+	static constexpr UINT network_message = WM_APP + 2;
 	static constexpr UINT_PTR menu_show = 1;
 	static constexpr UINT_PTR menu_toggle = 2;
 	static constexpr UINT_PTR menu_quit = 3;
+	static constexpr UINT_PTR menu_hold = 4;
+	static constexpr int32_t hotkey_id = 1;
 
 	struct host {
 
@@ -43,6 +53,11 @@ namespace app {
 		bool quitting = false;
 		bool login_applied = false;
 		bool login_known = false;
+		bool hotkey_on = false;
+		bool setup = false;
+		tuner* tuning = nullptr;
+		HANDLE network = nullptr;
+		double network_at = 0.0;
 		UINT taskbar_created = 0;
 		double save_at = 0.0;
 		double tip_at = 0.0;
@@ -75,7 +90,9 @@ namespace app {
 		data.hWnd = self.window;
 		data.uID = 1;
 
-		if ( self.settings.close_to_tray && !self.tray_shown ) {
+		bool wanted = self.settings.close_to_tray || self.settings.notify;
+
+		if ( wanted && !self.tray_shown ) {
 
 			data.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
 			data.uCallbackMessage = tray_message;
@@ -83,7 +100,7 @@ namespace app {
 			tray_text ( self, data.szTip, base::count_of ( data.szTip ) );
 			self.tray_shown = Shell_NotifyIconW ( NIM_ADD, &data ) != FALSE;
 
-		} else if ( !self.settings.close_to_tray && self.tray_shown ) {
+		} else if ( !wanted && self.tray_shown ) {
 
 			Shell_NotifyIconW ( NIM_DELETE, &data );
 			self.tray_shown = false;
@@ -131,6 +148,68 @@ namespace app {
 
 	}
 
+	static void balloon ( host& self, const wchar_t* title, const wchar_t* text ) {
+
+		if ( !self.tray_shown || !self.settings.notify )
+			return;
+
+		NOTIFYICONDATAW data = { sizeof ( data ) };
+
+		data.hWnd = self.window;
+		data.uID = 1;
+		data.uFlags = NIF_INFO;
+		data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
+		base::copy_text ( data.szInfoTitle, base::count_of ( data.szInfoTitle ), title );
+		base::copy_text ( data.szInfo, base::count_of ( data.szInfo ), text );
+		Shell_NotifyIconW ( NIM_MODIFY, &data );
+
+	}
+
+	static void sync_hotkey ( host& self ) {
+
+		if ( self.settings.hotkey == self.hotkey_on || settings_frozen ( ) )
+			return;
+
+		if ( self.settings.hotkey )
+			self.hotkey_on = RegisterHotKey ( self.window, hotkey_id, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'M' ) != FALSE;
+		else {
+
+			UnregisterHotKey ( self.window, hotkey_id );
+			self.hotkey_on = false;
+
+		}
+
+		if ( self.settings.hotkey && !self.hotkey_on )
+			self.run->log ( ui::LEVEL_WARNING, L"Another program already uses Ctrl+Alt+M, so the pause shortcut is off" );
+
+	}
+
+	static void toggle_hold ( host& self ) {
+
+		if ( !self.run->running ( ) ) {
+
+			self.run->start ( self.settings );
+			balloon ( self, L"Mining started", L"Press Ctrl+Alt+M again to pause." );
+			self.dirty = true;
+
+			return;
+
+		}
+
+		bool hold = !self.run->holding ( );
+
+		self.run->set_held ( hold );
+		balloon ( self, hold ? L"Mining paused" : L"Mining resumed", hold ? L"Press Ctrl+Alt+M to carry on." : L"Press Ctrl+Alt+M to pause again." );
+		self.dirty = true;
+
+	}
+
+	static void WINAPI network_moved ( void* context, MIB_IPINTERFACE_ROW* row, MIB_NOTIFICATION_TYPE kind ) {
+
+		PostMessageW ( static_cast < HWND > ( context ), network_message, 0, 0 );
+
+	}
+
 	static void show_from_tray ( host& self ) {
 
 		ShowWindow ( self.window, IsIconic ( self.window ) ? SW_RESTORE : SW_SHOW );
@@ -173,6 +252,71 @@ namespace app {
 
 	}
 
+	static void follow_tuning ( host& self ) {
+
+		ui::snapshot& view = self.run->edit ( );
+		tune_result result;
+
+		view.tuning = true;
+
+		if ( view.tuning_steps != self.tuning->steps ( ) ) {
+
+			view.tuning_steps = self.tuning->steps ( );
+			self.dirty = true;
+
+		}
+
+		if ( !self.tuning->finished ( result ) )
+			return;
+
+		delete self.tuning;
+		self.tuning = nullptr;
+		view.tuning = false;
+		view.tuning_steps = 0;
+		self.dirty = true;
+
+		if ( !result.finished || result.rate <= 0.0 ) {
+
+			self.run->log ( ui::LEVEL_WARNING, L"Tuning stopped before it finished, so nothing changed" );
+
+			return;
+
+		}
+
+		ui::algorithm_tuning& slot = self.settings.tunings [ result.algorithm % chain::ALGORITHM_COUNT ];
+		base::text line;
+
+		slot.threads = result.threads;
+		slot.gpu = result.gpu;
+		slot.intensity = result.intensity;
+		slot.cpu_limit = 100;
+		slot.gpu_limit = 100;
+
+		if ( self.settings.algorithm == result.algorithm )
+			self.settings.unstash ( );
+
+		line.add ( L"Fastest for " ).add ( chain::algorithm_name ( result.algorithm ) ).add ( L": " ).number ( result.threads ).add ( L" threads" );
+
+		if ( result.gpu )
+			line.add ( L" and the graphics card at intensity " ).number ( result.intensity );
+
+		line.add ( L", " ).scaled ( result.rate, L"H/s" ).add ( L". Saved." );
+		self.run->log ( ui::LEVEL_GOOD, line.get ( ) );
+		balloon ( self, L"Tuning finished", line.get ( ) );
+		self.run->apply ( self.settings );
+		self.save_at = base::seconds ( ) + 0.6;
+
+	}
+
+	static void refresh_profiles ( host& self ) {
+
+		ui::snapshot& view = self.run->edit ( );
+
+		view.profile_count = list_profiles ( view.profiles, 12 );
+		self.dirty = true;
+
+	}
+
 	static void handle ( host& self, ui::command command ) {
 
 		switch ( command ) {
@@ -190,6 +334,7 @@ namespace app {
 				apply_theme ( self );
 				sync_tray ( self );
 				sync_login ( self );
+				sync_hotkey ( self );
 				self.save_at = base::seconds ( ) + 0.6;
 				break;
 
@@ -203,6 +348,251 @@ namespace app {
 			case ui::COMMAND_CLEAR_LOG:
 				self.run->clear_log ( );
 				break;
+
+			case ui::COMMAND_COPY_TOKEN: {
+
+				wchar_t token [ 40 ];
+
+				base::widen ( token, base::count_of ( token ), self.settings.api_token );
+				base::write_clipboard ( self.window, token );
+				self.run->log ( ui::LEVEL_INFO, L"Copied the access token" );
+				break;
+
+			}
+
+			case ui::COMMAND_OPEN_DASHBOARD: {
+
+				base::text address;
+				wchar_t token [ 40 ];
+
+				base::widen ( token, base::count_of ( token ), self.settings.api_token );
+				address.add ( L"http://127.0.0.1:" ).number ( self.settings.api_port ? self.settings.api_port : 4067u ).put ( L'/' );
+
+				if ( token [ 0 ] )
+					address.add ( L"#token=" ).add ( token );
+
+				base::open_in_shell ( address.get ( ) );
+				break;
+
+			}
+
+			case ui::COMMAND_EXPORT_SHARES:
+			case ui::COMMAND_EXPORT_LOG: {
+
+				bool days = command == ui::COMMAND_EXPORT_SHARES && self.view->argument ( ) == 1;
+				bool shares = command == ui::COMMAND_EXPORT_SHARES && !days;
+				wchar_t path [ base::path_room ];
+
+				if ( !base::ask_save_path ( self.window, days ? L"alloy-days.csv" : ( shares ? L"alloy-shares.csv" : L"alloy-log.txt" ), shares || days ? L"Comma separated values" : L"Text", shares || days ? L"csv" : L"txt", path, base::path_room ) )
+					break;
+
+				bool saved = days ? export_days ( self.run->view ( ), path ) : ( shares ? export_shares ( self.run->view ( ), path ) : export_log ( self.run->view ( ), path ) );
+
+				self.run->log ( saved ? ui::LEVEL_INFO : ui::LEVEL_WARNING, saved ? ( days ? L"Saved the daily history as CSV" : ( shares ? L"Saved the shares as CSV" : L"Saved the log" ) ) : L"Couldn't write that file" );
+				break;
+
+			}
+
+			case ui::COMMAND_TUNE: {
+
+				if ( self.tuning ) {
+
+					self.tuning->stop ( );
+					delete self.tuning;
+					self.tuning = nullptr;
+					self.run->edit ( ).tuning = false;
+					self.run->log ( ui::LEVEL_INFO, L"Stopped tuning" );
+
+					break;
+
+				}
+
+				if ( self.run->running ( ) )
+					self.run->stop ( );
+
+				self.tuning = new tuner;
+				self.tuning->begin ( self.settings.algorithm, self.settings );
+				self.run->edit ( ).tuning = true;
+
+				base::text line;
+
+				line.add ( L"Finding the fastest settings for " ).add ( chain::algorithm_name ( self.settings.algorithm ) ).add ( self.settings.algorithm == chain::ALGORITHM_RANDOMX ? L". This takes about a minute." : L". This takes under a minute." );
+				self.run->log ( ui::LEVEL_INFO, line.get ( ) );
+				break;
+
+			}
+
+			case ui::COMMAND_SAVE_PROFILE: {
+
+				const wchar_t* name = self.view->pending_profile ( );
+				base::text line;
+
+				if ( !name [ 0 ] ) {
+
+					self.run->log ( ui::LEVEL_WARNING, L"Type a name for the profile first" );
+					break;
+
+				}
+
+				bool saved = save_profile ( name, self.settings );
+
+				line.add ( saved ? L"Saved profile " : L"Couldn't save profile " ).add ( name );
+				self.run->log ( saved ? ui::LEVEL_INFO : ui::LEVEL_WARNING, line.get ( ) );
+				refresh_profiles ( self );
+				break;
+
+			}
+
+			case ui::COMMAND_APPLY_PROFILE:
+			case ui::COMMAND_DELETE_PROFILE: {
+
+				const ui::snapshot& view = self.run->view ( );
+				int32_t at = self.view->argument ( );
+				base::text line;
+
+				if ( at < 0 || at >= view.profile_count )
+					break;
+
+				wchar_t name [ 48 ];
+
+				base::copy_text ( name, base::count_of ( name ), view.profiles [ at ] );
+
+				if ( command == ui::COMMAND_DELETE_PROFILE ) {
+
+					delete_profile ( name );
+					line.add ( L"Deleted profile " ).add ( name );
+					self.run->log ( ui::LEVEL_INFO, line.get ( ) );
+					refresh_profiles ( self );
+
+					break;
+
+				}
+
+				bool running = self.run->running ( );
+
+				if ( !load_profile ( name, self.settings, self.run->processor ( ).threads ) )
+					break;
+
+				line.add ( L"Switched to profile " ).add ( name );
+				self.run->log ( ui::LEVEL_INFO, line.get ( ) );
+				self.view->reload ( );
+				self.run->apply ( self.settings );
+
+				if ( running )
+					self.run->start ( self.settings );
+
+				apply_theme ( self );
+				sync_tray ( self );
+				self.save_at = base::seconds ( ) + 0.6;
+				break;
+
+			}
+
+			case ui::COMMAND_LARGE_PAGES: {
+
+				wchar_t program [ base::path_room ];
+
+				if ( !base::own_path ( program, base::path_room ) )
+					break;
+
+				if ( base::run_elevated ( program, L"--allow-large-pages" ) ) {
+
+					self.run->log ( ui::LEVEL_GOOD, L"Windows now lets this account use large pages. Sign out and back in, and RandomX picks them up." );
+					balloon ( self, L"Large pages allowed", L"Sign out of Windows and back in, then RandomX uses them." );
+
+				} else
+					self.run->log ( ui::LEVEL_WARNING, L"Large pages weren't allowed. Windows needs an administrator to approve it." );
+
+				break;
+
+			}
+
+			case ui::COMMAND_ADD_RIG: {
+
+				ui::rig_entry entry;
+				int32_t free_slot = -1;
+
+				for ( int32_t i = 0; i < ui::rig_room && free_slot < 0; i++ ) {
+
+					if ( !self.settings.rigs [ i ].address [ 0 ] )
+						free_slot = i;
+
+				}
+
+				if ( !parse_rig ( self.view->pending_rig ( ), entry ) ) {
+
+					self.run->log ( ui::LEVEL_WARNING, L"Type the other computer's address first, like 192.168.1.20 or 192.168.1.20:4067" );
+					break;
+
+				}
+
+				if ( free_slot < 0 ) {
+
+					self.run->log ( ui::LEVEL_WARNING, L"Alloy watches up to eight rigs. Remove one first." );
+					break;
+
+				}
+
+				self.settings.rigs [ free_slot ] = entry;
+				self.view->clear_entry ( ui::SETTING_RIG );
+				self.save_at = base::seconds ( ) + 0.6;
+				break;
+
+			}
+
+			case ui::COMMAND_REMOVE_RIG: {
+
+				int32_t at = self.view->argument ( );
+				int32_t seen = 0;
+
+				for ( int32_t i = 0; i < ui::rig_room; i++ ) {
+
+					if ( !self.settings.rigs [ i ].address [ 0 ] )
+						continue;
+
+					if ( seen++ == at ) {
+
+						for ( int32_t k = i; k + 1 < ui::rig_room; k++ )
+							self.settings.rigs [ k ] = self.settings.rigs [ k + 1 ];
+
+						self.settings.rigs [ ui::rig_room - 1 ] = ui::rig_entry { };
+
+						break;
+
+					}
+
+				}
+
+				self.save_at = base::seconds ( ) + 0.6;
+				break;
+
+			}
+
+			case ui::COMMAND_FINISH_SETUP:
+				self.view->open_page ( ui::PAGE_OVERVIEW, base::seconds ( ) );
+				self.setup = false;
+				self.run->apply ( self.settings );
+				save_settings ( self.settings );
+
+				if ( self.view->argument ( ) == 1 && !self.run->running ( ) ) {
+
+					self.settings.mode = ui::MODE_POOL;
+					self.run->start ( self.settings );
+
+				}
+
+				break;
+
+			case ui::COMMAND_OPEN_LOGS: {
+
+				wchar_t folder [ base::path_room ];
+
+				if ( journal_folder ( folder, base::path_room ) )
+					base::open_in_shell ( folder );
+
+				break;
+
+			}
 
 			default:
 				break;
@@ -627,6 +1017,46 @@ namespace app {
 
 			}
 
+			case WM_HOTKEY:
+				if ( wparam == hotkey_id )
+					toggle_hold ( *self );
+
+				return 0;
+
+			case WM_POWERBROADCAST:
+				if ( wparam == PBT_APMSUSPEND ) {
+
+					self->run->set_sleeping ( true );
+					self->run->log ( ui::LEVEL_INFO, L"The computer is going to sleep" );
+
+				} else if ( wparam == PBT_APMRESUMEAUTOMATIC || wparam == PBT_APMRESUMESUSPEND ) {
+
+					if ( self->run->running ( ) )
+						self->run->log ( ui::LEVEL_INFO, L"The computer woke up, so Alloy reconnects right away" );
+
+					self->run->set_sleeping ( false );
+
+				}
+
+				self->dirty = true;
+				return TRUE;
+
+			case network_message: {
+
+				double moment = base::seconds ( );
+				uint8_t link = self->run->view ( ).link;
+
+				if ( moment - self->network_at > 2.0 && link != ui::PHASE_READY && link != ui::PHASE_OFF ) {
+
+					self->network_at = moment;
+					self->run->network_changed ( );
+
+				}
+
+				return 0;
+
+			}
+
 			case tray_message: {
 
 				UINT event = LOWORD ( lparam );
@@ -647,6 +1077,9 @@ namespace app {
 
 				AppendMenuW ( menu, MF_STRING, menu_show, L"Open Alloy" );
 				AppendMenuW ( menu, MF_STRING, menu_toggle, self->run->running ( ) ? L"Stop mining" : L"Start mining" );
+
+				if ( self->run->running ( ) )
+					AppendMenuW ( menu, MF_STRING, menu_hold, self->run->holding ( ) ? L"Resume mining\tCtrl+Alt+M" : L"Pause mining\tCtrl+Alt+M" );
 				AppendMenuW ( menu, MF_SEPARATOR, 0, nullptr );
 				AppendMenuW ( menu, MF_STRING, menu_quit, L"Quit Alloy" );
 				GetCursorPos ( &spot );
@@ -661,6 +1094,8 @@ namespace app {
 					show_from_tray ( *self );
 				else if ( chosen == menu_toggle )
 					handle ( *self, ui::COMMAND_TOGGLE );
+				else if ( chosen == menu_hold )
+					toggle_hold ( *self );
 				else if ( chosen == menu_quit ) {
 
 					self->quitting = true;
@@ -749,7 +1184,21 @@ namespace app {
 		if ( self->save_at > 0.0 )
 			save_settings ( self->settings );
 
+		if ( self->tuning ) {
+
+			self->tuning->stop ( );
+			delete self->tuning;
+			self->tuning = nullptr;
+
+		}
+
 		self->run->stop ( );
+
+		if ( self->network )
+			CancelMibChangeNotify2 ( self->network );
+
+		if ( self->hotkey_on && self->window )
+			UnregisterHotKey ( self->window, hotkey_id );
 
 		if ( self->window && IsWindow ( self->window ) )
 			DestroyWindow ( self->window );
@@ -784,6 +1233,14 @@ namespace app {
 
 			refresh_tray ( *self, now );
 
+			notice item;
+
+			while ( self->run->next_notice ( item ) )
+				balloon ( *self, item.title, item.text );
+
+			if ( self->tuning )
+				follow_tuning ( *self );
+
 			uint8_t kind = 0;
 			bool backup = false;
 			char pin [ 65 ];
@@ -794,6 +1251,13 @@ namespace app {
 
 				base::copy_text ( backup ? profile.backup_pin : profile.pin, 65, pin );
 				self->save_at = now + 0.6;
+
+			}
+
+			if ( self->setup && !self->view->in_setup ( ) ) {
+
+				self->setup = false;
+				self->save_at = now;
 
 			}
 
@@ -830,8 +1294,9 @@ namespace app {
 
 	}
 
-	uint32_t open_window ( bool minimized ) {
+	uint32_t open_window ( const launch_options& options ) {
 
+		bool minimized = options.minimized;
 		HANDLE single = CreateMutexW ( nullptr, TRUE, L"Local\\AlloyMinerWindow" );
 
 		if ( single && GetLastError ( ) == ERROR_ALREADY_EXISTS ) {
@@ -855,6 +1320,14 @@ namespace app {
 
 		host* self = create_host ( );
 
+		if ( options.profile || options.set_count ) {
+
+			apply_launch ( options, self->settings, self->run->processor ( ).threads );
+			self->view->reload ( );
+			apply_theme ( *self );
+
+		}
+
 		if ( !self->window || !self->surface.ready ( ) ) {
 
 			journal ( ui::LEVEL_ERROR, L"The window couldn't be created, Direct3D 11 or DirectComposition isn't available" );
@@ -868,10 +1341,21 @@ namespace app {
 
 		}
 
+		if ( !minimized && !options.profile && !options.set_count && !settings_exist ( ) ) {
+
+			self->setup = true;
+			self->view->open_setup ( base::seconds ( ) );
+
+		}
+
 		sync_tray ( *self );
 		sync_login ( *self );
 		self->run->apply ( self->settings );
 		self->run->check_kernels ( );
+		self->run->start_lookups ( );
+		refresh_profiles ( *self );
+		sync_hotkey ( *self );
+		NotifyIpInterfaceChange ( AF_UNSPEC, &network_moved, self->window, FALSE, &self->network );
 
 		wchar_t report [ base::path_room ];
 		bool unclean = false;

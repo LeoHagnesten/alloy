@@ -10,6 +10,8 @@
     <LinkIncremental>false</LinkIncremental>
     <GenerateManifest>false</GenerateManifest>
     <EmbedManifest>false</EmbedManifest>
+    <UseMultiToolTask>true</UseMultiToolTask>
+    <EnforceProcessCountAcrossBuilds>true</EnforceProcessCountAcrossBuilds>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -29,6 +31,7 @@
       <OmitDefaultLibName>true</OmitDefaultLibName>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalOptions>/Zc:threadSafeInit- /clang:-ffreestanding /clang:-fno-math-errno /clang:-mno-stack-arg-probe /clang:-fasynchronous-unwind-tables /clang:-Wno-unused-parameter /clang:-Wno-missing-braces %(AdditionalOptions)</AdditionalOptions>
@@ -47,7 +50,7 @@
     </ResourceCompile>
     <Link>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;shell32.lib;advapi32.lib;dwmapi.lib;d3d11.lib;dxgi.lib;d2d1.lib;dwrite.lib;dcomp.lib;ws2_32.lib;secur32.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;shell32.lib;advapi32.lib;dwmapi.lib;d3d11.lib;dxgi.lib;d2d1.lib;dwrite.lib;dcomp.lib;ws2_32.lib;secur32.lib;crypt32.lib;iphlpapi.lib;comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TargetMachine>MachineX64</TargetMachine>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>

@@ -23,6 +23,12 @@ namespace ui {
 		ICON_EYE,
 		ICON_HIDDEN,
 		ICON_ARROW,
+		ICON_EARNINGS,
+		ICON_RIGS,
+		ICON_HELP,
+		ICON_PAUSE,
+		ICON_SAVE,
+		ICON_KEYBOARD,
 
 	};
 

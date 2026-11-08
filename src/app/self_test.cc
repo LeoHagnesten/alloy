@@ -5,6 +5,7 @@
 #include "hash/argon2.hh"
 #include "hash/aes.hh"
 #include "hash/scrypt.hh"
+#include "hash/heavyhash.hh"
 #include "mine/gpu/device.hh"
 #include "randomx/machine.hh"
 #include "base/bits.hh"
@@ -216,6 +217,17 @@ namespace app {
 
 		} );
 
+		record ( out, L"kHeavyHash's cSHAKE256 start states match Kaspa's", [ & ] ( check_result& ) {
+
+			uint64_t pow [ 25 ];
+			uint64_t finish [ 25 ];
+
+			hash::heavy_start_states ( pow, finish );
+
+			return pow [ 0 ] == 1242148031264380989ull && pow [ 16 ] == 1082795874807940378ull && finish [ 0 ] == 4239941492252378377ull && finish [ 16 ] == 570094237299545110ull;
+
+		} );
+
 		if ( deep ) {
 
 			record ( out, L"RandomX hashes the reference vector compiled and interpreted", [ & ] ( check_result& ) {
@@ -287,6 +299,43 @@ namespace app {
 				bool good = gpu_finds ( *device, chain::ALGORITHM_SCRYPT, litecoin, litecoin_nonce, 4096 );
 
 				out.broken_scrypt_cards |= good ? 0u : 1u << i;
+
+				return good;
+
+			} );
+
+			name.clear ( );
+			name.add ( adapters [ i ].name ).add ( L" matches the CPU on kHeavyHash for 1024 nonces" );
+			record ( out, name.get ( ), [ & ] ( check_result& item ) {
+
+				if ( !device->capacity ( chain::ALGORITHM_KHEAVYHASH ) ) {
+
+					item.skipped = true;
+
+					return false;
+
+				}
+
+				hash::heavy_hasher* hasher = new hash::heavy_hasher;
+				uint32_t* tops = new uint32_t [ 1024 ];
+				uint8_t seed [ 32 ];
+				uint8_t digest [ 32 ];
+
+				hash::sha256_twice ( "alloy self-test", 15, seed );
+				hasher->prepare ( seed, 1700000000000ull );
+
+				bool good = device->sample_heavy ( *hasher, 7, 100, 1024, tops );
+
+				for ( uint32_t k = 0; good && k < 1024; k++ ) {
+
+					hasher->hash ( 7ull << 32 | ( 100 + k ), digest );
+					good = base::load_little ( digest + 28 ) == tops [ k ];
+
+				}
+
+				delete [ ] tops;
+				delete hasher;
+				out.broken_heavy_cards |= good ? 0u : 1u << i;
 
 				return good;
 

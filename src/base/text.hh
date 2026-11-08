@@ -153,6 +153,29 @@ namespace base {
 
 		}
 
+		writer& trimmed ( double value, int32_t places ) {
+
+			int32_t mark = used;
+
+			decimal ( value, places );
+
+			bool dotted = false;
+
+			for ( int32_t i = mark; i < used; i++ )
+				dotted = dotted || buffer [ i ] == static_cast < unit > ( '.' );
+
+			while ( dotted && used > mark && buffer [ used - 1 ] == static_cast < unit > ( '0' ) )
+				used--;
+
+			if ( used > mark && buffer [ used - 1 ] == static_cast < unit > ( '.' ) )
+				used--;
+
+			buffer [ used ] = 0;
+
+			return *this;
+
+		}
+
 		writer& hex64 ( uint64_t value ) {
 
 			return hex32 ( static_cast < uint32_t > ( value >> 32 ) ).hex32 ( static_cast < uint32_t > ( value ) );

@@ -24,8 +24,16 @@ namespace chain {
 
 	address_check check_worker ( uint8_t algorithm, const wchar_t* worker );
 
+	bool payout_script ( uint8_t algorithm, const wchar_t* worker, uint8_t* out, int32_t room, int32_t& size );
+
 	bool base58_decode ( const char* text, uint8_t* out, int32_t room, int32_t& size );
 
 	bool monero_decode ( const char* text, uint8_t* out, int32_t room, int32_t& size );
+
+	bool base58_encode ( const uint8_t* bytes, int32_t size, char* out, int32_t room );
+
+	bool read_authority_key ( const char* text, uint8_t* out );
+
+	bool write_authority_key ( const uint8_t* key, char* out, int32_t room );
 
 }

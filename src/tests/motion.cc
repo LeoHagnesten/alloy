@@ -3,6 +3,7 @@
 #include "tests/harness.hh"
 #include "render/surface.hh"
 #include "ui/shell.hh"
+#include "pool/presets.hh"
 #include "base/math.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -307,6 +308,113 @@ namespace tests {
 		masked = masked && editing->paint ( surface, *view, at + 1.0 ) && surface.capture ( shown ) && !same_pixels ( hidden, shown );
 		check ( masked, L"the eye button shows the password, and it can only be copied while shown" );
 
+		ui::shell* keyed = new ui::shell ( settings );
+		base::list < uint8_t > plain;
+		base::list < uint8_t > ringed;
+		base::list < uint8_t > cleared;
+		double when = 400.0;
+
+		keyed->open_page ( ui::PAGE_OVERVIEW, when - 10.0 );
+
+		bool steered = keyed->paint ( surface, *view, when ) && surface.capture ( plain );
+
+		keyed->key ( 0x09, false, false, when );
+		steered = steered && keyed->paint ( surface, *view, when + 0.1 ) && surface.capture ( ringed ) && !same_pixels ( plain, ringed );
+		keyed->key ( 0x27, false, false, when + 0.1 );
+		steered = steered && keyed->current ( ) == ui::PAGE_ACTIVITY;
+		keyed->key ( 0x25, false, false, when + 0.2 );
+		steered = steered && keyed->current ( ) == ui::PAGE_OVERVIEW;
+		keyed->key ( 0x1B, false, false, when + 0.3 );
+		steered = steered && keyed->paint ( surface, *view, when + 5.0 ) && surface.capture ( cleared ) && same_pixels ( plain, cleared );
+		check ( steered, L"Tab puts a focus ring on the page list, the arrow keys move between pages, and Escape clears the ring" );
+
+		uint8_t theme = settings.theme;
+		int32_t target = ui::SETTING_THEME * 16 + theme;
+		render::box spot;
+		double tick = 500.0;
+
+		keyed->open_page ( ui::PAGE_SETTINGS, tick - 10.0 );
+		keyed->paint ( surface, *view, tick );
+
+		bool below = !keyed->locate ( ui::CONTROL_CHOICE, target, spot );
+		bool reached = false;
+
+		for ( int32_t i = 0; i < 200 && !reached; i++ ) {
+
+			keyed->key ( 0x09, false, false, tick );
+			tick += 0.5;
+			keyed->paint ( surface, *view, tick );
+			reached = keyed->keyboard_at ( ui::CONTROL_CHOICE, target );
+
+		}
+
+		bool scrolled = reached && keyed->locate ( ui::CONTROL_CHOICE, target, spot );
+
+		keyed->key ( 0x27, false, false, tick );
+
+		bool turned = settings.theme != theme;
+
+		keyed->key ( 'Z', false, true, tick );
+		check ( below && reached && scrolled && turned && settings.theme == theme, L"Tab reaches the theme choice below the fold on Settings and scrolls it into view, Right changes it and Ctrl+Z undoes that" );
+
+		ui::preferences* fresh = new ui::preferences;
+		ui::shell* welcome = new ui::shell ( *fresh );
+		double moment = 600.0;
+		render::box start_button;
+		ui::command finished = ui::COMMAND_NONE;
+
+		fresh->cpu = true;
+		welcome->open_setup ( moment - 10.0 );
+		welcome->paint ( surface, *view, moment );
+
+		bool picked = welcome->locate ( ui::CONTROL_ALGORITHM, chain::ALGORITHM_RANDOMX, start_button );
+
+		if ( picked ) {
+
+			welcome->mouse_down ( start_button.middle_x ( ), start_button.middle_y ( ), false, moment );
+			welcome->mouse_up ( start_button.middle_x ( ), start_button.middle_y ( ), moment );
+			welcome->paint ( surface, *view, moment + 0.5 );
+
+		}
+
+		picked = picked && fresh->algorithm == chain::ALGORITHM_RANDOMX && welcome->locate ( ui::CONTROL_PRESET, pool::preset_for ( chain::ALGORITHM_RANDOMX ), start_button );
+
+		if ( picked ) {
+
+			welcome->mouse_down ( start_button.middle_x ( ), start_button.middle_y ( ), false, moment + 0.5 );
+			welcome->mouse_up ( start_button.middle_x ( ), start_button.middle_y ( ), moment + 0.5 );
+			welcome->paint ( surface, *view, moment + 0.8 );
+
+		}
+
+		picked = picked && base::starts_with ( fresh->pools [ chain::ALGORITHM_RANDOMX ].address, L"stratum+ssl://pool.supportxmr.com" );
+		welcome->focus_field ( ui::SETTING_WORKER, moment + 1.0 );
+		welcome->key ( 'A', false, true, moment + 1.0 );
+
+		for ( const wchar_t* letter = L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A"; *letter; letter++ )
+			welcome->character ( *letter, moment + 1.0 );
+
+		welcome->key ( 0x0D, false, false, moment + 1.1 );
+		welcome->paint ( surface, *view, moment + 1.5 );
+
+		bool locked = welcome->locate ( ui::CONTROL_ACTION, ui::COMMAND_FINISH_SETUP * 256 + 1, start_button );
+
+		if ( locked ) {
+
+			welcome->mouse_move ( start_button.middle_x ( ), start_button.middle_y ( ), moment + 2.0 );
+			welcome->mouse_down ( start_button.middle_x ( ), start_button.middle_y ( ), false, moment + 2.0 );
+			finished = welcome->mouse_up ( start_button.middle_x ( ), start_button.middle_y ( ), moment + 2.0 );
+
+		}
+
+		bool named = base::same_text ( fresh->pools [ chain::ALGORITHM_RANDOMX ].worker, L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A" );
+
+		welcome->open_page ( ui::PAGE_OVERVIEW, moment + 3.0 );
+		check ( picked && named && locked && finished == ui::COMMAND_FINISH_SETUP && welcome->argument ( ) == 1 && !welcome->in_setup ( ), L"the first-run page picks the coin, takes the wallet and starts mining, then gives way to Overview" );
+		delete welcome;
+		delete fresh;
+
+		delete keyed;
 		delete editing;
 		delete hinting;
 		delete moving;

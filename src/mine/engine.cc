@@ -2,6 +2,7 @@
 #include "mine/gpu/device.hh"
 #include "randomx/machine.hh"
 #include "hash/aes.hh"
+#include "hash/heavyhash.hh"
 #include "hash/scrypt.hh"
 #include "chain/target.hh"
 #include "base/bits.hh"
@@ -17,12 +18,14 @@ namespace mine {
 		chain::header_hasher hasher;
 		void* scratch = nullptr;
 		randomx::machine* machine = nullptr;
+		hash::heavy_hasher* heavy = nullptr;
 		uint32_t generation = ~0u;
 
 		~tools ( ) {
 
 			base::release ( scratch );
 			delete machine;
+			delete heavy;
 
 		}
 
@@ -35,6 +38,9 @@ namespace mine {
 
 		if ( algorithm == chain::ALGORITHM_RANDOMX )
 			return full ? 64 : 8;
+
+		if ( algorithm == chain::ALGORITHM_KHEAVYHASH )
+			return 1ull << 14;
 
 		return 1ull << 18;
 
@@ -137,6 +143,18 @@ namespace mine {
 		base::atomic_store ( gpu_heat_limit, settings.gpu_heat );
 		base::atomic_store ( gpu_wanted, settings.gpu ? 1u : 0u );
 		base::atomic_store ( rx_full, settings.full_dataset ? 1u : 0u );
+
+		for ( uint32_t i = 0; i < max_gpus; i++ ) {
+
+			const card_setting& card = settings.cards [ i ];
+			gpu_slot& slot = gpus [ i ];
+
+			base::atomic_store ( slot.on, !card.custom || card.on ? 1u : 0u );
+			base::atomic_store ( slot.share, base::clamp ( card.custom ? card.percent : settings.gpu_percent, 5u, 100u ) );
+			base::atomic_store ( slot.power, base::clamp ( card.custom ? card.intensity : settings.gpu_intensity, 16u, 26u ) );
+			base::atomic_store ( slot.heat_limit, card.custom ? card.heat : settings.gpu_heat );
+
+		}
 
 		if ( !active || !settings.gpu || gpus_started )
 			return;
@@ -594,6 +612,23 @@ namespace mine {
 
 				sweep ( self, work, from, to, 128, debt, hash_one );
 
+			} else if ( work.algorithm == chain::ALGORITHM_KHEAVYHASH ) {
+
+				if ( !kit.heavy )
+					kit.heavy = new hash::heavy_hasher;
+
+				uint64_t high = static_cast < uint64_t > ( work.nonce_high ) << 32;
+
+				kit.heavy->prepare ( work.blob, work.timestamp );
+
+				auto hash_one = [ & ] ( uint32_t nonce, uint8_t* digest ) {
+
+					kit.heavy->hash ( high | nonce, digest );
+
+				};
+
+				sweep ( self, work, from, to, 1024, debt, hash_one );
+
 			} else {
 
 				kit.hasher.prepare ( work.header, compress );
@@ -632,6 +667,8 @@ namespace mine {
 
 		gpu_device* device = new gpu_device;
 		chain::header_hasher checker;
+		hash::heavy_hasher* heavy_send = nullptr;
+		hash::heavy_hasher* heavy_check = nullptr;
 		void* scratch = nullptr;
 		uint8_t digest [ 32 ];
 		uint32_t found [ 32 ];
@@ -698,10 +735,18 @@ namespace mine {
 			}
 
 			bool scrypt = done.work.algorithm == chain::ALGORITHM_SCRYPT;
+			bool heavy = done.work.algorithm == chain::ALGORITHM_KHEAVYHASH;
 			uint32_t threshold = base::load_little ( done.work.target + 28 );
 			chain::header header = done.work.header;
 
-			if ( found_count && !scrypt )
+			if ( found_count && heavy ) {
+
+				if ( !heavy_check )
+					heavy_check = new hash::heavy_hasher;
+
+				heavy_check->prepare ( done.work.blob, done.work.timestamp );
+
+			} else if ( found_count && !scrypt )
 				checker.prepare ( done.work.header, compress );
 
 			if ( found_count && scrypt && !scratch )
@@ -714,7 +759,9 @@ namespace mine {
 					header.set_nonce ( found [ i ] );
 					hash::scrypt_header ( header.bytes, digest, scratch );
 
-				} else
+				} else if ( heavy )
+					heavy_check->hash ( static_cast < uint64_t > ( done.work.nonce_high ) << 32 | found [ i ], digest );
+				else
 					checker.hash ( found [ i ], digest );
 
 				if ( base::load_little ( digest + 28 ) > threshold ) {
@@ -771,10 +818,18 @@ namespace mine {
 
 				double now = base::seconds ( );
 
+				if ( base::atomic_exchange ( sabotage, 0u ) ) {
+
+					broken = true;
+
+					break;
+
+				}
+
 				if ( now - measured >= 1.0 ) {
 
 					float celsius = 0.0f;
-					uint32_t limit = base::atomic_load ( gpu_heat_limit );
+					uint32_t limit = base::atomic_load ( self.heat_limit );
 
 					measured = now;
 
@@ -791,7 +846,7 @@ namespace mine {
 
 				}
 
-				if ( !base::atomic_load ( gpu_wanted ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) || cooling ) {
+				if ( !base::atomic_load ( gpu_wanted ) || !base::atomic_load ( self.on ) || base::atomic_load ( paused ) || base::atomic_load ( halt ) || cooling ) {
 
 					if ( waiting->live )
 						settle ( *waiting );
@@ -807,10 +862,11 @@ namespace mine {
 				}
 
 				uint8_t kind = algorithm ( );
-				uint32_t power = base::max ( base::atomic_load ( gpu_power ) - base::min ( trim, base::atomic_load ( gpu_power ) - 16u ), 16u );
+				uint32_t power = base::max ( base::atomic_load ( self.power ) - base::min ( trim, base::atomic_load ( self.power ) - 16u ), 16u );
 				uint32_t scrypt_room = kind == chain::ALGORITHM_SCRYPT ? base::max ( device->capacity ( kind ) >> trim, 256u ) : 0u;
-				uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << power, scrypt_room, 0u };
-				uint32_t share = base::atomic_load ( gpu_share );
+				uint32_t heavy_room = kind == chain::ALGORITHM_KHEAVYHASH && device->capacity ( kind ) ? 1u << ( power - 2 ) : 0u;
+				uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << power, scrypt_room, 0u, heavy_room };
+				uint32_t share = base::atomic_load ( self.share );
 				bool overlap = share >= 100;
 
 				base::atomic_store ( self.phase, static_cast < uint32_t > ( rooms [ kind ] ? GPU_RUNNING : GPU_UNSUPPORTED ) );
@@ -828,7 +884,20 @@ namespace mine {
 
 					next->sent = base::seconds ( );
 
-					if ( !device->submit ( next->work.algorithm, next->work.header, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot ) ) {
+					bool sent = false;
+
+					if ( next->work.algorithm == chain::ALGORITHM_KHEAVYHASH ) {
+
+						if ( !heavy_send )
+							heavy_send = new hash::heavy_hasher;
+
+						heavy_send->prepare ( next->work.blob, next->work.timestamp );
+						sent = device->submit_heavy ( *heavy_send, next->work.nonce_high, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot );
+
+					} else
+						sent = device->submit ( next->work.algorithm, next->work.header, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot );
+
+					if ( !sent ) {
 
 						broken = true;
 
@@ -897,6 +966,8 @@ namespace mine {
 
 		delete waiting;
 		delete next;
+		delete heavy_send;
+		delete heavy_check;
 		base::release ( scratch );
 		device->close ( );
 		delete device;

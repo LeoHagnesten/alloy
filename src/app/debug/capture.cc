@@ -285,12 +285,22 @@ namespace app {
 		base::copy_text ( self->settings.pool ( ).address, base::count_of ( self->settings.pool ( ).address ), address.get ( ) );
 		base::copy_text ( self->settings.pool ( ).worker, base::count_of ( self->settings.pool ( ).worker ), L"alloy.studio" );
 		shoot ( *self, L"idle-dark.png" );
+		self->view->open_setup ( self->clock );
+		self->view->reload ( );
+		shoot ( *self, L"setup-dark.png" );
+		self->view->open_page ( ui::PAGE_OVERVIEW, self->clock );
 
 		base::print_line ( L"  mining against the test pool to fill the chart" );
 		self->run->start ( self->settings );
 		settle ( *self, static_cast < double > ( warmup ) );
 
 		shoot ( *self, L"overview-dark.png" );
+		self->view->open_page ( ui::PAGE_EARNINGS, self->clock );
+		shoot ( *self, L"earnings-dark.png" );
+		self->view->open_page ( ui::PAGE_RIGS, self->clock );
+		shoot ( *self, L"rigs-dark.png" );
+		self->view->open_page ( ui::PAGE_HELP, self->clock );
+		shoot ( *self, L"help-dark.png" );
 		self->view->open_page ( ui::PAGE_ACTIVITY, self->clock );
 		shoot ( *self, L"shares-dark.png" );
 		self->view->open_tab ( 1, self->clock );

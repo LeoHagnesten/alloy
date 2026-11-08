@@ -1,6 +1,7 @@
 #ifdef ALLOY_DEBUG
 
 #include "tests/harness.hh"
+#include "net/http.hh"
 #include "randomx/variant.hh"
 #include "app/session.hh"
 #include "pool/test_pool.hh"
@@ -308,6 +309,111 @@ namespace tests {
 
 	}
 
+	static void solo_on ( uint8_t algorithm, const wchar_t* wallet, const wchar_t* secret, uint32_t wanted, double limit ) {
+
+		pool::test_server* server = new pool::test_server;
+		pool::server_settings config;
+		base::text note;
+
+		config.algorithm = algorithm;
+		config.port = 0;
+		config.node = true;
+
+		if ( !server->start ( config ) ) {
+
+			check ( false, L"the test node starts" );
+			delete server;
+
+			return;
+
+		}
+
+		double began = base::seconds ( );
+
+		while ( !server->ready ( ) && base::seconds ( ) - began < 10.0 )
+			base::sleep ( 10 );
+
+		app::session* run = new app::session;
+		ui::preferences settings;
+		base::writer < wchar_t, 64 > address;
+
+		address.add ( L"http://127.0.0.1:" ).number ( server->port ( ) );
+		settings.algorithm = algorithm;
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
+		base::copy_text ( settings.pool ( ).worker, base::count_of ( settings.pool ( ).worker ), wallet );
+		base::copy_text ( settings.pool ( ).password, base::count_of ( settings.pool ( ).password ), secret );
+		settings.mode = ui::MODE_POOL;
+		settings.threads = algorithm == chain::ALGORITHM_RANDOMX ? run->processor ( ).threads : 2u;
+		settings.gpu = false;
+		settings.full_dataset = false;
+		run->start ( settings );
+
+		bool found = wait_until ( *run, settings, limit, [ & ] ( const ui::snapshot& view ) {
+
+			return view.accepted >= wanted && view.link == ui::PHASE_READY;
+
+		} );
+
+		const ui::snapshot& view = run->view ( );
+		uint32_t accepted = view.accepted;
+		uint32_t rejected = view.rejected;
+		bool known = view.network_known || algorithm == chain::ALGORITHM_RANDOMX;
+
+		run->stop ( );
+		note.add ( chain::algorithm_name ( algorithm ) ).add ( L" mines solo against a local node that checks every block in full: " ).number ( accepted ).add ( L" blocks accepted, " ).number ( rejected ).add ( L" turned down" );
+
+		if ( !found || server->rejected ( ) )
+			note.add ( L" (node rejected " ).number ( server->rejected ( ) ).add ( L", accepted " ).number ( server->accepted ( ) ).add ( L", link " ).number ( view.link ).put ( L')' );
+
+		check ( found && rejected == 0 && server->rejected ( ) == 0 && server->accepted ( ) >= accepted && known, note.get ( ) );
+		delete run;
+		server->stop ( );
+		delete server;
+
+	}
+
+	static void solo_refused ( ) {
+
+		pool::test_server* server = new pool::test_server;
+		pool::server_settings config;
+
+		config.algorithm = chain::ALGORITHM_SHA256D;
+		config.port = 0;
+		config.node = true;
+		server->start ( config );
+
+		double began = base::seconds ( );
+
+		while ( !server->ready ( ) && base::seconds ( ) - began < 10.0 )
+			base::sleep ( 10 );
+
+		app::session* run = new app::session;
+		ui::preferences settings;
+		base::writer < wchar_t, 64 > address;
+
+		address.add ( L"http://127.0.0.1:" ).number ( server->port ( ) );
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
+		base::copy_text ( settings.pool ( ).worker, base::count_of ( settings.pool ( ).worker ), L"bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" );
+		base::copy_text ( settings.pool ( ).password, base::count_of ( settings.pool ( ).password ), L"alloy:wrong" );
+		settings.mode = ui::MODE_POOL;
+		settings.threads = 1;
+		settings.gpu = false;
+		run->start ( settings );
+
+		bool refused = wait_until ( *run, settings, 10.0, [ & ] ( const ui::snapshot& view ) {
+
+			return view.link == ui::PHASE_REFUSED && count_logs ( view, L"The node refused the RPC login" ) > 0;
+
+		} );
+
+		run->stop ( );
+		check ( refused, L"a node that refuses the RPC password stops solo mining with an explanation" );
+		delete run;
+		server->stop ( );
+		delete server;
+
+	}
+
 	void pool_tests ( ) {
 
 		section ( L"stratum pool" );
@@ -478,7 +584,8 @@ namespace tests {
 		char status [ 256 ];
 		char body [ 4096 ];
 		static const char json [ ] = "{\"hashrate\":{\"total\":1234.5}}\n";
-		bool served = api->start ( 0 );
+		app::api_options plain;
+		bool served = api->start ( plain );
 		base::writer < char, 32 > host;
 
 		host.add ( "127.0.0.1:" ).number ( api->port ( ) );
@@ -490,10 +597,59 @@ namespace tests {
 
 		check ( served, L"the stats API serves the latest JSON on 127.0.0.1" );
 		check ( guarded && unknown_path, L"it refuses requests whose Host isn't this machine, so web pages can't read it, and knows only its own path" );
+
+		app::api_options open;
+		net::http_reply reply;
+		base::writer < char, 96 > url;
+		base::writer < char, 64 > control;
+		base::writer < char, 64 > wrong;
+
+		open.everyone = true;
+		open.control = true;
+		base::copy_text ( open.token, sizeof ( open.token ), "0123456789abcdef0123456789abcdef" );
+		api->stop ( );
+		api->start ( open );
+		api->publish ( json, base::length ( json ) );
+		url.add ( "http://127.0.0.1:" ).number ( api->port ( ) );
+		control.add ( "Authorization: Bearer " ).add ( open.token ).add ( "\r\n" );
+		wrong.add ( "Authorization: Bearer 0123456789abcdef0123456789abcdee\r\n" );
+
+		base::writer < char, 128 > summary;
+		base::writer < char, 128 > pause;
+		base::writer < char, 128 > page;
+
+		summary.add ( "http://127.0.0.2:" ).number ( api->port ( ) ).add ( "/api.json" );
+		pause.add ( url.get ( ) ).add ( "/1/pause" );
+		page.add ( url.get ( ) ).add ( "/" );
+
+		bool by_token = net::http_request ( "GET", summary.get ( ), control.get ( ), nullptr, 0, reply ) && reply.status == 200 && base::same_text ( reply.body.data ( ), json );
+		bool bad_token = net::http_request ( "GET", summary.get ( ), wrong.get ( ), nullptr, 0, reply ) && reply.status == 401;
+		bool tokenless = net::http_request ( "POST", pause.get ( ), nullptr, "", 0, reply ) && reply.status == 401 && api->take_command ( ) == app::API_NONE;
+		bool ordered = net::http_request ( "POST", pause.get ( ), control.get ( ), "", 0, reply ) && reply.status == 200 && api->take_command ( ) == app::API_PAUSE;
+		bool dashboard = net::http_get ( page.get ( ), reply ) && reply.status == 200 && base::starts_with ( reply.body.data ( ), "<!doctype html>" );
+
+		check ( by_token && bad_token, L"with a token the API answers any host, which is how other rigs and the web dashboard read it, and a wrong token gets 401" );
+		check ( tokenless && ordered, L"pause, resume, start and stop need the token, then reach the session" );
+		check ( dashboard, L"the API serves its own web dashboard, read back through Alloy's HTTP client" );
+
+		open.control = false;
+		api->stop ( );
+		api->start ( open );
+
+		pause.clear ( );
+		pause.add ( "http://127.0.0.1:" ).number ( api->port ( ) ).add ( "/1/pause" );
+
+		bool closed = net::http_request ( "POST", pause.get ( ), control.get ( ), "", 0, reply ) && reply.status == 403;
+
+		check ( closed, L"with control off even the right token can't pause mining" );
 		delete api;
 
 		mine_on ( chain::ALGORITHM_SCRYPT, 2.0, 0, true, 8, 25.0 );
 		mine_on ( chain::ALGORITHM_RANDOMX, 1000.0, 2, false, 8, 45.0, true );
+		mine_on ( chain::ALGORITHM_KHEAVYHASH, 0.05, 0, true, 8, 25.0 );
+		solo_on ( chain::ALGORITHM_SHA256D, L"bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", L"alloy:secret", 3, 30.0 );
+		solo_on ( chain::ALGORITHM_RANDOMX, L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A", L"", 3, 40.0 );
+		solo_refused ( );
 		follow_switches ( );
 
 	}

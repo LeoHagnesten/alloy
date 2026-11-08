@@ -17,6 +17,7 @@ namespace chain {
 		{ L"SHA-256d", L"sha256d", L"Bitcoin, Bitcoin Cash", 4294901760.0 },
 		{ L"Scrypt", L"scrypt", L"Litecoin, Dogecoin", 281470681743360.0 },
 		{ L"RandomX", L"randomx", L"Monero, Wownero", 18446744073709551616.0 },
+		{ L"kHeavyHash", L"kheavyhash", L"Kaspa", 4294901760.0 },
 
 	};
 
@@ -51,6 +52,7 @@ namespace chain {
 			{ L"sha256", L"bitcoin" },
 			{ L"ltc", L"litecoin" },
 			{ L"rx/0", L"monero" },
+			{ L"kas", L"kaspa" },
 
 		};
 
@@ -78,7 +80,7 @@ namespace chain {
 
 	bool uses_header ( uint8_t value ) {
 
-		return value != ALGORITHM_RANDOMX;
+		return value == ALGORITHM_SHA256D || value == ALGORITHM_SCRYPT;
 
 	}
 

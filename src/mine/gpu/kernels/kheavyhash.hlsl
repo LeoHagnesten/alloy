@@ -1,0 +1,238 @@
+cbuffer heavy : register ( b0 ) {
+
+	uint4 pow_words [ 13 ];
+	uint4 finish_words [ 13 ];
+	uint4 limits;
+	uint4 rows [ 128 ];
+
+};
+
+RWByteAddressBuffer results : register ( u0 );
+
+static const uint2 round_constants [ 24 ] = {
+
+	uint2 ( 0x00000001, 0x00000000 ), uint2 ( 0x00008082, 0x00000000 ), uint2 ( 0x0000808A, 0x80000000 ), uint2 ( 0x80008000, 0x80000000 ),
+	uint2 ( 0x0000808B, 0x00000000 ), uint2 ( 0x80000001, 0x00000000 ), uint2 ( 0x80008081, 0x80000000 ), uint2 ( 0x00008009, 0x80000000 ),
+	uint2 ( 0x0000008A, 0x00000000 ), uint2 ( 0x00000088, 0x00000000 ), uint2 ( 0x80008009, 0x00000000 ), uint2 ( 0x8000000A, 0x00000000 ),
+	uint2 ( 0x8000808B, 0x00000000 ), uint2 ( 0x0000008B, 0x80000000 ), uint2 ( 0x00008089, 0x80000000 ), uint2 ( 0x00008003, 0x80000000 ),
+	uint2 ( 0x00008002, 0x80000000 ), uint2 ( 0x00000080, 0x80000000 ), uint2 ( 0x0000800A, 0x00000000 ), uint2 ( 0x8000000A, 0x80000000 ),
+	uint2 ( 0x80008081, 0x80000000 ), uint2 ( 0x00008080, 0x80000000 ), uint2 ( 0x80000001, 0x00000000 ), uint2 ( 0x80008008, 0x80000000 ),
+
+};
+
+uint2 turn64 ( uint2 v, uint n ) {
+
+	if ( n >= 32 ) {
+
+		v = v.yx;
+		n -= 32;
+
+	}
+
+	if ( n == 0 )
+		return v;
+
+	return uint2 ( v.x << n | v.y >> ( 32 - n ), v.y << n | v.x >> ( 32 - n ) );
+
+}
+
+struct lanes {
+
+	uint2 a0, a1, a2, a3, a4;
+	uint2 a5, a6, a7, a8, a9;
+	uint2 a10, a11, a12, a13, a14;
+	uint2 a15, a16, a17, a18, a19;
+	uint2 a20, a21, a22, a23, a24;
+
+};
+
+void keccak ( inout lanes s ) {
+
+	[ fastopt ]
+	for ( uint round = 0; round < 24; round++ ) {
+
+		uint2 c0 = s.a0 ^ s.a5 ^ s.a10 ^ s.a15 ^ s.a20;
+		uint2 c1 = s.a1 ^ s.a6 ^ s.a11 ^ s.a16 ^ s.a21;
+		uint2 c2 = s.a2 ^ s.a7 ^ s.a12 ^ s.a17 ^ s.a22;
+		uint2 c3 = s.a3 ^ s.a8 ^ s.a13 ^ s.a18 ^ s.a23;
+		uint2 c4 = s.a4 ^ s.a9 ^ s.a14 ^ s.a19 ^ s.a24;
+
+		uint2 d0 = c4 ^ turn64 ( c1, 1 );
+		uint2 d1 = c0 ^ turn64 ( c2, 1 );
+		uint2 d2 = c1 ^ turn64 ( c3, 1 );
+		uint2 d3 = c2 ^ turn64 ( c4, 1 );
+		uint2 d4 = c3 ^ turn64 ( c0, 1 );
+
+		uint2 b0 = s.a0 ^ d0;
+		uint2 b1 = turn64 ( s.a6 ^ d1, 44 );
+		uint2 b2 = turn64 ( s.a12 ^ d2, 43 );
+		uint2 b3 = turn64 ( s.a18 ^ d3, 21 );
+		uint2 b4 = turn64 ( s.a24 ^ d4, 14 );
+		uint2 b5 = turn64 ( s.a3 ^ d3, 28 );
+		uint2 b6 = turn64 ( s.a9 ^ d4, 20 );
+		uint2 b7 = turn64 ( s.a10 ^ d0, 3 );
+		uint2 b8 = turn64 ( s.a16 ^ d1, 45 );
+		uint2 b9 = turn64 ( s.a22 ^ d2, 61 );
+		uint2 b10 = turn64 ( s.a1 ^ d1, 1 );
+		uint2 b11 = turn64 ( s.a7 ^ d2, 6 );
+		uint2 b12 = turn64 ( s.a13 ^ d3, 25 );
+		uint2 b13 = turn64 ( s.a19 ^ d4, 8 );
+		uint2 b14 = turn64 ( s.a20 ^ d0, 18 );
+		uint2 b15 = turn64 ( s.a4 ^ d4, 27 );
+		uint2 b16 = turn64 ( s.a5 ^ d0, 36 );
+		uint2 b17 = turn64 ( s.a11 ^ d1, 10 );
+		uint2 b18 = turn64 ( s.a17 ^ d2, 15 );
+		uint2 b19 = turn64 ( s.a23 ^ d3, 56 );
+		uint2 b20 = turn64 ( s.a2 ^ d2, 62 );
+		uint2 b21 = turn64 ( s.a8 ^ d3, 55 );
+		uint2 b22 = turn64 ( s.a14 ^ d4, 39 );
+		uint2 b23 = turn64 ( s.a15 ^ d0, 41 );
+		uint2 b24 = turn64 ( s.a21 ^ d1, 2 );
+
+		s.a0 = b0 ^ ( ~b1 & b2 );
+		s.a1 = b1 ^ ( ~b2 & b3 );
+		s.a2 = b2 ^ ( ~b3 & b4 );
+		s.a3 = b3 ^ ( ~b4 & b0 );
+		s.a4 = b4 ^ ( ~b0 & b1 );
+		s.a5 = b5 ^ ( ~b6 & b7 );
+		s.a6 = b6 ^ ( ~b7 & b8 );
+		s.a7 = b7 ^ ( ~b8 & b9 );
+		s.a8 = b8 ^ ( ~b9 & b5 );
+		s.a9 = b9 ^ ( ~b5 & b6 );
+		s.a10 = b10 ^ ( ~b11 & b12 );
+		s.a11 = b11 ^ ( ~b12 & b13 );
+		s.a12 = b12 ^ ( ~b13 & b14 );
+		s.a13 = b13 ^ ( ~b14 & b10 );
+		s.a14 = b14 ^ ( ~b10 & b11 );
+		s.a15 = b15 ^ ( ~b16 & b17 );
+		s.a16 = b16 ^ ( ~b17 & b18 );
+		s.a17 = b17 ^ ( ~b18 & b19 );
+		s.a18 = b18 ^ ( ~b19 & b15 );
+		s.a19 = b19 ^ ( ~b15 & b16 );
+		s.a20 = b20 ^ ( ~b21 & b22 );
+		s.a21 = b21 ^ ( ~b22 & b23 );
+		s.a22 = b22 ^ ( ~b23 & b24 );
+		s.a23 = b23 ^ ( ~b24 & b20 );
+		s.a24 = b24 ^ ( ~b20 & b21 );
+		s.a0 ^= round_constants [ round ];
+
+	}
+
+}
+
+lanes load ( uint4 words [ 13 ] ) {
+
+	lanes s;
+
+	s.a0 = words [ 0 ].xy; s.a1 = words [ 0 ].zw; s.a2 = words [ 1 ].xy; s.a3 = words [ 1 ].zw; s.a4 = words [ 2 ].xy;
+	s.a5 = words [ 2 ].zw; s.a6 = words [ 3 ].xy; s.a7 = words [ 3 ].zw; s.a8 = words [ 4 ].xy; s.a9 = words [ 4 ].zw;
+	s.a10 = words [ 5 ].xy; s.a11 = words [ 5 ].zw; s.a12 = words [ 6 ].xy; s.a13 = words [ 6 ].zw; s.a14 = words [ 7 ].xy;
+	s.a15 = words [ 7 ].zw; s.a16 = words [ 8 ].xy; s.a17 = words [ 8 ].zw; s.a18 = words [ 9 ].xy; s.a19 = words [ 9 ].zw;
+	s.a20 = words [ 10 ].xy; s.a21 = words [ 10 ].zw; s.a22 = words [ 11 ].xy; s.a23 = words [ 11 ].zw; s.a24 = words [ 12 ].xy;
+
+	return s;
+
+}
+
+uint row_word ( uint row, uint word ) {
+
+	uint4 pair = rows [ row * 2 + ( word >> 2 ) ];
+	uint pick = word & 3;
+
+	return pick == 0 ? pair.x : ( pick == 1 ? pair.y : ( pick == 2 ? pair.z : pair.w ) );
+
+}
+
+[ numthreads ( 256, 1, 1 ) ]
+void main ( uint3 id : SV_DispatchThreadID ) {
+
+	uint index = id.y * limits.z + id.x;
+	uint nonce = limits.w + index;
+	lanes s = load ( pow_words );
+
+	s.a9 ^= uint2 ( nonce, limits.y );
+	keccak ( s );
+
+	uint h [ 8 ] = { s.a0.x, s.a0.y, s.a1.x, s.a1.y, s.a2.x, s.a2.y, s.a3.x, s.a3.y };
+	uint spread [ 32 ];
+
+	[ unroll ]
+	for ( uint k = 0; k < 8; k++ ) {
+
+		uint packed = ( ( h [ k ] >> 4 ) & 0x0F0F0F0F ) | ( ( h [ k ] << 4 ) & 0xF0F0F0F0 );
+		uint turned = packed >> 16 | packed << 16;
+
+		[ unroll ]
+		for ( uint t = 0; t < 4; t++ )
+			spread [ k * 4 + t ] = ( turned >> ( 4 * t ) ) & 0x000F000F;
+
+	}
+
+	uint mixed [ 8 ];
+
+	[ fastopt ]
+	for ( uint w = 0; w < 8; w++ ) {
+
+		uint built = 0;
+
+		[ unroll ]
+		for ( uint q = 0; q < 4; q++ ) {
+
+			uint upper = 0;
+			uint lower = 0;
+			uint row = w * 8 + q * 2;
+
+			[ unroll ]
+			for ( uint k = 0; k < 8; k++ ) {
+
+				uint a = row_word ( row, k );
+				uint b = row_word ( row + 1, k );
+
+				[ unroll ]
+				for ( uint t = 0; t < 4; t++ ) {
+
+					upper += ( ( a >> ( 4 * t ) ) & 0x000F000F ) * spread [ k * 4 + t ];
+					lower += ( ( b >> ( 4 * t ) ) & 0x000F000F ) * spread [ k * 4 + t ];
+
+				}
+
+			}
+
+			built |= ( ( ( upper >> 26 ) << 4 ) | ( lower >> 26 ) ) << ( 8 * q );
+
+		}
+
+		mixed [ w ] = built;
+
+	}
+
+	s = load ( finish_words );
+	s.a0 ^= uint2 ( mixed [ 0 ] ^ h [ 0 ], mixed [ 1 ] ^ h [ 1 ] );
+	s.a1 ^= uint2 ( mixed [ 2 ] ^ h [ 2 ], mixed [ 3 ] ^ h [ 3 ] );
+	s.a2 ^= uint2 ( mixed [ 4 ] ^ h [ 4 ], mixed [ 5 ] ^ h [ 5 ] );
+	s.a3 ^= uint2 ( mixed [ 6 ] ^ h [ 6 ], mixed [ 7 ] ^ h [ 7 ] );
+
+	keccak ( s );
+
+	uint top = s.a3.y;
+
+	if ( limits.x == 0xFFFFFFFF && index < 16384 ) {
+
+		results.Store ( index * 4, top );
+
+		return;
+
+	}
+
+	if ( top <= limits.x ) {
+
+		uint slot;
+
+		results.InterlockedAdd ( 0, 1, slot );
+
+		if ( slot < 31 )
+			results.Store ( 4 + slot * 4, nonce );
+
+	}
+
+}

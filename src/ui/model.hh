@@ -5,7 +5,7 @@
 
 namespace ui {
 
-	static constexpr int32_t history_room = 600;
+	static constexpr int32_t history_room = 3600;
 	static constexpr int32_t share_room = 200;
 	static constexpr int32_t log_room = 300;
 	static constexpr int32_t lane_room = 256;
@@ -66,6 +66,20 @@ namespace ui {
 		COMMAND_PREFERENCES,
 		COMMAND_RESTART,
 		COMMAND_CLEAR_LOG,
+		COMMAND_COPY_TOKEN,
+		COMMAND_OPEN_DASHBOARD,
+		COMMAND_OPEN_LOGS,
+		COMMAND_LARGE_PAGES,
+		COMMAND_EXPORT_SHARES,
+		COMMAND_EXPORT_LOG,
+		COMMAND_SAVE_PROFILE,
+		COMMAND_APPLY_PROFILE,
+		COMMAND_DELETE_PROFILE,
+		COMMAND_ADD_RIG,
+		COMMAND_REMOVE_RIG,
+		COMMAND_TUNE,
+		COMMAND_FINISH_SETUP,
+		COMMAND_REFRESH_BALANCE,
 
 	};
 
@@ -83,6 +97,16 @@ namespace ui {
 
 	};
 
+	struct card_tuning {
+
+		bool custom = false;
+		bool on = true;
+		uint32_t limit = 100;
+		uint32_t intensity = 22;
+		uint32_t heat = 0;
+
+	};
+
 	struct algorithm_tuning {
 
 		uint32_t threads = 0;
@@ -90,6 +114,24 @@ namespace ui {
 		bool gpu = true;
 		uint32_t gpu_limit = 100;
 		uint32_t intensity = 22;
+
+	};
+
+	static constexpr int32_t rig_room = 8;
+
+	enum rig_state : uint8_t {
+
+		RIG_WAITING,
+		RIG_ONLINE,
+		RIG_UNREACHABLE,
+		RIG_LOCKED,
+
+	};
+
+	struct rig_entry {
+
+		wchar_t address [ 96 ] = { };
+		char token [ 33 ] = { };
 
 	};
 
@@ -102,6 +144,7 @@ namespace ui {
 			{ L"127.0.0.1:3333", L"alloy.worker", L"x" },
 			{ L"127.0.0.1:3334", L"alloy.worker", L"x" },
 			{ L"127.0.0.1:3335", L"alloy.worker", L"x" },
+			{ L"127.0.0.1:3336", L"alloy.worker", L"x" },
 
 		};
 		bool full_dataset = true;
@@ -116,15 +159,33 @@ namespace ui {
 		uint32_t gpu_limit = 100;
 		uint32_t intensity = 22;
 		uint32_t gpu_heat = 0;
+		card_tuning cards [ adapter_room ];
 		bool pin_threads = true;
 		bool pause_active = false;
 		uint32_t idle_minutes = 2;
 		bool pause_battery = true;
+		bool pause_fullscreen = false;
+		wchar_t pause_apps [ 256 ] = { };
+		bool schedule = false;
+		uint32_t schedule_from = 22;
+		uint32_t schedule_to = 7;
+		uint32_t schedule_days = 0x7F;
+		bool notify = true;
+		bool hotkey = true;
 		bool autostart = false;
 		bool launch_at_login = false;
 		bool close_to_tray = false;
 		uint32_t api_port = 0;
+		rig_entry rigs [ rig_room ];
+		bool lookups = true;
+		bool show_fiat = false;
+		uint8_t currency = 0;
+		bool api_lan = false;
+		bool api_control = false;
+		char api_token [ 33 ] = { };
 		uint8_t theme = THEME_SYSTEM;
+		uint8_t chart_span = 0;
+		uint8_t chart_smoothing = 0;
 		algorithm_tuning tunings [ chain::ALGORITHM_COUNT ];
 
 		pool_profile& pool ( ) {
@@ -183,6 +244,35 @@ namespace ui {
 
 	};
 
+	static constexpr int32_t day_view_room = 30;
+	struct rig_status {
+
+		wchar_t name [ 64 ] = { };
+		wchar_t address [ 96 ] = { };
+		uint8_t state = RIG_WAITING;
+		bool running = false;
+		bool paused = false;
+		wchar_t algorithm [ 24 ] = { };
+		double rate = 0.0;
+		uint32_t accepted = 0;
+		uint32_t rejected = 0;
+		double uptime = 0.0;
+		int32_t gpus = 0;
+		double seen = 0.0;
+
+	};
+
+	struct day_row {
+
+		uint32_t day = 0;
+		uint64_t hashes = 0;
+		uint32_t accepted = 0;
+		uint32_t rejected = 0;
+		uint32_t seconds = 0;
+		double earned [ chain::ALGORITHM_COUNT ] = { };
+
+	};
+
 	struct share_row {
 
 		base::wall_time time;
@@ -231,6 +321,7 @@ namespace ui {
 		uint32_t faults = 0;
 		float history [ history_room ] = { };
 		int32_t history_count = 0;
+		uint64_t history_first = 0;
 		uint64_t history_serial = 0;
 		double cpu_rate = 0.0;
 		uint64_t cpu_hashes = 0;
@@ -248,6 +339,9 @@ namespace ui {
 		float gpu_heat [ gpu_room ] = { };
 		uint8_t gpu_states [ gpu_room ] = { };
 		bool large_pages = false;
+		bool pages_granted = false;
+		bool tuning = false;
+		uint32_t tuning_steps = 0;
 		bool on_backup = false;
 		bool nicehash = false;
 		uint32_t api_port = 0;
@@ -280,6 +374,35 @@ namespace ui {
 		bool sha = false;
 		wchar_t adapters [ adapter_room ] [ 128 ] = { };
 		int32_t adapter_count = 0;
+		bool network_known = false;
+		double network_difficulty = 0.0;
+		uint64_t network_height = 0;
+		double block_reward = 0.0;
+		double network_rate = 0.0;
+		double share_value = 0.0;
+		double per_day = 0.0;
+		double block_seconds = 0.0;
+		double shares_per_hour = 0.0;
+		double run_earned = 0.0;
+		day_row days [ day_view_room ];
+		int32_t day_count = 0;
+		day_row lifetime;
+		uint32_t today = 0;
+		bool balance_known = false;
+		double balance_due = 0.0;
+		double balance_paid = 0.0;
+		double pool_rate = 0.0;
+		double pool_best = 0.0;
+		uint64_t pool_shares = 0;
+		wchar_t balance_source [ 48 ] = { };
+		wchar_t lookup_note [ 120 ] = { };
+		bool price_known = false;
+		double price = 0.0;
+		rig_status rigs [ rig_room ];
+		int32_t rig_count = 0;
+		wchar_t profiles [ 12 ] [ 48 ] = { };
+		int32_t profile_count = 0;
+		double prices [ chain::ALGORITHM_COUNT ] = { };
 
 	};
 

@@ -1,5 +1,8 @@
 #include "app/session.hh"
 #include "app/journal.hh"
+#include "chain/coinbase.hh"
+#include "randomx/variant.hh"
+#include "base/system/processes.hh"
 #include "version.hh"
 #include "chain/target.hh"
 #include "mine/gpu/device.hh"
@@ -30,6 +33,12 @@ namespace app {
 
 	}
 
+	static uint32_t today_number ( ) {
+
+		return base::day_number ( base::local_calendar ( ) );
+
+	}
+
 	static mine::limits limits_of ( const ui::preferences& settings, int32_t adapters ) {
 
 		mine::limits out;
@@ -57,6 +66,21 @@ namespace app {
 
 			out.adapter_count = 1;
 			out.adapters [ 0 ] = settings.adapter == ui::all_adapters ? 0 : settings.adapter;
+
+		}
+
+		for ( uint32_t i = 0; i < out.adapter_count && settings.adapter == ui::all_adapters; i++ ) {
+
+			if ( out.adapters [ i ] >= static_cast < uint32_t > ( ui::adapter_room ) )
+				continue;
+
+			const ui::card_tuning& card = settings.cards [ out.adapters [ i ] ];
+
+			out.cards [ i ].custom = card.custom;
+			out.cards [ i ].on = card.on;
+			out.cards [ i ].percent = card.limit;
+			out.cards [ i ].intensity = card.intensity;
+			out.cards [ i ].heat = card.heat;
 
 		}
 
@@ -150,6 +174,7 @@ namespace app {
 		shown->threads = cpu.threads;
 		shown->sha = cpu.sha && cpu.sse41 && cpu.ssse3;
 		shown->aes = cpu.aes;
+		shown->pages_granted = base::large_pages_granted ( );
 
 		mine::adapter_info adapters [ ui::adapter_room ];
 
@@ -173,6 +198,9 @@ namespace app {
 
 		}
 
+		online.stop ( );
+		watched.stop ( );
+		save_history ( );
 		delete checked;
 		delete shown;
 
@@ -247,6 +275,7 @@ namespace app {
 				line.clear ( );
 				line.add ( L"Self-test failed: " ).add ( item.name ).add ( L". Alloy won't use that kernel." );
 				log ( ui::LEVEL_ERROR, line.get ( ) );
+				announce ( L"A hash kernel gave a wrong answer", line.get ( ) );
 
 			}
 
@@ -257,6 +286,7 @@ namespace app {
 		portable_only = !report.sha_extensions;
 		broken_cards [ chain::ALGORITHM_SHA256D ] = report.broken_sha_cards;
 		broken_cards [ chain::ALGORITHM_SCRYPT ] = report.broken_scrypt_cards;
+		broken_cards [ chain::ALGORITHM_KHEAVYHASH ] = report.broken_heavy_cards;
 		delete checked;
 		checked = nullptr;
 
@@ -293,6 +323,7 @@ namespace app {
 		view.stale = 0;
 		view.faults = 0;
 		view.history_count = 0;
+		view.history_first = 0;
 		view.history_serial++;
 		view.cpu_rate = 0.0;
 		view.cpu_hashes = 0;
@@ -351,6 +382,8 @@ namespace app {
 		engine.start ( feed, limits_for ( settings ) );
 		active = true;
 		paused = false;
+		held = false;
+		view.run_earned = 0.0;
 		started = base::seconds ( );
 		last_sample = started;
 		last_tick = started;
@@ -359,6 +392,8 @@ namespace app {
 		base::zero ( gpu_last, sizeof ( gpu_last ) );
 		base::zero ( gpu_restarts_seen, sizeof ( gpu_restarts_seen ) );
 		base::zero ( gpu_trims_seen, sizeof ( gpu_trims_seen ) );
+		base::zero ( gpu_phase_seen, sizeof ( gpu_phase_seen ) );
+		reject_streak = 0;
 		pin_serial = 0;
 		pin_waiting = false;
 		view.gpu_count = 0;
@@ -404,6 +439,7 @@ namespace app {
 		engine.stop ( );
 		client.stop ( );
 		drain_pool ( );
+		save_history ( );
 		active = false;
 		shown->running = false;
 		shown->paused = false;
@@ -526,13 +562,37 @@ namespace app {
 
 				view.share_serial++;
 
-				if ( row.accepted )
+				book.add_share ( today_number ( ), row.accepted, algorithm, view.share_value );
+
+				if ( row.accepted ) {
+
+					reject_streak = 0;
+					view.run_earned += view.share_value;
+
 					continue;
+
+				}
+
+				if ( ++reject_streak == 3 ) {
+
+					base::text line;
+
+					line.add ( L"The pool turned down three shares in a row: " ).add ( row.reason );
+					announce ( L"Shares are being rejected", line.get ( ) );
+
+				}
 
 			}
 
 			log ( level, item.text );
 			view.logs [ view.log_count - 1 ].time = item.time;
+
+			if ( base::starts_with ( item.text, L"Switching to the backup pool" ) )
+				announce ( L"Switched to the backup pool", item.text );
+			else if ( base::starts_with ( item.text, L"The node accepted a block" ) )
+				announce ( L"Block found", item.text );
+			else if ( item.kind == pool::EVENT_ERROR )
+				announce ( L"The pool needs attention", item.text );
 
 		}
 
@@ -571,6 +631,7 @@ namespace app {
 			else
 				line.add ( algorithm == chain::ALGORITHM_SCRYPT ? L", the same nonce as Litecoin's first block on October 7, 2011" : L", the same nonce Satoshi found on January 3, 2009" );
 			log ( view.nonce == real.nonce ( ) ? ui::LEVEL_GOOD : ui::LEVEL_ERROR, line.get ( ) );
+			announce ( L"Genesis block found", line.get ( ) );
 			base::copy_text ( view.status, base::count_of ( view.status ), L"Genesis block found" );
 
 			return;
@@ -606,11 +667,20 @@ namespace app {
 
 				base::move ( view.history, view.history + 1, sizeof ( float ) * ( ui::history_room - 1 ) );
 				view.history_count--;
+				view.history_first++;
 
 			}
 
 			view.history [ view.history_count++ ] = rate;
 			view.history_serial++;
+			ledger_carry += span;
+
+			uint32_t whole = static_cast < uint32_t > ( ledger_carry );
+
+			ledger_carry -= whole;
+
+			if ( !paused && whole )
+				book.add_time ( today_number ( ), whole, total - last_total );
 
 			double cpu_total = 0.0;
 
@@ -671,6 +741,18 @@ namespace app {
 
 			view.gpu_states [ i ] = gpu_phase_of ( engine.gpu_status ( static_cast < uint32_t > ( i ) ) );
 			view.gpu_heat [ i ] = engine.gpu_temperature ( static_cast < uint32_t > ( i ) );
+
+			if ( view.gpu_states [ i ] == ui::GPU_COOLING && gpu_phase_seen [ i ] != ui::GPU_COOLING ) {
+
+				base::text line;
+
+				line.add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) ).add ( L" reached its temperature limit and rests until it cools four degrees" );
+				log ( ui::LEVEL_WARNING, line.get ( ) );
+				announce ( L"Graphics card is resting", line.get ( ) );
+
+			}
+
+			gpu_phase_seen [ i ] = view.gpu_states [ i ];
 
 			uint32_t restarts = engine.gpu_restarts ( static_cast < uint32_t > ( i ) );
 			uint32_t trims = engine.gpu_trimmed ( static_cast < uint32_t > ( i ) );
@@ -744,6 +826,7 @@ namespace app {
 			view.time = link.time;
 			view.branches = link.branches;
 			view.coinbase_size = link.coinbase_size;
+			pool_reward = link.reward;
 			view.height = link.height;
 			view.on_backup = link.on_backup;
 
@@ -827,20 +910,20 @@ namespace app {
 
 		if ( active ) {
 
-			const wchar_t* reason = nullptr;
+			const wchar_t* reason = pause_reason ( now, settings );
 
-			if ( settings.pause_active && base::idle_seconds ( ) < static_cast < double > ( settings.idle_minutes ) * 60.0 )
-				reason = L"Paused while the computer is in use";
-			else if ( settings.pause_battery && base::on_battery ( ) )
-				reason = L"Paused on battery power";
+			if ( ( reason != nullptr ) != paused || ( reason && !base::same_text ( reason, shown->pause_reason ) ) ) {
 
-			if ( ( reason != nullptr ) != paused ) {
+				bool was = paused;
 
 				paused = reason != nullptr;
 				engine.set_paused ( paused );
 				shown->paused = paused;
 				base::copy_text ( shown->pause_reason, base::count_of ( shown->pause_reason ), reason ? reason : L"" );
-				log ( ui::LEVEL_INFO, paused ? reason : L"Resumed" );
+
+				if ( paused || was )
+					log ( ui::LEVEL_INFO, paused ? reason : L"Resumed" );
+
 				changed = true;
 
 			}
@@ -860,6 +943,57 @@ namespace app {
 
 		}
 
+		if ( now - accounted >= 1.0 ) {
+
+			account ( now, settings );
+			changed = true;
+
+		}
+
+		switch ( api.take_command ( ) ) {
+
+			case API_PAUSE:
+				if ( active ) {
+
+					held = true;
+					log ( ui::LEVEL_INFO, L"Paused from the API" );
+
+				}
+
+				break;
+
+			case API_RESUME:
+				if ( held )
+					log ( ui::LEVEL_INFO, L"Resumed from the API" );
+
+				held = false;
+				break;
+
+			case API_START:
+				if ( !active ) {
+
+					log ( ui::LEVEL_INFO, L"Started from the API" );
+					start ( settings );
+
+				}
+
+				break;
+
+			case API_STOP:
+				if ( active ) {
+
+					log ( ui::LEVEL_INFO, L"Stopped from the API" );
+					stop ( );
+
+				}
+
+				break;
+
+			default:
+				break;
+
+		}
+
 		if ( api.running ( ) && now - published >= 1.0 ) {
 
 			published = now;
@@ -871,15 +1005,264 @@ namespace app {
 
 	}
 
+	bool within_schedule ( const base::calendar& now, uint32_t from, uint32_t to, uint32_t days ) {
+
+		uint32_t hour = now.hour;
+		bool overnight = from % 24 > to % 24;
+		bool late = overnight && hour < to % 24;
+		uint32_t weekday = ( now.weekday + 6u - ( late ? 1u : 0u ) ) % 7u;
+		bool in_hours = from % 24 == to % 24 || ( overnight ? hour >= from % 24 || hour < to % 24 : hour >= from % 24 && hour < to % 24 );
+
+		return in_hours && ( days >> weekday & 1u );
+
+	}
+
+	bool session::inside_schedule ( const ui::preferences& settings ) const {
+
+		return within_schedule ( base::local_calendar ( ), settings.schedule_from, settings.schedule_to, settings.schedule_days );
+
+	}
+
+	const wchar_t* session::pause_reason ( double now, const ui::preferences& settings ) {
+
+		if ( held )
+			return L"Paused by you";
+
+		if ( sleeping )
+			return L"Paused while the computer sleeps";
+
+		if ( settings.schedule && !inside_schedule ( settings ) )
+			return L"Paused outside the mining schedule";
+
+		if ( ( settings.pause_fullscreen || settings.pause_apps [ 0 ] ) && now - apps_checked >= 2.0 ) {
+
+			wchar_t which [ 64 ] = { };
+
+			apps_checked = now;
+			blocking [ 0 ] = 0;
+
+			if ( settings.pause_apps [ 0 ] && base::find_process ( settings.pause_apps, which, base::count_of ( which ) ) ) {
+
+				base::writer < wchar_t, 96 > text;
+
+				text.add ( L"Paused while " ).add ( which ).add ( L" runs" );
+				base::copy_text ( blocking, base::count_of ( blocking ), text.get ( ) );
+
+			} else if ( settings.pause_fullscreen && base::fullscreen_busy ( ) )
+				base::copy_text ( blocking, base::count_of ( blocking ), L"Paused while something runs full screen" );
+
+		}
+
+		if ( ( settings.pause_fullscreen || settings.pause_apps [ 0 ] ) && blocking [ 0 ] )
+			return blocking;
+
+		if ( settings.pause_active && base::idle_seconds ( ) < static_cast < double > ( settings.idle_minutes ) * 60.0 )
+			return L"Paused while the computer is in use";
+
+		if ( settings.pause_battery && base::on_battery ( ) )
+			return L"Paused on battery power";
+
+		return nullptr;
+
+	}
+
+	void session::set_sleeping ( bool value ) {
+
+		if ( sleeping == value )
+			return;
+
+		sleeping = value;
+
+		if ( !value )
+			network_changed ( );
+
+	}
+
+	void session::set_held ( bool value ) {
+
+		held = value;
+
+	}
+
+	void session::start_lookups ( ) {
+
+		book.load ( );
+		online.start ( );
+		lookups_on = true;
+
+	}
+
+	void session::save_history ( ) {
+
+		if ( lookups_on && book.dirty ( ) )
+			book.save ( );
+
+	}
+
+	void session::account ( double now, const ui::preferences& settings ) {
+
+		ui::snapshot& view = *shown;
+		uint8_t kind = active ? algorithm : algorithm_of ( settings );
+		uint8_t flavour = active ? view.variant : settings.variant;
+		lookup_result found;
+		lookup_request wanted;
+		const ui::pool_profile& profile = settings.pool ( );
+
+		accounted = now;
+		wanted.algorithm = kind;
+		wanted.variant = flavour;
+		base::copy_text ( wanted.pool, base::count_of ( wanted.pool ), view.on_backup ? profile.backup : profile.address );
+		base::copy_text ( wanted.worker, base::count_of ( wanted.worker ), profile.worker );
+		wanted.balances = settings.lookups;
+		wanted.prices = settings.lookups && settings.show_fiat;
+
+		if ( lookups_on ) {
+
+			online.ask ( wanted );
+			online.read ( found );
+
+		}
+
+		double difficulty = 0.0;
+		double reward = 0.0;
+		uint64_t height = view.height;
+		bool known = false;
+
+		if ( chain::uses_header ( kind ) && view.bits && pool_reward ) {
+
+			difficulty = chain::difficulty_of_bits ( view.bits );
+			reward = static_cast < double > ( pool_reward ) / 1e8;
+			known = difficulty > 0.0;
+
+		} else if ( kind == chain::ALGORITHM_RANDOMX && flavour <= 1 && found.network ) {
+
+			difficulty = found.difficulty;
+			reward = found.reward;
+			height = found.height;
+			known = difficulty > 0.0;
+
+		}
+
+		double block = chain::block_hashes ( kind, difficulty );
+		double spacing = kind == chain::ALGORITHM_SHA256D ? 600.0 : ( kind == chain::ALGORITHM_SCRYPT ? 150.0 : 120.0 );
+		double rate = view.running ? view.rate : 0.0;
+		double share = view.difficulty > 0.0 ? chain::share_hashes ( kind, view.difficulty ) : 0.0;
+
+		view.network_known = known;
+		view.network_difficulty = difficulty;
+		view.network_height = height;
+		view.block_reward = reward;
+		view.network_rate = known ? block / spacing : 0.0;
+		view.share_value = known && share > 0.0 ? reward * share / block : 0.0;
+		view.per_day = known && rate > 0.0 ? reward * rate * 86400.0 / block : 0.0;
+		view.block_seconds = known && rate > 0.0 ? block / rate : 0.0;
+		view.shares_per_hour = share > 0.0 && rate > 0.0 ? rate * 3600.0 / share : 0.0;
+		view.today = today_number ( );
+
+		int32_t first = base::max ( 0, book.count ( ) - ui::day_view_room );
+
+		view.day_count = 0;
+
+		for ( int32_t i = book.count ( ) - 1; i >= first; i-- ) {
+
+			const day_record& row = book.at ( i );
+			ui::day_row& slot = view.days [ view.day_count++ ];
+
+			slot.day = row.day;
+			slot.hashes = row.hashes;
+			slot.accepted = row.accepted;
+			slot.rejected = row.rejected;
+			slot.seconds = row.seconds;
+			base::copy ( slot.earned, row.earned, sizeof ( slot.earned ) );
+
+		}
+
+		const day_record& total = book.lifetime ( );
+
+		view.lifetime.hashes = total.hashes;
+		view.lifetime.accepted = total.accepted;
+		view.lifetime.rejected = total.rejected;
+		view.lifetime.seconds = total.seconds;
+		base::copy ( view.lifetime.earned, total.earned, sizeof ( view.lifetime.earned ) );
+
+		view.balance_known = found.balance;
+		view.balance_due = found.due;
+		view.balance_paid = found.paid;
+		view.pool_rate = found.pool_rate;
+		view.pool_best = found.best;
+		view.pool_shares = found.pool_shares;
+		base::copy_text ( view.balance_source, base::count_of ( view.balance_source ), found.source );
+		base::copy_text ( view.lookup_note, base::count_of ( view.lookup_note ), found.note );
+
+		int32_t coin = kind == chain::ALGORITHM_KHEAVYHASH ? 3 : ( kind == chain::ALGORITHM_SHA256D ? 0 : ( kind == chain::ALGORITHM_SCRYPT ? 1 : ( flavour <= 1 ? 2 : -1 ) ) );
+
+		view.price_known = settings.show_fiat && found.priced && coin >= 0 && found.prices [ coin ] [ settings.currency % CURRENCY_COUNT ] > 0.0;
+		view.price = view.price_known ? found.prices [ coin ] [ settings.currency % CURRENCY_COUNT ] : 0.0;
+
+		for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ )
+			view.prices [ i ] = found.priced ? found.prices [ i ] [ settings.currency % CURRENCY_COUNT ] : 0.0;
+
+		watched.configure ( settings.rigs, ui::rig_room );
+		watched.read ( view.rigs, view.rig_count );
+
+		if ( lookups_on && book.dirty ( ) && now - ledger_saved > 60.0 ) {
+
+			ledger_saved = now;
+			book.save ( );
+
+		}
+
+	}
+
+	void session::announce ( const wchar_t* title, const wchar_t* text ) {
+
+		notice& slot = notices [ notices_pushed++ % base::count_of ( notices ) ];
+
+		base::copy_text ( slot.title, base::count_of ( slot.title ), title );
+		base::copy_text ( slot.text, base::count_of ( slot.text ), text );
+
+		if ( notices_pushed - notices_read > base::count_of ( notices ) )
+			notices_read = notices_pushed - base::count_of ( notices );
+
+	}
+
+	bool session::next_notice ( notice& out ) {
+
+		if ( notices_read >= notices_pushed )
+			return false;
+
+		out = notices [ notices_read++ % base::count_of ( notices ) ];
+
+		return true;
+
+	}
+
+	void session::network_changed ( ) {
+
+		if ( active && mode == ui::MODE_POOL )
+			client.reconnect ( );
+
+	}
+
 	void session::sync_api ( const ui::preferences& settings ) {
 
-		if ( settings.api_port == api_port )
+		app::api_options wanted;
+
+		wanted.port = static_cast < uint16_t > ( settings.api_port );
+		wanted.everyone = settings.api_lan;
+		wanted.control = settings.api_control;
+		base::copy_text ( wanted.token, sizeof ( wanted.token ), settings.api_token );
+
+		const app::api_options& current = api.options ( );
+		bool same = settings.api_port == api_port && current.everyone == wanted.everyone && current.control == wanted.control && base::same_text ( current.token, wanted.token );
+
+		if ( same )
 			return;
 
 		api.stop ( );
 		api_port = settings.api_port;
 
-		if ( api_port && !api.start ( static_cast < uint16_t > ( api_port ) ) )
+		if ( api_port && !api.start ( wanted ) )
 			log ( ui::LEVEL_WARNING, L"Couldn't open the stats API, the port is probably taken" );
 
 		published = 0.0;
@@ -901,8 +1284,24 @@ namespace app {
 
 		};
 
-		out->add ( "{\"version\":\"" ALLOY_VERSION_TEXT "\",\"algorithm\":" );
+		wchar_t computer [ 64 ] = { };
+
+		base::computer_name ( computer, base::count_of ( computer ) );
+		out->add ( "{\"version\":\"" ALLOY_VERSION_TEXT "\",\"name\":" );
+		quoted ( computer );
+		out->add ( ",\"algorithm\":" );
 		quoted ( chain::algorithm_key ( view.running ? view.algorithm : settings.algorithm ) );
+		uint8_t kind = view.running ? view.algorithm : settings.algorithm;
+
+		out->add ( ",\"variant\":" );
+
+		if ( kind == chain::ALGORITHM_RANDOMX )
+			out->put ( '"' ).add ( randomx::variant_of ( view.variant ).key ).put ( '"' );
+		else
+			quoted ( chain::algorithm_key ( kind ) );
+
+		out->add ( ",\"control\":" ).add ( settings.api_control ? "true" : "false" ).add ( ",\"pause_reason\":" );
+		quoted ( view.paused ? view.pause_reason : L"" );
 		out->add ( ",\"mode\":\"" ).add ( modes [ ( view.running ? view.mode : settings.mode ) % 3 ] );
 		out->add ( "\",\"running\":" ).add ( view.running ? "true" : "false" ).add ( ",\"paused\":" ).add ( view.paused ? "true" : "false" );
 		out->add ( ",\"uptime\":" ).decimal ( view.uptime, 1 ).add ( ",\"hashes\":" ).number ( view.hashes );

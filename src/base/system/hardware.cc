@@ -209,6 +209,52 @@ namespace base {
 
 	}
 
+	bool computer_name ( wchar_t* out, int32_t room ) {
+
+		DWORD size = static_cast < DWORD > ( room );
+
+		if ( GetComputerNameExW ( ComputerNamePhysicalDnsHostname, out, &size ) )
+			return true;
+
+		size = static_cast < DWORD > ( room );
+
+		return GetComputerNameW ( out, &size ) != FALSE;
+
+	}
+
+	bool random_bytes ( void* out, size_t size ) {
+
+		return RtlGenRandom ( out, static_cast < ULONG > ( size ) ) != FALSE;
+
+	}
+
+	bool large_pages_granted ( ) {
+
+		HANDLE token = nullptr;
+		LUID wanted = { };
+
+		if ( !LookupPrivilegeValueW ( nullptr, L"SeLockMemoryPrivilege", &wanted ) || !OpenProcessToken ( GetCurrentProcess ( ), TOKEN_QUERY, &token ) )
+			return false;
+
+		uint8_t buffer [ 4096 ];
+		DWORD size = 0;
+		bool found = false;
+
+		if ( GetTokenInformation ( token, TokenPrivileges, buffer, sizeof ( buffer ), &size ) ) {
+
+			TOKEN_PRIVILEGES* list = reinterpret_cast < TOKEN_PRIVILEGES* > ( buffer );
+
+			for ( DWORD i = 0; i < list->PrivilegeCount && !found; i++ )
+				found = list->Privileges [ i ].Luid.LowPart == wanted.LowPart && list->Privileges [ i ].Luid.HighPart == wanted.HighPart;
+
+		}
+
+		CloseHandle ( token );
+
+		return found;
+
+	}
+
 	bool set_run_at_login ( const wchar_t* name, bool on, const wchar_t* arguments ) {
 
 		static const wchar_t key [ ] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";

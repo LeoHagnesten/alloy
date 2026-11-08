@@ -27,4 +27,10 @@ namespace base {
 
 	bool set_run_at_login ( const wchar_t* name, bool on, const wchar_t* arguments );
 
+	bool computer_name ( wchar_t* out, int32_t room );
+
+	bool random_bytes ( void* out, size_t size );
+
+	bool large_pages_granted ( );
+
 }

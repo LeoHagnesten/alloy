@@ -74,6 +74,8 @@ namespace net {
 
 		int32_t read_line ( char* out, int32_t room, uint32_t wait );
 
+		int32_t read ( char* out, int32_t room, uint32_t wait );
+
 	private:
 
 		uintptr_t handle = ~static_cast < uintptr_t > ( 0 );
@@ -96,7 +98,7 @@ namespace net {
 
 		}
 
-		bool open ( uint16_t port );
+		bool open ( uint16_t port, bool everyone = false );
 
 		void close ( );
 
@@ -112,7 +114,7 @@ namespace net {
 
 		}
 
-		bool accept ( connection& out, uint32_t wait );
+		bool accept ( connection& out, uint32_t wait, bool* local = nullptr );
 
 	private:
 

@@ -185,6 +185,49 @@ namespace ui {
 				segment ( 9.0f, 11.5f, 12.5f, 8.0f );
 				break;
 
+			case ICON_EARNINGS:
+				surface.ring ( at ( 8.0f, false ), at ( 8.0f, true ), 6.0f * unit, tint, stroke );
+				segment ( 8.0f, 4.0f, 8.0f, 12.0f );
+				segment ( 10.0f, 6.0f, 6.8f, 6.0f );
+				segment ( 6.0f, 8.0f, 10.0f, 8.0f );
+				segment ( 9.2f, 10.0f, 6.0f, 10.0f );
+				break;
+
+			case ICON_RIGS:
+				surface.outline ( render::box { at ( 2.0f, false ), at ( 2.5f, true ), 12.0f * unit, 4.5f * unit }, tint, stroke, 1.0f * unit );
+				surface.outline ( render::box { at ( 2.0f, false ), at ( 9.0f, true ), 12.0f * unit, 4.5f * unit }, tint, stroke, 1.0f * unit );
+				surface.dot ( at ( 4.8f, false ), at ( 4.75f, true ), 0.9f * unit, tint );
+				surface.dot ( at ( 4.8f, false ), at ( 11.25f, true ), 0.9f * unit, tint );
+				break;
+
+			case ICON_HELP:
+				surface.ring ( at ( 8.0f, false ), at ( 8.0f, true ), 6.0f * unit, tint, stroke );
+				surface.arc ( at ( 8.0f, false ), at ( 6.6f, true ), 2.0f * unit, -3.1f, 3.9f, tint, stroke );
+				segment ( 8.0f, 8.6f, 8.0f, 9.6f );
+				surface.dot ( at ( 8.0f, false ), at ( 11.6f, true ), 0.9f * unit, tint );
+				break;
+
+			case ICON_PAUSE:
+				surface.fill ( render::box { at ( 4.5f, false ), at ( 3.5f, true ), 2.5f * unit, 9.0f * unit }, tint, 0.8f * unit );
+				surface.fill ( render::box { at ( 9.0f, false ), at ( 3.5f, true ), 2.5f * unit, 9.0f * unit }, tint, 0.8f * unit );
+				break;
+
+			case ICON_SAVE:
+				segment ( 8.0f, 2.5f, 8.0f, 10.0f );
+				segment ( 4.5f, 6.8f, 8.0f, 10.3f );
+				segment ( 11.5f, 6.8f, 8.0f, 10.3f );
+				segment ( 2.5f, 13.5f, 13.5f, 13.5f );
+				break;
+
+			case ICON_KEYBOARD:
+				surface.outline ( render::box { at ( 1.5f, false ), at ( 4.0f, true ), 13.0f * unit, 8.5f * unit }, tint, stroke, 1.5f * unit );
+				segment ( 5.0f, 10.0f, 11.0f, 10.0f );
+				surface.dot ( at ( 4.5f, false ), at ( 7.0f, true ), 0.8f * unit, tint );
+				surface.dot ( at ( 7.0f, false ), at ( 7.0f, true ), 0.8f * unit, tint );
+				surface.dot ( at ( 9.5f, false ), at ( 7.0f, true ), 0.8f * unit, tint );
+				surface.dot ( at ( 12.0f, false ), at ( 7.0f, true ), 0.8f * unit, tint );
+				break;
+
 		}
 
 	}

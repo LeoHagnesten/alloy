@@ -36,6 +36,16 @@ namespace tests {
 
 	void motion_tests ( );
 
+	void control_tests ( );
+
+	void records_tests ( );
+
+	void kaspa_tests ( );
+
+	void sv2_tests ( );
+
+	void sv2_crypto_tests ( );
+
 }
 
 #endif

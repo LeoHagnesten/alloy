@@ -1,4 +1,5 @@
 #include "mine/gpu/device.hh"
+#include "hash/heavyhash.hh"
 #include "base/bits.hh"
 #include "base/system/com.hh"
 #include "base/memory.hh"
@@ -12,6 +13,7 @@
 #include "scrypt_start.h"
 #include "scrypt_mix.h"
 #include "scrypt_finish.h"
+#include "kheavyhash.h"
 
 namespace mine {
 
@@ -24,6 +26,15 @@ namespace mine {
 		uint32_t tail [ 4 ];
 		uint32_t limits [ 4 ];
 		uint32_t head [ 16 ];
+
+	};
+
+	struct heavy_layout {
+
+		uint64_t pow [ 26 ];
+		uint64_t finish [ 26 ];
+		uint32_t limits [ 4 ];
+		uint32_t rows [ 512 ];
 
 	};
 
@@ -208,6 +219,8 @@ namespace mine {
 		}
 
 		drop ( constants );
+		drop ( heavy_constants );
+		drop ( heavy_shader );
 
 		for ( ID3D11ComputeShader*& stage : scrypt_stages )
 			drop ( stage );
@@ -229,6 +242,7 @@ namespace mine {
 		has_luid = false;
 		scrypt_room = 0;
 		scrypt_failed = false;
+		heavy_failed = false;
 		next_slot = 0;
 
 	}
@@ -323,10 +337,113 @@ namespace mine {
 
 	}
 
+	bool gpu_device::prepare_heavy ( ) {
+
+		if ( heavy_shader && heavy_constants )
+			return true;
+
+		if ( heavy_failed || !device )
+			return false;
+
+		D3D11_BUFFER_DESC layout = { };
+
+		layout.ByteWidth = sizeof ( heavy_layout );
+		layout.Usage = D3D11_USAGE_DYNAMIC;
+		layout.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		layout.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+		bool ok = SUCCEEDED ( device->CreateComputeShader ( kheavyhash_code, sizeof ( kheavyhash_code ), nullptr, &heavy_shader ) ) && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &heavy_constants ) );
+
+		if ( !ok ) {
+
+			drop ( heavy_constants );
+			drop ( heavy_shader );
+			heavy_failed = true;
+
+		}
+
+		return ok;
+
+	}
+
+	bool gpu_device::dispatch_heavy ( const hash::heavy_hasher& prepared, uint32_t nonce_high, uint32_t first, uint32_t count, uint32_t threshold, int32_t slot, uint32_t words ) {
+
+		if ( !prepare_heavy ( ) )
+			return false;
+
+		uint32_t groups = base::max ( ( count + 255 ) / 256, 1u );
+		uint32_t across = base::min ( groups, 4096u );
+		uint32_t down = ( groups + across - 1 ) / across;
+		heavy_layout* values = new heavy_layout { };
+
+		base::copy ( values->pow, prepared.pow_state ( ), 25 * 8 );
+		base::copy ( values->finish, prepared.finish_state ( ), 25 * 8 );
+		values->limits [ 0 ] = threshold;
+		values->limits [ 1 ] = nonce_high;
+		values->limits [ 2 ] = across * 256;
+		values->limits [ 3 ] = first;
+		hash::heavy_pack ( prepared.matrix ( ), values->rows );
+
+		D3D11_MAPPED_SUBRESOURCE mapped;
+		bool mapped_ok = SUCCEEDED ( context->Map ( heavy_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped ) );
+
+		if ( mapped_ok ) {
+
+			base::copy ( mapped.pData, values, sizeof ( heavy_layout ) );
+			context->Unmap ( heavy_constants, 0 );
+
+		}
+
+		delete values;
+
+		if ( !mapped_ok )
+			return false;
+
+		static const UINT zeros [ 4 ] = { };
+
+		context->ClearUnorderedAccessViewUint ( views [ slot ], zeros );
+		context->CSSetConstantBuffers ( 0, 1, &heavy_constants );
+		context->CSSetUnorderedAccessViews ( 0, 1, &views [ slot ], nullptr );
+		context->CSSetShader ( heavy_shader, nullptr, 0 );
+		context->Dispatch ( across, down, 1 );
+
+		D3D11_BOX box = { 0, 0, 0, words * 4, 1, 1 };
+
+		context->CopySubresourceRegion ( readback [ slot ], 0, 0, 0, 0, results [ slot ], 0, &box );
+		context->Flush ( );
+
+		return true;
+
+	}
+
+	bool gpu_device::submit_heavy ( const hash::heavy_hasher& prepared, uint32_t nonce_high, uint32_t first, uint32_t count, uint32_t threshold, int32_t& slot ) {
+
+		slot = next_slot;
+		next_slot ^= 1;
+
+		return dispatch_heavy ( prepared, nonce_high, first, count, base::min ( threshold, 0xFFFFFFFEu ), slot, 32 );
+
+	}
+
+	bool gpu_device::sample_heavy ( const hash::heavy_hasher& prepared, uint32_t nonce_high, uint32_t first, uint32_t count, uint32_t* tops ) {
+
+		count = base::min ( count, sample_room );
+
+		int32_t slot = next_slot;
+
+		next_slot ^= 1;
+
+		return count && dispatch_heavy ( prepared, nonce_high, first, count, 0xFFFFFFFFu, slot, count ) && read ( slot, tops, count );
+
+	}
+
 	uint32_t gpu_device::capacity ( uint8_t algorithm ) {
 
 		if ( algorithm == chain::ALGORITHM_SCRYPT )
 			return prepare_scrypt ( ) ? scrypt_room : 0;
+
+		if ( algorithm == chain::ALGORITHM_KHEAVYHASH )
+			return prepare_heavy ( ) ? 1u << 26 : 0;
 
 		return algorithm == chain::ALGORITHM_SHA256D && device ? 1u << 28 : 0;
 
@@ -377,7 +494,7 @@ namespace mine {
 
 		bool scrypt = algorithm == chain::ALGORITHM_SCRYPT;
 
-		if ( !device || algorithm == chain::ALGORITHM_RANDOMX || ( scrypt && !prepare_scrypt ( ) ) )
+		if ( !device || algorithm == chain::ALGORITHM_RANDOMX || algorithm == chain::ALGORITHM_KHEAVYHASH || ( scrypt && !prepare_scrypt ( ) ) )
 			return false;
 
 		uint32_t width = scrypt ? 64 : 256;

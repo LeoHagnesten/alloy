@@ -32,6 +32,10 @@ namespace base {
 
 	bool data_folder ( wchar_t* out, int32_t room );
 
+	bool roaming_path ( wchar_t* out, int32_t room, const wchar_t* name );
+
 	bool data_subfolder ( wchar_t* out, int32_t room, const wchar_t* name );
+
+	bool temp_folder ( wchar_t* out, int32_t room, const wchar_t* name );
 
 }

@@ -1,6 +1,7 @@
 #include "app/commands.hh"
 #include "app/journal.hh"
 #include "app/self_test.hh"
+#include "app/tune.hh"
 #include "version.hh"
 #include "app/session.hh"
 #include "app/settings.hh"
@@ -43,14 +44,29 @@ namespace app {
 
 	};
 
-	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window", L"--tls-check", L"--self-test", L"--crash-test" };
+	static const wchar_t* const actions [ ] = { L"--bench", L"--genesis", L"--mine", L"--test-pool", L"--allow-large-pages", L"--help", L"--test", L"--capture", L"--icon", L"--logo", L"--smoke-window", L"--tls-check", L"--self-test", L"--crash-test", L"--tune" };
+
+	static bool window_option ( const wchar_t* item, bool& takes ) {
+
+		takes = base::same_text ( item, L"--profile" ) || base::same_text ( item, L"--set" );
+
+		return takes || base::same_text ( item, L"--minimized" );
+
+	}
 
 	bool is_command ( wchar_t** arguments, int32_t count ) {
 
 		for ( int32_t i = 1; arguments && i < count; i++ ) {
 
-			if ( arguments [ i ] [ 0 ] == L'-' && arguments [ i ] [ 1 ] == L'-' )
+			bool takes = false;
+
+			if ( arguments [ i ] [ 0 ] != L'-' || arguments [ i ] [ 1 ] != L'-' )
+				continue;
+
+			if ( !window_option ( arguments [ i ], takes ) )
 				return true;
+
+			i += takes ? 1 : 0;
 
 		}
 
@@ -58,22 +74,85 @@ namespace app {
 
 	}
 
+	void read_launch ( wchar_t** arguments, int32_t count, launch_options& out ) {
+
+		for ( int32_t i = 1; arguments && i < count; i++ ) {
+
+			const wchar_t* item = arguments [ i ];
+			const wchar_t* value = i + 1 < count ? arguments [ i + 1 ] : nullptr;
+
+			if ( base::same_text ( item, L"--minimized" ) )
+				out.minimized = true;
+			else if ( base::same_text ( item, L"--profile" ) && value ) {
+
+				out.profile = value;
+				i++;
+
+			} else if ( base::same_text ( item, L"--set" ) && value ) {
+
+				if ( out.set_count < base::count_of ( out.sets ) )
+					out.sets [ out.set_count++ ] = value;
+
+				i++;
+
+			}
+
+		}
+
+	}
+
+	void apply_launch ( const launch_options& options, ui::preferences& settings, uint32_t threads ) {
+
+		if ( options.profile && !load_profile ( options.profile, settings, threads ) ) {
+
+			base::text note;
+
+			note.add ( L"alloy: there's no profile called " ).add ( options.profile );
+			base::print_line ( note.get ( ) );
+
+		}
+
+		for ( int32_t i = 0; i < options.set_count; i++ ) {
+
+			char line [ 640 ];
+
+			base::narrow ( line, sizeof ( line ), options.sets [ i ] );
+
+			if ( !apply_setting ( settings, line, threads ) ) {
+
+				base::text note;
+
+				note.add ( L"alloy: --set wants key=value, like --set randomx.threads=8" );
+				base::print_line ( note.get ( ) );
+
+			}
+
+		}
+
+	}
+
 	static void usage ( ) {
 
-		base::print_line ( L"Alloy " ALLOY_VERSION_TEXT L", a SHA-256d, scrypt and RandomX miner written from scratch" );
+		base::print_line ( L"Alloy " ALLOY_VERSION_TEXT L", a SHA-256d, scrypt, RandomX and kHeavyHash miner written from scratch" );
 		base::print_line ( L"" );
 		base::print_line ( L"  Alloy.exe                                   open the window" );
 		base::print_line ( L"  Alloy.exe --bench [algorithm] [--seconds n] measure the hashrate" );
 		base::print_line ( L"  Alloy.exe --genesis [--from nonce]          rediscover the Bitcoin genesis block's nonce" );
 		base::print_line ( L"  Alloy.exe --mine host:port [--user name] [--pass word] [--seconds n]" );
+		base::print_line ( L"  Alloy.exe --mine http://127.0.0.1:8332 --user address   mine solo against your own node" );
+		base::print_line ( L"  Alloy.exe --mine stratum2+tcp://host:port/authority_key   mine on a Stratum V2 pool" );
 		base::print_line ( L"  Alloy.exe --test-pool [--port n] [--difficulty d] [--job-seconds n] [--seconds n]" );
 		base::print_line ( L"  Alloy.exe --allow-large-pages                let RandomX use large pages (run as administrator once)" );
 		base::print_line ( L"  Alloy.exe --self-test                        check every hash kernel and graphics card against known answers" );
 		base::print_line ( L"" );
-		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx  --dataset full|light" );
+		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash  --dataset full|light" );
 		base::print_line ( L"  Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n" );
 		base::print_line ( L"  Limits    --cpu-limit percent  --gpu-limit percent  --intensity 16-26" );
 		base::print_line ( L"  Kernel    --kernel auto|extensions|portable  --priority idle|low|normal" );
+		base::print_line ( L"  Settings  --profile name  --set key=value (any key from settings.ini, repeatable)" );
+		base::print_line ( L"" );
+		base::print_line ( L"  Alloy.exe --profile name --set randomx.threads=8   open the window with a profile and changes" );
+		base::print_line ( L"  Alloy.exe --tune [algorithm]                 find the fastest threads and intensity and save them" );
 #ifdef ALLOY_DEBUG
 		base::print_line ( L"" );
 		base::print_line ( L"  Alloy.exe --test | --capture <folder> [--stills] | --smoke-window [shot.png]" );
@@ -98,6 +177,59 @@ namespace app {
 			base::print_line ( line.get ( ) );
 
 		}
+
+	}
+
+	static void print_trial ( const trial& step, void* context ) {
+
+		base::text note;
+
+		note.add ( L"  " );
+
+		if ( step.threads )
+			note.number ( step.threads ).add ( step.threads == 1 ? L" thread" : L" threads" );
+		else
+			note.add ( L"no CPU" );
+
+		if ( step.gpu )
+			note.add ( L" + GPU at intensity " ).number ( step.intensity );
+
+		note.add ( L":  " ).scaled ( step.rate, L"H/s" );
+		base::print_line ( note.get ( ) );
+
+	}
+
+	static uint32_t tune_command ( command_line& line ) {
+
+		tune_result* result = new tune_result;
+		base::text note;
+		uint8_t algorithm = line.settings.algorithm;
+
+		note.add ( L"Finding the fastest settings for " ).add ( chain::algorithm_name ( algorithm ) );
+		base::print_line ( note.get ( ) );
+		tune ( algorithm, line.settings, *result, nullptr, &print_trial, nullptr );
+		note.clear ( );
+		note.add ( L"Fastest: " ).number ( result->threads ).add ( L" threads" );
+
+		if ( result->gpu )
+			note.add ( L" with the GPU at intensity " ).number ( result->intensity );
+
+		note.add ( L", " ).scaled ( result->rate, L"H/s" );
+		base::print_line ( note.get ( ) );
+
+		const wchar_t* wide_key = chain::algorithm_key ( algorithm );
+
+		note.clear ( );
+		note.add ( L"Keep it with: Alloy.exe --set " ).add ( wide_key ).add ( L".threads=" ).number ( result->threads ).add ( L" --set " ).add ( wide_key ).add ( L".gpu=" ).add ( result->gpu ? L"yes" : L"no" );
+
+		if ( result->gpu )
+			note.add ( L" --set " ).add ( wide_key ).add ( L".intensity=" ).number ( result->intensity );
+
+		base::print_line ( note.get ( ) );
+		base::print_line ( L"or press Find the fastest settings in the window's Settings page." );
+		delete result;
+
+		return 0;
 
 	}
 
@@ -449,6 +581,8 @@ namespace app {
 		command_line* line = new command_line;
 		base::processor cpu;
 		bool threads_given = false;
+		bool algorithm_given = false;
+		launch_options launch;
 
 		base::detect ( cpu );
 		freeze_settings ( );
@@ -475,9 +609,10 @@ namespace app {
 
 			if ( known ) {
 
-				if ( takes && ( base::same_text ( item, L"--bench" ) ) ) {
+				if ( takes && ( base::same_text ( item, L"--bench" ) || base::same_text ( item, L"--tune" ) ) ) {
 
 					line->algorithm = value;
+					algorithm_given = true;
 					i++;
 
 				} else if ( takes && ( base::same_text ( item, L"--mine" ) || base::same_text ( item, L"--test" ) || base::same_text ( item, L"--tls-check" ) || base::same_text ( item, L"--capture" ) || base::same_text ( item, L"--icon" ) || base::same_text ( item, L"--logo" ) || base::same_text ( item, L"--smoke-window" ) || base::same_text ( item, L"--crash-test" ) ) ) {
@@ -486,6 +621,19 @@ namespace app {
 					i++;
 
 				}
+
+				continue;
+
+			}
+
+			if ( ( base::same_text ( item, L"--profile" ) || base::same_text ( item, L"--set" ) ) && takes ) {
+
+				if ( base::same_text ( item, L"--profile" ) )
+					launch.profile = value;
+				else if ( launch.set_count < base::count_of ( launch.sets ) )
+					launch.sets [ launch.set_count++ ] = value;
+
+				i++;
 
 				continue;
 
@@ -550,8 +698,12 @@ namespace app {
 					line->user = value;
 				else if ( base::same_text ( item, L"--pass" ) )
 					line->pass = value;
-				else if ( base::same_text ( item, L"--algorithm" ) )
+				else if ( base::same_text ( item, L"--algorithm" ) ) {
+
 					line->algorithm = value;
+					algorithm_given = true;
+
+				}
 				else if ( base::same_text ( item, L"--dataset" ) )
 					line->settings.full_dataset = !base::same_folded ( value, L"light" );
 				else if ( base::same_text ( item, L"--kernel" ) )
@@ -576,17 +728,26 @@ namespace app {
 
 		}
 
-		if ( !chain::read_algorithm ( line->algorithm, line->settings.algorithm ) ) {
+		uint8_t chosen = line->settings.algorithm;
+
+		apply_launch ( launch, line->settings, cpu.threads );
+
+		if ( !algorithm_given && ( launch.profile || launch.set_count ) )
+			line->algorithm = chain::algorithm_key ( line->settings.algorithm );
+
+		if ( !chain::read_algorithm ( line->algorithm, chosen ) ) {
 
 			base::text note;
 
-			note.add ( L"alloy: " ).add ( line->algorithm ).add ( L" isn't an algorithm Alloy knows. Try sha256d, scrypt or randomx." );
+			note.add ( L"alloy: " ).add ( line->algorithm ).add ( L" isn't an algorithm Alloy knows. Try sha256d, scrypt, randomx or kheavyhash." );
 			base::print_line ( note.get ( ) );
 			delete line;
 
 			return 2;
 
 		}
+
+		line->settings.algorithm = chosen;
 
 		if ( line->user )
 			base::copy_text ( line->settings.pool ( ).worker, base::count_of ( line->settings.pool ( ).worker ), line->user );
@@ -610,6 +771,8 @@ namespace app {
 			code = test_pool ( *line );
 		else if ( base::same_text ( action, L"--self-test" ) )
 			code = self_test_command ( );
+		else if ( base::same_text ( action, L"--tune" ) )
+			code = tune_command ( *line );
 		else if ( base::same_text ( action, L"--allow-large-pages" ) ) {
 
 			bool granted = base::allow_large_pages ( );

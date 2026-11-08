@@ -36,6 +36,8 @@ namespace mine {
 		uint32_t nonce_at = 0;
 		uint8_t seed [ 32 ] = { };
 		uint8_t variant = 0;
+		uint64_t timestamp = 0;
+		uint32_t nonce_high = 0;
 		uint8_t target [ 32 ] = { };
 		uint64_t index = 0;
 		uint32_t job = 0;
@@ -68,6 +70,16 @@ namespace mine {
 
 	};
 
+	struct card_setting {
+
+		bool custom = false;
+		bool on = true;
+		uint32_t percent = 100;
+		uint32_t intensity = 22;
+		uint32_t heat = 0;
+
+	};
+
 	struct limits {
 
 		uint8_t algorithm = chain::ALGORITHM_SHA256D;
@@ -80,6 +92,7 @@ namespace mine {
 		uint32_t gpu_intensity = 24;
 		uint32_t gpu_heat = 0;
 		uint32_t adapters [ max_gpus ] = { };
+		card_setting cards [ max_gpus ];
 		uint32_t adapter_count = 1;
 		bool full_dataset = true;
 		bool pin_threads = true;
@@ -122,6 +135,12 @@ namespace mine {
 		void set_paused ( bool value );
 
 		void release_dataset ( );
+
+		void break_gpu ( ) {
+
+			base::atomic_store ( sabotage, 1u );
+
+		}
 
 		bool running ( ) const {
 
@@ -289,6 +308,10 @@ namespace mine {
 			volatile uint32_t heat = 0;
 			volatile uint32_t restarts = 0;
 			volatile uint32_t trimmed = 0;
+			volatile uint32_t on = 1;
+			volatile uint32_t share = 100;
+			volatile uint32_t power = 22;
+			volatile uint32_t heat_limit = 0;
 			wchar_t label [ 128 ] = { };
 
 		};
@@ -345,6 +368,7 @@ namespace mine {
 		volatile uint32_t gpu_share = 100;
 		volatile uint32_t gpu_power = 24;
 		volatile uint32_t gpu_heat_limit = 0;
+		volatile uint32_t sabotage = 0;
 		volatile uint64_t best_top = ~0ull;
 		randomx::cache* rx_cache = nullptr;
 		randomx::dataset* rx_dataset = nullptr;

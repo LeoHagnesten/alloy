@@ -13,7 +13,7 @@ void salsa ( inout uint4 b0, inout uint4 b1, inout uint4 b2, inout uint4 b3 ) {
 	uint4 x2 = b2;
 	uint4 x3 = b3;
 
-	[ unroll ]
+	[ loop ]
 	for ( uint i = 0; i < 4; i++ ) {
 
 		x1 = spin ( x1, x0 + x3, 7 );
@@ -84,7 +84,7 @@ void main ( uint3 id : SV_DispatchThreadID ) {
 	lanes_in ( states [ at ], states [ at + 1 ], states [ at + 2 ], states [ at + 3 ], p0, p1, p2, p3 );
 	lanes_in ( states [ at + 4 ], states [ at + 5 ], states [ at + 6 ], states [ at + 7 ], q0, q1, q2, q3 );
 
-	[ loop ]
+	[ fastopt ]
 	for ( uint j = 0; j < 1024; j += 2 ) {
 
 		uint slot = origin + j * 4;
@@ -102,7 +102,7 @@ void main ( uint3 id : SV_DispatchThreadID ) {
 
 	}
 
-	[ loop ]
+	[ fastopt ]
 	for ( uint n = 0; n < 1024; n++ ) {
 
 		uint wanted = q0.x & 1023;

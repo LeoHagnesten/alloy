@@ -394,7 +394,62 @@ namespace net {
 
 	}
 
-	bool listener::open ( uint16_t port ) {
+	int32_t connection::read ( char* out, int32_t room, uint32_t wait ) {
+
+		if ( pending_size ) {
+
+			int32_t size = base::min ( pending_size, room );
+
+			base::copy ( out, pending, static_cast < size_t > ( size ) );
+			base::move ( pending, pending + size, static_cast < size_t > ( pending_size - size ) );
+			pending_size -= size;
+
+			return size;
+
+		}
+
+		if ( handle == closed )
+			return -1;
+
+		bool draining = fresh;
+
+		if ( !draining && !wait_for ( handle, false, wait ) )
+			return 0;
+
+		int received = 0;
+
+		if ( secure ) {
+
+			fresh = false;
+			received = secure->receive ( handle, pending, line_room, !draining );
+
+			if ( received > 0 ) {
+
+				pending_size = received;
+
+				return read ( out, room, 0 );
+
+			}
+
+			if ( received == 0 )
+				return 0;
+
+		} else {
+
+			received = recv ( static_cast < SOCKET > ( handle ), out, room, 0 );
+
+			if ( received > 0 )
+				return received;
+
+		}
+
+		close ( );
+
+		return -1;
+
+	}
+
+	bool listener::open ( uint16_t port, bool everyone ) {
 
 		close ( );
 
@@ -411,7 +466,7 @@ namespace net {
 
 		address.sin_family = AF_INET;
 		address.sin_port = htons ( port );
-		address.sin_addr.s_addr = htonl ( INADDR_LOOPBACK );
+		address.sin_addr.s_addr = htonl ( everyone ? INADDR_ANY : INADDR_LOOPBACK );
 
 		if ( bind ( server, reinterpret_cast < sockaddr* > ( &address ), sizeof ( address ) ) != 0 || listen ( server, 8 ) != 0 || getsockname ( server, reinterpret_cast < sockaddr* > ( &address ), &size ) != 0 ) {
 
@@ -438,15 +493,20 @@ namespace net {
 
 	}
 
-	bool listener::accept ( connection& out, uint32_t wait ) {
+	bool listener::accept ( connection& out, uint32_t wait, bool* local ) {
 
 		if ( handle == closed || !wait_for ( handle, false, wait ) )
 			return false;
 
-		SOCKET client = ::accept ( static_cast < SOCKET > ( handle ), nullptr, nullptr );
+		sockaddr_in peer = { };
+		int size = sizeof ( peer );
+		SOCKET client = ::accept ( static_cast < SOCKET > ( handle ), reinterpret_cast < sockaddr* > ( &peer ), &size );
 
 		if ( client == INVALID_SOCKET )
 			return false;
+
+		if ( local )
+			*local = peer.sin_family == AF_INET && ( ntohl ( peer.sin_addr.s_addr ) >> 24 ) == 127;
 
 		out.adopt ( client );
 

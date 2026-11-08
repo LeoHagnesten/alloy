@@ -14,6 +14,12 @@ namespace net {
 
 namespace pool {
 
+	struct solo_state;
+
+	struct sv2_state;
+
+	void drop_sv2 ( sv2_state* value );
+
 	static constexpr const char* agent = "alloy/" ALLOY_VERSION_TEXT;
 
 	enum link_state : uint8_t {
@@ -77,6 +83,7 @@ namespace pool {
 		uint32_t time = 0;
 		int32_t branches = 0;
 		int32_t coinbase_size = 0;
+		uint64_t reward = 0;
 		bool has_job = false;
 		uint8_t previous [ 32 ] = { };
 		wchar_t job [ 64 ] = { };
@@ -104,6 +111,8 @@ namespace pool {
 
 		bool next_event ( event& out );
 
+		void reconnect ( );
+
 		uint32_t job ( ) override;
 
 		bool fill ( uint64_t index, mine::unit& out ) override;
@@ -127,6 +136,7 @@ namespace pool {
 			uint64_t second = 0;
 			uint32_t time = 0;
 			uint32_t nonce = 0;
+			uint32_t high = 0;
 			double difficulty = 0.0;
 			uint8_t result [ 32 ] = { };
 
@@ -147,9 +157,39 @@ namespace pool {
 
 		bool session ( );
 
+		bool solo_session ( );
+
+		bool node_call ( const char* body, int32_t size, int32_t& result );
+
+		bool fetch_template ( );
+
+		bool fetch_monero ( );
+
+		void submit_blocks ( );
+
+		bool solo_address ( ) const;
+
+		bool sv2_address ( ) const;
+
+		bool sv2_session ( );
+
+		bool sv2_handle ( uint16_t extension, uint8_t type, const uint8_t* payload, int32_t size, void* wire );
+
+		void sv2_submit ( void* wire );
+
+		void sv2_activate ( int32_t slot );
+
 		bool handle ( const char* text, int32_t size );
 
 		void subscribe ( );
+
+		void authorize ( );
+
+		void take_kaspa_job ( const base::json& message, int32_t params );
+
+		void take_kaspa_extranonce ( const base::json& message, int32_t params );
+
+		void write_kaspa_submit ( base::line& request, uint32_t request_id, const char* job_id, uint32_t high, uint32_t low );
 
 		void login ( );
 
@@ -169,6 +209,12 @@ namespace pool {
 
 		}
 
+		bool kaspa_mode ( ) const {
+
+			return config.algorithm == chain::ALGORITHM_KHEAVYHASH;
+
+		}
+
 		void note ( event_kind kind, const wchar_t* text, double difficulty = 0.0, double latency = 0.0, uint32_t nonce = 0 );
 
 		void advance ( );
@@ -181,11 +227,13 @@ namespace pool {
 		void* thread = nullptr;
 		volatile uint32_t quit = 0;
 		volatile uint32_t on_backup = 0;
+		volatile uint32_t nudged = 0;
 		volatile uint32_t serial = 0;
 		base::lock state_lock;
 		status shown;
 		pool::job current;
 		blob_job blob_current;
+		kaspa_job kaspa_current;
 		char login_id [ 128 ] = { };
 		double last_keepalive = 0.0;
 		bool nicehash = false;
@@ -209,6 +257,16 @@ namespace pool {
 		net::connection* link = nullptr;
 		base::json* parser = nullptr;
 		bool refused = false;
+		solo_state* solo = nullptr;
+		bool solo_on = false;
+		sv2_state* sv2 = nullptr;
+		bool sv2_on = false;
+		chain::header sv2_header;
+		uint8_t sv2_target [ 32 ] = { };
+
+	public:
+
+		~client ( );
 
 	};
 

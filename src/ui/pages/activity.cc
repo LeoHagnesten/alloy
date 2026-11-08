@@ -27,7 +27,7 @@ namespace ui {
 			widths [ i ] = surface.measure ( labels [ i ].get ( ), render::FONT_STRONG );
 			lefts [ i ] = left;
 			surface.text ( labels [ i ].get ( ), render::FONT_STRONG, render::box { left, tabs_top, widths [ i ] + 4.0f, 30.0f }, i == tab ? colors.text : render::blend ( colors.muted, colors.text, level ) );
-			add_hit ( render::box { left - 8.0f, tabs_top, widths [ i ] + 16.0f, 34.0f }, CONTROL_TAB, i );
+			add_hit ( render::box { left - 8.0f, tabs_top, widths [ i ] + 16.0f, 34.0f }, CONTROL_TAB, i, i == tab );
 			left += widths [ i ] + 28.0f;
 
 		}
@@ -52,8 +52,13 @@ namespace ui {
 		surface.rule ( area.x, area.right ( ), line_y, colors.divider );
 		surface.fill ( render::box { tab_left.at ( now ), line_y - 1.0f, tab_width.at ( now ), 2.0f }, colors.accent, 1.0f );
 
-		if ( tab == 1 )
+		if ( tab == 1 ) {
+
 			button ( surface, render::box { area.right ( ) - 28.0f - 96.0f, area.y + 8.0f, 96.0f, 28.0f }, L"Clear", ICON_CLEAR, CONTROL_CLEAR_LOG, 0, false, view.log_count > 0, now );
+			button ( surface, render::box { area.right ( ) - 28.0f - 96.0f - 8.0f - 104.0f, area.y + 8.0f, 104.0f, 28.0f }, L"Export", ICON_SAVE, CONTROL_ACTION, COMMAND_EXPORT_LOG * 256, false, view.log_count > 0, now );
+
+		} else
+			button ( surface, render::box { area.right ( ) - 28.0f - 104.0f, area.y + 8.0f, 104.0f, 28.0f }, L"Export", ICON_SAVE, CONTROL_ACTION, COMMAND_EXPORT_SHARES * 256, false, view.share_count > 0, now );
 
 		render::box list = { area.x, line_y + 1.0f, area.w, area.bottom ( ) - line_y - 1.0f };
 		scroller which = tab == 0 ? SCROLL_SHARES : SCROLL_LOG;

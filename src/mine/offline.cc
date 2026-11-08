@@ -30,6 +30,17 @@ namespace mine {
 
 		}
 
+		if ( kind == chain::ALGORITHM_KHEAVYHASH ) {
+
+			hash::sha256_twice ( "alloy kaspa benchmark", 21, out.blob );
+			out.blob_size = 32;
+			out.timestamp = 1700000000000ull;
+			out.nonce_high = static_cast < uint32_t > ( index );
+
+			return true;
+
+		}
+
 		if ( kind == chain::ALGORITHM_SCRYPT )
 			chain::litecoin_genesis ( out.header );
 		else

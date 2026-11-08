@@ -62,6 +62,10 @@ namespace tests {
 		{ L"mining", mining_tests },
 		{ L"pool", pool_tests },
 		{ L"motion", motion_tests },
+		{ L"control", control_tests },
+		{ L"records", records_tests },
+		{ L"kaspa", kaspa_tests },
+		{ L"sv2", sv2_tests },
 		{ L"xmrig", benchmark_tests, true },
 
 	};

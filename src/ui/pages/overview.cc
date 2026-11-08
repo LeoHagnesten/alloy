@@ -10,6 +10,7 @@
 namespace ui {
 
 	static constexpr int32_t chart_window = 120;
+	static constexpr int32_t chart_room = 260;
 	static constexpr float chart_slide = 0.45f;
 
 	struct metric {
@@ -243,16 +244,25 @@ namespace ui {
 	void shell::paint_chart ( render::surface& surface, const snapshot& view, render::box area, double now ) {
 
 		static constexpr float gutter = 84.0f;
+		static const wchar_t* const spans [ 3 ] = { L"last two minutes", L"last ten minutes", L"last hour" };
+		static const wchar_t* const marks [ 3 ] [ 2 ] = { { L"2 min ago", L"1 min ago" }, { L"10 min ago", L"5 min ago" }, { L"1 hour ago", L"30 min ago" } };
+		static constexpr int32_t windows [ 3 ] = { chart_window, 600, 3600 };
+		static constexpr int32_t sizes [ 3 ] = { 1, 3, 15 };
+		static constexpr int32_t smoothings [ 3 ] = { 1, 5, 30 };
+		uint8_t span = settings.chart_span % 3;
+		int32_t window = windows [ span ];
+		int32_t size = sizes [ span ];
+		int32_t smooth = smoothings [ settings.chart_smoothing % 3 ];
 		render::box plot = { area.x, area.y + 30.0f, area.w - gutter, area.h - 30.0f - 20.0f };
 		int32_t count = view.history_count;
-		int32_t first = base::max ( 0, count - chart_window - 1 );
+		int32_t first = base::max ( 0, count - window - 1 );
 		float highest = 0.0f;
 
 		caption ( surface, render::box { area.x, area.y, 200.0f, 16.0f }, L"HASHRATE" );
-		surface.text ( L"last two minutes", render::FONT_SMALL, render::box { plot.right ( ) - 200.0f, area.y, 200.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
+		surface.text ( spans [ span ], render::FONT_SMALL, render::box { plot.right ( ) - 200.0f, area.y, 200.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
 		surface.rule ( plot.x, plot.right ( ), plot.bottom ( ), colors.control_line );
-		surface.text ( L"2 min ago", render::FONT_SMALL, render::box { plot.x, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint );
-		surface.text ( L"1 min ago", render::FONT_SMALL, render::box { plot.middle_x ( ) - 60.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_CENTER );
+		surface.text ( marks [ span ] [ 0 ], render::FONT_SMALL, render::box { plot.x, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint );
+		surface.text ( marks [ span ] [ 1 ], render::FONT_SMALL, render::box { plot.middle_x ( ) - 60.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_CENTER );
 		surface.text ( L"now", render::FONT_SMALL, render::box { plot.right ( ) - 120.0f, plot.bottom ( ) + 4.0f, 120.0f, 16.0f }, colors.faint, render::ALIGN_RIGHT );
 
 		if ( count < 2 ) {
@@ -271,8 +281,45 @@ namespace ui {
 
 		}
 
-		for ( int32_t i = first; i < count; i++ )
-			highest = base::max ( highest, view.history [ i ] );
+		float values [ chart_room ];
+		int32_t ages [ chart_room ];
+		int32_t used = 0;
+		int32_t warm = base::max ( 0, first - smooth + 1 );
+		double running = 0.0;
+		uint64_t current = ~0ull;
+
+		for ( int32_t i = warm; i < count; i++ ) {
+
+			running += view.history [ i ];
+
+			if ( i - smooth >= warm )
+				running -= view.history [ i - smooth ];
+
+			if ( i < first )
+				continue;
+
+			float value = smooth == 1 ? view.history [ i ] : static_cast < float > ( running / base::min ( i - warm + 1, smooth ) );
+			uint64_t bucket = ( view.history_first + static_cast < uint64_t > ( i ) ) / static_cast < uint64_t > ( size );
+
+			if ( bucket != current && used < chart_room ) {
+
+				current = bucket;
+				values [ used ] = 0.0f;
+				ages [ used ] = 0;
+				used++;
+
+			}
+
+			int32_t slot = used - 1;
+			int32_t filled = static_cast < int32_t > ( ( view.history_first + static_cast < uint64_t > ( i ) ) % static_cast < uint64_t > ( size ) );
+
+			values [ slot ] += ( value - values [ slot ] ) / static_cast < float > ( filled + 1 );
+			ages [ slot ] = count - 1 - i;
+
+		}
+
+		for ( int32_t i = 0; i < used; i++ )
+			highest = base::max ( highest, values [ i ] );
 
 		float target = static_cast < float > ( base::nice_ceiling ( static_cast < double > ( highest ) * 1.12 ) );
 
@@ -296,20 +343,18 @@ namespace ui {
 
 		}
 
-		float step = plot.w / static_cast < float > ( chart_window - 1 );
+		float step = plot.w / static_cast < float > ( window - 1 );
 		float t = static_cast < float > ( ( now - chart_since ) / chart_slide );
 		float shift = t < 1.0f ? step * ( 1.0f - base::ease_out ( t ) ) : 0.0f;
-		float points [ ( chart_window + 3 ) * 2 ];
-		int32_t used = 0;
+		float points [ ( chart_room + 3 ) * 2 ];
 
-		for ( int32_t i = first; i < count; i++ ) {
+		for ( int32_t i = 0; i < used; i++ ) {
 
-			float age = static_cast < float > ( count - 1 - i );
-			float value = base::min ( view.history [ i ] / ceiling, 1.0f );
+			float age = static_cast < float > ( ages [ i ] );
+			float value = base::min ( values [ i ] / ceiling, 1.0f );
 
-			points [ used * 2 ] = plot.right ( ) - age * step + shift;
-			points [ used * 2 + 1 ] = plot.bottom ( ) - value * ( plot.h - 2.0f );
-			used++;
+			points [ i * 2 ] = plot.right ( ) - age * step + shift;
+			points [ i * 2 + 1 ] = plot.bottom ( ) - value * ( plot.h - 2.0f );
 
 		}
 
@@ -379,6 +424,8 @@ namespace ui {
 				detail.add ( L"SSE2 scrypt" );
 			else if ( kind == chain::ALGORITHM_RANDOMX )
 				detail.add ( settings.full_dataset ? L"RandomX full dataset" : L"RandomX light" );
+			else if ( kind == chain::ALGORITHM_KHEAVYHASH )
+				detail.add ( L"Keccak and a 64 by 64 matrix" );
 			else
 				detail.add ( view.sha && settings.kernel != 2 ? L"SHA extensions" : L"portable kernel" );
 
@@ -440,10 +487,12 @@ namespace ui {
 			detail.add ( view.gpu_name );
 		else {
 
+			uint32_t batch = kind == chain::ALGORITHM_KHEAVYHASH ? settings.intensity - 2 : settings.intensity;
+
 			if ( kind == chain::ALGORITHM_SCRYPT )
 				detail.add ( L"scrypt, 64 KB of video memory per hash" );
 			else
-				detail.add ( L"intensity " ).number ( settings.intensity ).add ( L", " ).compact ( static_cast < double > ( 1u << settings.intensity ) ).add ( L" hashes per dispatch" );
+				detail.add ( L"intensity " ).number ( settings.intensity ).add ( L", " ).compact ( static_cast < double > ( 1u << batch ) ).add ( L" hashes per dispatch" );
 
 			if ( settings.gpu_limit < 100 )
 				detail.add ( L", " ).number ( settings.gpu_limit ).add ( L"% limit" );
@@ -555,6 +604,12 @@ namespace ui {
 				property ( surface, x, y, wide, L"Header", L"Litecoin genesis, rolling time" );
 				property ( surface, x, y, wide, L"Processor kernel", L"SSE2 Salsa20/8, 128 KB a thread" );
 				property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 64 per group" );
+
+			} else if ( kind == chain::ALGORITHM_KHEAVYHASH ) {
+
+				property ( surface, x, y, wide, L"Work", L"Fixed pre-PoW hash, nonce counts up" );
+				property ( surface, x, y, wide, L"Processor kernel", L"cSHAKE256 and a 64 by 64 matrix" );
+				property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 256 per group" );
 
 			} else if ( kind == chain::ALGORITHM_RANDOMX ) {
 
