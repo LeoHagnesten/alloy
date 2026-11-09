@@ -244,7 +244,7 @@ namespace ui {
 
 		tip.clear ( );
 		section ( L"PROCESSOR", true );
-		toggle ( surface, row ( L"Mine on the processor", L"Hash on the CPU as well. You can switch this while mining.", 36.0f, 20.0f ), SETTING_CPU, settings.cpu, true, now );
+		toggle ( surface, row ( L"Mine on the processor", kind == chain::ALGORITHM_ETHASH ? L"Ethash reads a DAG of several gigabytes for every hash, so only the graphics card mines it." : L"Hash on the CPU as well. You can switch this while mining.", 36.0f, 20.0f ), SETTING_CPU, settings.cpu && kind != chain::ALGORITHM_ETHASH, kind != chain::ALGORITHM_ETHASH, now );
 
 		if ( kind == chain::ALGORITHM_RANDOMX )
 			tip.add ( L"RandomX only runs as many threads as fit in the processor's cache, so extra ones wait." );
@@ -423,9 +423,9 @@ namespace ui {
 
 		}
 
-		if ( kind == chain::ALGORITHM_SHA256D || kind == chain::ALGORITHM_KHEAVYHASH ) {
+		if ( kind == chain::ALGORITHM_SHA256D || kind == chain::ALGORITHM_KHEAVYHASH || kind == chain::ALGORITHM_ETHASH ) {
 
-			uint32_t batch = kind == chain::ALGORITHM_KHEAVYHASH ? settings.intensity - 2 : settings.intensity;
+			uint32_t batch = kind == chain::ALGORITHM_KHEAVYHASH || kind == chain::ALGORITHM_ETHASH ? settings.intensity - 2 : settings.intensity;
 
 			value.clear ( );
 			value.number ( settings.intensity );
