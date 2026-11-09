@@ -712,6 +712,7 @@ namespace tests {
 		mine_on ( chain::ALGORITHM_SCRYPT, 2.0, 0, true, 8, 25.0 );
 		mine_on ( chain::ALGORITHM_RANDOMX, 1000.0, 2, false, 8, 45.0, true );
 		mine_on ( chain::ALGORITHM_KHEAVYHASH, 0.05, 0, true, 8, 25.0 );
+		mine_on ( chain::ALGORITHM_ETHASH, 0.005, 0, true, 8, 40.0 );
 		solo_on ( chain::ALGORITHM_SHA256D, L"bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", L"alloy:secret", 3, 30.0 );
 		solo_on ( chain::ALGORITHM_RANDOMX, L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A", L"", 3, 40.0 );
 		solo_refused ( );
