@@ -84,7 +84,7 @@ Release build on a Ryzen 7 5800X and an RTX 4070:
 | RandomX | 12 threads, 1600 MB of the dataset | 1.54 kH/s |
 | kHeavyHash | 16 threads | 9.28 MH/s |
 | kHeavyHash | the RTX 4070 | 429 MH/s |
-| Ethash | the RTX 4070, Ethereum Classic's 4.3 GB DAG | 21.0 MH/s |
+| Ethash | the RTX 4070, Ethereum Classic's 4.3 GB DAG | 38.4 MH/s |
 
 Large pages usually make RandomX faster still, because the dataset reads stop missing the TLB. Press Allow next to Large pages in Settings, or run `Alloy.exe --allow-large-pages` once from an administrator terminal, then sign out and back in.
 
