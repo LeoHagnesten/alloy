@@ -115,7 +115,7 @@ namespace chain {
 
 	double block_hashes ( uint8_t algorithm, double difficulty ) {
 
-		return algorithm == ALGORITHM_RANDOMX ? difficulty : difficulty * 4294967296.0;
+		return algorithm == ALGORITHM_RANDOMX || algorithm == ALGORITHM_ETHASH ? difficulty : difficulty * 4294967296.0;
 
 	}
 
