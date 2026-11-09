@@ -4,6 +4,8 @@
 
 namespace mine {
 
+	static constexpr uint32_t benchmark_epoch = 430;
+
 	class benchmark_work : public feeder {
 
 	public:
@@ -26,6 +28,8 @@ namespace mine {
 
 		uint8_t kind = chain::ALGORITHM_SHA256D;
 		uint8_t variant = 0;
+		uint8_t ethash_seed [ 32 ] = { };
+		bool seeded = false;
 
 	};
 

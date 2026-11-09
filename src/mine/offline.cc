@@ -1,5 +1,6 @@
 #include "mine/offline.hh"
 #include "chain/target.hh"
+#include "hash/ethash.hh"
 #include "base/bits.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -35,6 +36,25 @@ namespace mine {
 			hash::sha256_twice ( "alloy kaspa benchmark", 21, out.blob );
 			out.blob_size = 32;
 			out.timestamp = 1700000000000ull;
+			out.nonce_high = static_cast < uint32_t > ( index );
+
+			return true;
+
+		}
+
+		if ( kind == chain::ALGORITHM_ETHASH ) {
+
+			if ( !seeded ) {
+
+				hash::ethash_seed ( benchmark_epoch * 2, ethash_seed );
+				seeded = true;
+
+			}
+
+			hash::sha256_twice ( "alloy ethash benchmark", 22, out.blob );
+			out.blob_size = 32;
+			base::copy ( out.seed, ethash_seed, 32 );
+			out.epoch = benchmark_epoch;
 			out.nonce_high = static_cast < uint32_t > ( index );
 
 			return true;
