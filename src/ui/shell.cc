@@ -29,6 +29,7 @@ namespace ui {
 	static constexpr float page_time = 0.26f;
 	static constexpr float page_rise = 10.0f;
 	static constexpr float chart_time = 0.45f;
+	static constexpr double flow_interval = 1.0 / 60.0;
 	static constexpr double blink = 0.53;
 	static constexpr double tip_delay = 0.5;
 	static constexpr float tip_show = 0.16f;
@@ -903,8 +904,13 @@ namespace ui {
 					settings.chart_smoothing = option;
 				else if ( which == SETTING_CHART_STYLE )
 					settings.chart_style = option;
-				else if ( which == SETTING_CHART_UPDATE )
-					settings.chart_update = option;
+				else if ( which == SETTING_CHART_UPDATE ) {
+
+					static const uint8_t values [ 4 ] = { 3, 0, 1, 2 };
+
+					settings.chart_update = values [ option % 4 ];
+
+				}
 				else if ( which == SETTING_CHART_TIME )
 					settings.chart_clock = option;
 				else if ( which == SETTING_SCHEDULE_DAYS ) {
@@ -1614,6 +1620,9 @@ namespace ui {
 		if ( !nav_marker.done ( now ) || !tab_left.done ( now ) || !tab_width.done ( now ) || !chart_ceiling.done ( now ) || now - chart_since < chart_time || now - chart_end_since < chart_time )
 			return true;
 
+		if ( flowing ( ) && now - chart_frame >= flow_interval )
+			return true;
+
 		if ( !gear_fade.done ( now ) || !menu_fade.done ( now ) )
 			return true;
 
@@ -1644,6 +1653,9 @@ namespace ui {
 
 		if ( tip_pending )
 			wait = base::max ( rest_since + tip_delay - now, 0.0 );
+
+		if ( flowing ( ) )
+			wait = base::min ( wait, base::max ( chart_frame + flow_interval - now, 0.0 ) );
 
 		if ( focus < 0 )
 			return wait;

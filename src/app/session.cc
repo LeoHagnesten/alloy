@@ -325,6 +325,9 @@ namespace app {
 		view.history_count = 0;
 		view.history_first = 0;
 		view.history_serial++;
+		view.history_time = 0.0;
+		view.live_rate = 0.0;
+		live_count = 0;
 		view.cpu_rate = 0.0;
 		view.cpu_hashes = 0;
 		view.lane_count = 0;
@@ -658,6 +661,28 @@ namespace app {
 		view.uptime = now - started;
 		view.hashes = total;
 
+		if ( !live_count || now - live_times [ ( live_count - 1 ) % 64 ] >= 0.03 ) {
+
+			live_times [ live_count % 64 ] = now;
+			live_totals [ live_count % 64 ] = total;
+			live_count++;
+
+		}
+
+		for ( int32_t back = base::min ( live_count, 64 ); back > 0; back-- ) {
+
+			int32_t slot = ( live_count - back ) % 64;
+			double span = now - live_times [ slot ];
+
+			if ( span > 1.05 || span < 0.25 )
+				continue;
+
+			view.live_rate = static_cast < double > ( total - live_totals [ slot ] ) / span;
+
+			break;
+
+		}
+
 		if ( now - last_sample >= 1.0 ) {
 
 			double span = now - last_sample;
@@ -673,6 +698,7 @@ namespace app {
 
 			view.history [ view.history_count++ ] = rate;
 			view.history_serial++;
+			view.history_time = now;
 			ledger_carry += span;
 
 			uint32_t whole = static_cast < uint32_t > ( ledger_carry );

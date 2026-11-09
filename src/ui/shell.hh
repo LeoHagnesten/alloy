@@ -411,6 +411,12 @@ namespace ui {
 
 		void close_chart_menu ( double now );
 
+		bool flowing ( ) const {
+
+			return settings.chart_update == 3 && shown_page == PAGE_OVERVIEW && !setup_open && data && data->running && !data->paused && data->history_count >= 2;
+
+		}
+
 		command commit_field ( double now );
 
 		command undo ( bool forward, double now );
@@ -558,6 +564,7 @@ namespace ui {
 		double chart_since = -100.0;
 		uint64_t chart_end = 0;
 		double chart_end_since = -100.0;
+		double chart_frame = -100.0;
 		int32_t chart_jump = 1;
 		render::box chart_area;
 		render::box gear_box;

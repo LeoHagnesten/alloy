@@ -31,6 +31,8 @@ namespace app {
 		float cursor_y = -100.0f;
 		bool cursor = false;
 		bool light = false;
+		double sample_real = 0.0;
+		double sample_shown = -1.0;
 		base::list < uint8_t > pixels;
 
 	};
@@ -83,6 +85,14 @@ namespace app {
 	static bool render_into ( studio& self, render::surface& surface ) {
 
 		self.run->tick ( base::seconds ( ), self.settings );
+
+		ui::snapshot& shown = self.run->edit ( );
+
+		if ( shown.history_time != self.sample_shown )
+			self.sample_real = shown.history_time;
+
+		shown.history_time = self.clock - ( base::seconds ( ) - self.sample_real );
+		self.sample_shown = shown.history_time;
 		self.run->edit ( ).light = self.light;
 		self.view->set_light ( self.light );
 
@@ -361,6 +371,15 @@ namespace app {
 			learn ( *live );
 			record ( *live, L"overview.gif", 6.0, [ ] ( double t ) { } );
 			delete live;
+
+			take* flowing = new take ( *self );
+
+			self->settings.chart_update = 3;
+			learn ( *flowing );
+			base::print_line ( L"  recording graph-continuous.gif" );
+			record ( *flowing, L"graph-continuous.gif", 4.0, [ ] ( double t ) { } );
+			self->settings.chart_update = 0;
+			delete flowing;
 
 			take* tour = new take ( *self );
 			bool pressed [ 12 ] = { };

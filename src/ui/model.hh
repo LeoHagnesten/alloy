@@ -326,6 +326,8 @@ namespace ui {
 		int32_t history_count = 0;
 		uint64_t history_first = 0;
 		uint64_t history_serial = 0;
+		double history_time = 0.0;
+		double live_rate = 0.0;
 		double cpu_rate = 0.0;
 		uint64_t cpu_hashes = 0;
 		float lane_rates [ lane_room ] = { };

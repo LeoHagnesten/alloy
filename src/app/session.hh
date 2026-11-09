@@ -163,6 +163,9 @@ namespace app {
 		double last_sample = 0.0;
 		double last_tick = 0.0;
 		uint64_t last_total = 0;
+		double live_times [ 64 ] = { };
+		uint64_t live_totals [ 64 ] = { };
+		int32_t live_count = 0;
 		uint64_t last_gpu = 0;
 		uint64_t lane_last [ ui::lane_room ] = { };
 		uint64_t gpu_last [ ui::gpu_room ] = { };

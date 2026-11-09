@@ -503,7 +503,7 @@ namespace tests {
 
 				for ( uint8_t span = 0; span < 5 && every; span++ ) {
 
-					for ( uint8_t update = 0; update < 3 && every; update++ ) {
+					for ( uint8_t update = 0; update < 4 && every; update++ ) {
 
 						plain->chart_style = style;
 						plain->chart_span = span;
@@ -530,6 +530,44 @@ namespace tests {
 			bool bars = !same_pixels ( hovered, after );
 
 			check ( every && bars, L"every type, span, update rate, smoothing and time label setting draws, and bars differ from a line" );
+
+			{
+
+				base::list < uint8_t > early;
+				base::list < uint8_t > later;
+				base::list < uint8_t > again;
+				double moment = clock + 10.0;
+
+				plain->chart_update = 3;
+				busy->live_rate = 2.5e9;
+				busy->history_time = moment + 0.9;
+				charted->paint ( surface, *busy, moment );
+				charted->paint ( surface, *busy, moment + 1.0 );
+				surface.capture ( early );
+
+				bool wants = charted->animating ( moment + 1.05 );
+
+				charted->paint ( surface, *busy, moment + 1.3 );
+				surface.capture ( later );
+				charted->paint ( surface, *busy, moment + 1.3 );
+				surface.capture ( again );
+
+				bool gliding = wants && !same_pixels ( early, later ) && same_pixels ( later, again );
+
+				busy->running = false;
+				charted->paint ( surface, *busy, moment + 2.0 );
+				surface.capture ( early );
+				charted->paint ( surface, *busy, moment + 2.6 );
+				surface.capture ( later );
+
+				bool still = same_pixels ( early, later ) && !charted->animating ( moment + 4.0 );
+
+				busy->running = true;
+				plain->chart_update = 0;
+				clock = moment + 10.0;
+				check ( gliding && still, L"Continuous keeps the graph gliding between samples, draws the same frame for the same moment, and holds still when mining stops" );
+
+			}
 
 			plain->chart_clock = 1;
 			press ( gear.middle_x ( ), gear.middle_y ( ) );

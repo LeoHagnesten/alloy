@@ -268,7 +268,8 @@ namespace ui {
 		int32_t window = windows [ span ];
 		int32_t size = sizes [ span ];
 		int32_t smooth = smoothings [ settings.chart_smoothing % 3 ];
-		int32_t every = updates [ settings.chart_update % 3 ];
+		bool flow = settings.chart_update == 3;
+		int32_t every = flow ? 1 : updates [ settings.chart_update % 3 ];
 		uint8_t style = settings.chart_style % 3;
 		render::box plot = { area.x, area.y + 30.0f, area.w - gutter, area.h - 30.0f - 20.0f };
 		int32_t count = view.history_count;
@@ -356,8 +357,15 @@ namespace ui {
 
 		}
 
+		bool live = flow && view.running && !view.paused;
+		bool head = live && style != 2;
+		float since = live ? static_cast < float > ( base::clamp ( now - view.history_time, 0.0, 1.0 ) ) : 0.0f;
+
 		for ( int32_t i = 0; i < used; i++ )
 			highest = base::max ( highest, values [ i ] );
+
+		if ( head )
+			highest = base::max ( highest, static_cast < float > ( view.live_rate ) );
 
 		float target = static_cast < float > ( base::nice_ceiling ( static_cast < double > ( highest ) * 1.12 ) );
 
@@ -384,7 +392,12 @@ namespace ui {
 		float step = plot.w / static_cast < float > ( window - 1 );
 		float shift = 0.0f;
 
-		if ( every == 1 ) {
+		if ( flow ) {
+
+			shift = -since * step;
+			chart_frame = now;
+
+		} else if ( every == 1 ) {
 
 			float t = static_cast < float > ( ( now - chart_since ) / chart_slide );
 
@@ -408,7 +421,7 @@ namespace ui {
 
 		}
 
-		float points [ ( chart_room + 3 ) * 2 ];
+		float points [ ( chart_room + 4 ) * 2 ];
 
 		for ( int32_t i = 0; i < used; i++ ) {
 
@@ -420,8 +433,18 @@ namespace ui {
 
 		}
 
-		float last_x = points [ ( used - 1 ) * 2 ];
-		float last_y = points [ ( used - 1 ) * 2 + 1 ];
+		int32_t drawn = used;
+
+		if ( head ) {
+
+			points [ used * 2 ] = plot.right ( );
+			points [ used * 2 + 1 ] = plot.bottom ( ) - base::min ( static_cast < float > ( view.live_rate ) / ceiling, 1.0f ) * ( plot.h - 2.0f );
+			drawn = used + 1;
+
+		}
+
+		float last_x = points [ ( drawn - 1 ) * 2 ];
+		float last_y = points [ ( drawn - 1 ) * 2 + 1 ];
 
 		surface.push_clip ( render::box { plot.x, plot.y - 6.0f, plot.w + 6.0f, plot.h + 6.0f } );
 
@@ -441,15 +464,15 @@ namespace ui {
 
 			if ( style == 0 ) {
 
-				points [ used * 2 ] = last_x;
-				points [ used * 2 + 1 ] = plot.bottom ( );
-				points [ used * 2 + 2 ] = points [ 0 ];
-				points [ used * 2 + 3 ] = plot.bottom ( );
-				surface.shaded ( points, used + 2, render::faded ( colors.accent, 0.26f ), render::faded ( colors.accent, 0.0f ), plot.y, plot.bottom ( ) );
+				points [ drawn * 2 ] = last_x;
+				points [ drawn * 2 + 1 ] = plot.bottom ( );
+				points [ drawn * 2 + 2 ] = points [ 0 ];
+				points [ drawn * 2 + 3 ] = plot.bottom ( );
+				surface.shaded ( points, drawn + 2, render::faded ( colors.accent, 0.26f ), render::faded ( colors.accent, 0.0f ), plot.y, plot.bottom ( ) );
 
 			}
 
-			surface.polyline ( points, used, colors.accent, 1.75f );
+			surface.polyline ( points, drawn, colors.accent, 1.75f );
 			surface.dot ( last_x, last_y, 4.5f, colors.content );
 			surface.dot ( last_x, last_y, 3.0f, colors.accent );
 
@@ -513,10 +536,11 @@ namespace ui {
 
 		static const wchar_t* const styles [ ] = { L"Area", L"Line", L"Bars" };
 		static const wchar_t* const spans [ ] = { L"1 min", L"2 min", L"10 min", L"30 min", L"1 hour" };
-		static const wchar_t* const updates [ ] = { L"1 s", L"5 s", L"15 s" };
+		static const wchar_t* const updates [ ] = { L"Continuous", L"1 s", L"5 s", L"15 s" };
+		static const int32_t update_places [ 4 ] = { 1, 2, 3, 0 };
 		static const wchar_t* const smoothings [ ] = { L"Off", L"5 s", L"30 s" };
 		static const wchar_t* const times [ ] = { L"Ago", L"Clock" };
-		static constexpr float wide = 404.0f;
+		static constexpr float wide = 440.0f;
 		static constexpr float line = 42.0f;
 		float shown = menu_fade.at ( now );
 
@@ -568,7 +592,7 @@ namespace ui {
 
 		row ( L"Type", L"Area fills under the line, Line draws only the line, and Bars draws one bar for each point.", styles, 3, settings.chart_style % 3, SETTING_CHART_STYLE, 204.0f, false );
 		row ( L"Span", L"How far back the graph reaches. Alloy keeps an hour of samples either way.", spans, 5, settings.chart_span % 5, SETTING_CHART_SPAN, 268.0f, false );
-		row ( L"Update", L"How often the graph moves on. Alloy still measures every second; a slower graph is calmer to watch.", updates, 3, settings.chart_update % 3, SETTING_CHART_UPDATE, 204.0f, false );
+		row ( L"Update", L"How often the graph moves on. Continuous glides along and follows the hashrate between seconds, redrawing up to 60 times a second while mining. A slower graph is calmer to watch.", updates, 4, update_places [ settings.chart_update % 4 ], SETTING_CHART_UPDATE, 300.0f, false );
 		row ( L"Smoothing", L"Averages each point over the seconds before it, which hides the second to second jitter.", smoothings, 3, settings.chart_smoothing % 3, SETTING_CHART_SMOOTHING, 204.0f, false );
 		row ( L"Time labels", L"Ago counts back from now. Clock shows the time of day under the graph.", times, 2, settings.chart_clock % 2, SETTING_CHART_TIME, 204.0f, true );
 

@@ -48,7 +48,7 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt, Monero's RandomX and 
 **The interface**
 
 - Animates at the display's refresh rate, explains a setting when you rest the cursor on it, undoes any change with Ctrl+Z, works from the keyboard alone, and stops drawing while minimized so the hardware stays on mining.
-- The hashrate graph keeps its standard look until you rest the cursor on it; then a gear fades in with the graph's type (area, line or bars), span (a minute to an hour), update rate, smoothing and clock or relative time labels.
+- The hashrate graph keeps its standard look until you rest the cursor on it; then a gear fades in with the graph's type (area, line or bars), span (a minute to an hour), update rate (continuous, gliding along with the live hashrate, or every 1, 5 or 15 seconds), smoothing and clock or relative time labels.
 
 ![Graph options](docs/media/graph-options.png)
 
