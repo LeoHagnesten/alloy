@@ -1,4 +1,5 @@
 #include "app/session.hh"
+#include "hash/ethash.hh"
 #include "app/journal.hh"
 #include "chain/coinbase.hh"
 #include "randomx/variant.hh"
@@ -155,8 +156,11 @@ namespace app {
 
 	static uint8_t gpu_phase_of ( mine::gpu_state state ) {
 
-		if ( state == mine::GPU_STARTING || state == mine::GPU_BUILDING )
+		if ( state == mine::GPU_STARTING )
 			return ui::GPU_STARTING;
+
+		if ( state == mine::GPU_BUILDING )
+			return ui::GPU_BUILDING;
 
 		if ( state == mine::GPU_RUNNING )
 			return ui::GPU_WORKING;
@@ -784,6 +788,9 @@ namespace app {
 		view.best = engine.best ( ) == ~0ull ? 0.0 : chain::difficulty_of ( engine.best ( ), algorithm );
 		view.faults = engine.gpu_errors ( );
 		view.gpu_state = gpu_phase_of ( engine.gpu_status ( ) );
+		view.dag_progress = engine.gpu_count ( ) ? engine.gpu_dag_progress ( 0 ) : 0u;
+		view.dag_epoch = engine.gpu_count ( ) ? engine.gpu_dag_epoch ( 0 ) : 0u;
+		view.dag_bytes = view.dag_epoch || view.dag_progress ? hash::ethash_dataset_size ( view.dag_epoch ) : 0ull;
 		view.active_threads = engine.working_threads ( );
 		view.large_pages = engine.dataset_large ( );
 		view.gpu_count = static_cast < int32_t > ( base::min ( engine.gpu_count ( ), static_cast < uint32_t > ( ui::gpu_room ) ) );
@@ -801,6 +808,30 @@ namespace app {
 				line.add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) ).add ( L" reached its temperature limit and rests until it cools four degrees" );
 				log ( ui::LEVEL_WARNING, line.get ( ) );
 				announce ( L"Graphics card is resting", line.get ( ) );
+
+			}
+
+			if ( view.gpu_states [ i ] == ui::GPU_BUILDING && gpu_phase_seen [ i ] != ui::GPU_BUILDING ) {
+
+				base::text line;
+				uint32_t epoch = engine.gpu_dag_epoch ( static_cast < uint32_t > ( i ) );
+
+				line.add ( L"Building the epoch " ).number ( epoch ).add ( L" DAG, " ).decimal ( static_cast < double > ( hash::ethash_dataset_size ( epoch ) ) / 1073741824.0, 2 ).add ( L" GB, on " ).add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) );
+				log ( ui::LEVEL_INFO, line.get ( ) );
+
+			} else if ( gpu_phase_seen [ i ] == ui::GPU_BUILDING && view.gpu_states [ i ] == ui::GPU_WORKING ) {
+
+				base::text line;
+
+				line.add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) ).add ( L" built the DAG in " ).decimal ( engine.gpu_dag_seconds ( static_cast < uint32_t > ( i ) ), 1 ).add ( L" s" );
+				log ( ui::LEVEL_INFO, line.get ( ) );
+
+			} else if ( gpu_phase_seen [ i ] == ui::GPU_BUILDING && view.gpu_states [ i ] == ui::GPU_UNSUPPORTED ) {
+
+				base::text line;
+
+				line.add ( engine.gpu_name ( static_cast < uint32_t > ( i ) ) ).add ( L" couldn't hold the DAG, so it sits this epoch out" );
+				log ( ui::LEVEL_WARNING, line.get ( ) );
 
 			}
 
@@ -1341,7 +1372,7 @@ namespace app {
 	void session::publish ( const ui::preferences& settings ) {
 
 		static const char* const modes [ ] = { "pool", "benchmark", "genesis" };
-		static const char* const gpu_states [ ] = { "idle", "starting", "working", "failed", "unsupported", "cooling" };
+		static const char* const gpu_states [ ] = { "idle", "starting", "working", "failed", "unsupported", "cooling", "building" };
 		const ui::snapshot& view = *shown;
 		base::line* out = new base::line;
 		char text [ 512 ];
@@ -1391,7 +1422,7 @@ namespace app {
 			out->add ( i ? ",{\"name\":" : "{\"name\":" );
 			quoted ( view.gpu_names [ i ] );
 			out->add ( ",\"hashrate\":" ).decimal ( view.gpu_rates [ i ], 1 ).add ( ",\"temperature\":" ).decimal ( view.gpu_heat [ i ], 1 );
-			out->add ( ",\"state\":\"" ).add ( gpu_states [ view.gpu_states [ i ] % 6 ] ).add ( "\"}" );
+			out->add ( ",\"state\":\"" ).add ( gpu_states [ view.gpu_states [ i ] % 7 ] ).add ( "\"}" );
 
 		}
 

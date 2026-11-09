@@ -206,7 +206,7 @@ namespace mine {
 
 	gpu_state engine::gpu_status ( ) const {
 
-		static const uint8_t rank [ ] = { 0, 2, 5, 1, 3, 4 };
+		static const uint8_t rank [ ] = { 0, 2, 6, 1, 3, 4, 5 };
 		uint32_t best = GPU_OFF;
 
 		for ( uint32_t i = 0; i < gpus_started; i++ ) {

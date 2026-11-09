@@ -58,6 +58,7 @@ namespace ui {
 		GPU_BROKEN,
 		GPU_UNSUPPORTED,
 		GPU_COOLING,
+		GPU_BUILDING,
 
 	};
 
@@ -384,6 +385,9 @@ namespace ui {
 		float gpu_rates [ gpu_room ] = { };
 		float gpu_heat [ gpu_room ] = { };
 		uint8_t gpu_states [ gpu_room ] = { };
+		uint32_t dag_progress = 0;
+		uint32_t dag_epoch = 0;
+		uint64_t dag_bytes = 0;
 		bool large_pages = false;
 		bool pages_granted = false;
 		bool tuning = false;
