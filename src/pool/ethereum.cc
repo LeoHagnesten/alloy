@@ -42,6 +42,11 @@ namespace pool {
 		out.clean = clean < 0 || message.truth ( clean );
 		message.text ( message.member ( 0, "algo" ), out.algo, sizeof ( out.algo ) );
 
+		int32_t height = message.member ( 0, "height" );
+
+		if ( message.kind ( height ) == base::JSON_NUMBER )
+			out.height = base::read_number ( message.raw ( height ) );
+
 		return read_hash ( message, message.item ( params, 1 ), out.seed ) && read_hash ( message, message.item ( params, 2 ), out.header );
 
 	}
@@ -74,6 +79,19 @@ namespace pool {
 
 	}
 
+	int32_t etchash_by_height ( int32_t seed_epoch, uint64_t height ) {
+
+		uint64_t seen = static_cast < uint64_t > ( seed_epoch );
+		bool plain = seen == height / 30000;
+		bool classic = seen == height / 60000 * 2;
+
+		if ( plain == classic )
+			return -1;
+
+		return classic ? 1 : 0;
+
+	}
+
 	void client::take_ethash_job ( const base::json& message, int32_t params ) {
 
 		ethash_job* incoming = new ethash_job;
@@ -87,24 +105,28 @@ namespace pool {
 
 		}
 
-		bool etchash = incoming->algo [ 0 ] ? base::same_folded ( incoming->algo, "etchash" ) : config.coin == chain::COIN_ETHEREUM_CLASSIC;
+		if ( !base::same ( incoming->seed, ethash_seed_seen, 32 ) || ethash_seed_epoch < 0 ) {
 
-		if ( !base::same ( incoming->seed, ethash_seed_seen, 32 ) || etchash != ethash_etchash ) {
-
-			int32_t epoch = ethash_dataset_epoch ( incoming->seed, etchash );
-
-			if ( epoch < 0 ) {
-
-				delete incoming;
-				note ( EVENT_WARNING, L"The pool sent a seed hash from an epoch Alloy doesn't know" );
-
-				return;
-
-			}
-
+			ethash_seed_epoch = hash::ethash_seed_epoch ( incoming->seed );
 			base::copy ( ethash_seed_seen, incoming->seed, 32 );
-			ethash_etchash = etchash;
-			ethash_epoch = static_cast < uint32_t > ( epoch );
+
+		}
+
+		bool etchash = config.coin == chain::COIN_ETHEREUM_CLASSIC;
+
+		if ( incoming->algo [ 0 ] )
+			etchash = base::same_folded ( incoming->algo, "etchash" );
+		else if ( incoming->height && ethash_seed_epoch >= 0 && etchash_by_height ( ethash_seed_epoch, incoming->height ) >= 0 )
+			etchash = etchash_by_height ( ethash_seed_epoch, incoming->height ) == 1;
+
+		int32_t epoch = ethash_seed_epoch < 0 ? -1 : ( etchash ? ethash_seed_epoch / 2 : ethash_seed_epoch );
+
+		if ( epoch < 0 ) {
+
+			delete incoming;
+			note ( EVENT_WARNING, L"The pool sent a seed hash from an epoch Alloy doesn't know" );
+
+			return;
 
 		}
 
@@ -119,6 +141,7 @@ namespace pool {
 
 			replaced = have_job;
 			ethash_current = *incoming;
+			ethash_epoch = static_cast < uint32_t > ( epoch );
 			have_job = true;
 			difficulty = next_difficulty;
 			advance ( );

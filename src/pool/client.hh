@@ -256,7 +256,7 @@ namespace pool {
 		kaspa_job kaspa_current;
 		ethash_job ethash_current;
 		uint8_t ethash_seed_seen [ 32 ] = { };
-		bool ethash_etchash = false;
+		int32_t ethash_seed_epoch = -1;
 		uint32_t ethash_epoch = 0;
 		char login_id [ 128 ] = { };
 		double last_keepalive = 0.0;

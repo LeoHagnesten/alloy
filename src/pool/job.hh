@@ -66,6 +66,7 @@ namespace pool {
 		uint8_t header [ 32 ] = { };
 		bool clean = true;
 		char algo [ 16 ] = { };
+		uint64_t height = 0;
 
 	};
 
@@ -74,6 +75,8 @@ namespace pool {
 	void write_ethash_notify ( base::line& out, const ethash_job& work );
 
 	int32_t ethash_dataset_epoch ( const uint8_t* seed, bool etchash );
+
+	int32_t etchash_by_height ( int32_t seed_epoch, uint64_t height );
 
 	bool parse_kaspa_notify ( const base::json& message, int32_t params, kaspa_job& out );
 
