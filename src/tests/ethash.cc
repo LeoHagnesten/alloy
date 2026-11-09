@@ -130,7 +130,58 @@ namespace tests {
 		note.clear ( );
 		note.add ( L"the graphics card's Ethash matches CPU light hashing on every sampled nonce (" ).number ( static_cast < uint64_t > ( agreeing ) ).add ( L" of 256)" );
 		check ( agreeing == 256, note.get ( ) );
-		delete device;
+
+		if ( adapters [ 0 ].memory < ( 6ull << 30 ) ) {
+
+			check ( true, L"the graphics card has under 6 GB, so the Ethereum Classic sized DAG isn't tested" );
+			delete device;
+			delete cache;
+
+			return;
+
+		}
+
+		uint8_t classic [ 32 ];
+
+		hash::ethash_seed ( 856, classic );
+		began = base::seconds ( );
+		built = cache->build ( 428, classic );
+		dag = built && device->build_dag ( *cache, &progress, nullptr ) && device->dag_ready ( 428 );
+		seconds = base::seconds ( ) - began;
+
+		uint32_t rows = static_cast < uint32_t > ( cache->dataset_bytes ( ) / 128 );
+		uint32_t split = static_cast < uint32_t > ( base::min ( base::max ( adapters [ 0 ].memory / 4, 128ull << 20 ), 2048ull << 20 ) / 128 );
+		uint32_t edges [ ] = { 0, split * 2 - 1, split * 2, split * 4 - 1, split * 4, rows * 2 - 1 };
+		int32_t edge_matches = 0;
+
+		for ( uint32_t index : edges ) {
+
+			uint32_t from_card [ 16 ] = { };
+			uint32_t from_cpu [ 16 ] = { };
+
+			cache->item ( index % ( rows * 2 ), from_cpu );
+
+			if ( dag && device->dag_item ( index % ( rows * 2 ), from_card ) && base::same ( from_card, from_cpu, 64 ) )
+				edge_matches++;
+
+		}
+
+		agreeing = 0;
+
+		if ( dag && device->sample_ethash ( header, 0x0BADCAFE, 0, 256, tops ) ) {
+
+			for ( uint32_t i = 0; i < 256; i++ ) {
+
+				cache->light ( header, 0x0BADCAFE00000000ull + i, mix, result );
+				agreeing += base::load_big ( result ) == tops [ i ] ? 1 : 0;
+
+			}
+
+		}
+
+		note.clear ( );
+		note.add ( L"at Ethereum Classic's epoch 428 the " ).decimal ( static_cast < double > ( cache->dataset_bytes ( ) ) / 1073741824.0, 2 ).add ( L" GB DAG builds in " ).decimal ( seconds, 1 ).add ( L" s across its buffers, items on both sides of every split match, and hashing agrees with the CPU (" ).number ( static_cast < uint64_t > ( agreeing ) ).add ( L" of 256)" );
+		check ( dag && edge_matches == base::count_of ( edges ) && agreeing == 256, note.get ( ) );		delete device;
 		delete cache;
 
 	}
