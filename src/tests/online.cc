@@ -324,6 +324,53 @@ namespace tests {
 
 	}
 
+	static bool pool_balance ( uint8_t algorithm, uint8_t coin, const wchar_t* pool, const wchar_t* worker, app::lookup_result& found ) {
+
+		app::lookup* online = new app::lookup;
+		app::lookup_request wanted;
+		double began = base::seconds ( );
+
+		wanted.algorithm = algorithm;
+		wanted.coin = coin;
+		wanted.balances = true;
+		base::copy_text ( wanted.pool, base::count_of ( wanted.pool ), pool );
+		base::copy_text ( wanted.worker, base::count_of ( wanted.worker ), worker );
+		online->start ( );
+		online->ask ( wanted );
+
+		while ( base::seconds ( ) - began < 25.0 ) {
+
+			online->read ( found );
+
+			if ( found.serial )
+				break;
+
+			base::sleep ( 100 );
+
+		}
+
+		online->stop ( );
+		delete online;
+
+		return found.serial != 0;
+
+	}
+
+	static void pool_balances ( ) {
+
+		app::lookup_result classic;
+		app::lookup_result kaspa;
+		app::lookup_result unknown;
+		bool asked = pool_balance ( chain::ALGORITHM_ETHASH, chain::COIN_ETHEREUM_CLASSIC, L"stratum+tcp://etc.herominers.com:1150", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", classic );
+		bool heavy = pool_balance ( chain::ALGORITHM_KHEAVYHASH, chain::COIN_KASPA, L"stratum+tcp://kaspa.herominers.com:1206", L"kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98.alloy", kaspa );
+		bool missing = pool_balance ( chain::ALGORITHM_ETHASH, chain::COIN_ETHEREUM_CLASSIC, L"stratum+tcp://etc.2miners.com:1010", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", unknown );
+		base::text note;
+
+		note.add ( L"HeroMiners reports the shares Alloy sent it, " ).number ( classic.pool_shares ).add ( L" for Ethereum Classic and " ).number ( kaspa.pool_shares ).add ( L" for Kaspa with " ).decimal ( kaspa.due, 6 ).add ( L" KAS waiting, and 2Miners says when it hasn't seen an address" );
+		check ( asked && classic.balance && classic.pool_shares >= 1 && base::same_text ( classic.source, L"HeroMiners" ) && heavy && kaspa.balance && kaspa.pool_shares >= 1 && kaspa.due < 1000.0 && missing && !unknown.balance && base::starts_with ( unknown.note, L"2Miners" ), note.get ( ) );
+
+	}
+
 	static int32_t lines_starting ( const ui::snapshot& view, const wchar_t* prefix ) {
 
 		int32_t found = 0;
@@ -402,6 +449,7 @@ namespace tests {
 		etc_live_block ( );
 		ethereum_network ( chain::COIN_ETHEREUM_CLASSIC, L"Ethereum Classic" );
 		ethereum_network ( chain::COIN_ETHEREUM_POW, L"EthereumPoW" );
+		pool_balances ( );
 		live_pool ( chain::ALGORITHM_ETHASH, L"etc.2miners.com:1010", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"2Miners' Ethereum Classic pool", 60.0, true, chain::COIN_ETHEREUM_CLASSIC );
 		live_pool ( chain::ALGORITHM_ETHASH, L"etc.herominers.com:1150", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"HeroMiners' Ethereum Classic pool", 60.0, true, chain::COIN_ETHEREUM_CLASSIC );
 		live_pool ( chain::ALGORITHM_ETHASH, L"ethw.2miners.com:2020", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"2Miners' EthereumPoW pool", 75.0, true, chain::COIN_ETHEREUM_POW );
