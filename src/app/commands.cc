@@ -133,7 +133,7 @@ namespace app {
 
 	static void usage ( ) {
 
-		base::print_line ( L"Alloy " ALLOY_VERSION_TEXT L", a SHA-256d, scrypt, RandomX and kHeavyHash miner written from scratch" );
+		base::print_line ( L"Alloy " ALLOY_VERSION_TEXT L", a SHA-256d, scrypt, RandomX, kHeavyHash and Ethash miner written from scratch" );
 		base::print_line ( L"" );
 		base::print_line ( L"  Alloy.exe                                   open the window" );
 		base::print_line ( L"  Alloy.exe --bench [algorithm] [--seconds n] measure the hashrate" );
@@ -145,7 +145,7 @@ namespace app {
 		base::print_line ( L"  Alloy.exe --allow-large-pages                let RandomX use large pages (run as administrator once)" );
 		base::print_line ( L"  Alloy.exe --self-test                        check every hash kernel and graphics card against known answers" );
 		base::print_line ( L"" );
-		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash  --dataset full|light|<MB>" );
+		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash|ethash  --dataset full|light|<MB>" );
 		base::print_line ( L"  Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n" );
 		base::print_line ( L"  Limits    --cpu-limit percent  --gpu-limit percent  --intensity 16-26" );
 		base::print_line ( L"  Kernel    --kernel auto|extensions|portable  --priority idle|low|normal" );
@@ -771,7 +771,7 @@ namespace app {
 
 			base::text note;
 
-			note.add ( L"alloy: " ).add ( line->algorithm ).add ( L" isn't an algorithm Alloy knows. Try sha256d, scrypt, randomx or kheavyhash." );
+			note.add ( L"alloy: " ).add ( line->algorithm ).add ( L" isn't an algorithm Alloy knows. Try sha256d, scrypt, randomx, kheavyhash or ethash." );
 			base::print_line ( note.get ( ) );
 			delete line;
 
