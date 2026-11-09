@@ -24,7 +24,9 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt, Monero's RandomX, Kas
 - **Scrypt:** Litecoin, Dogecoin and DigiByte.
 - **RandomX:** Monero (and its RandomX v2 fork), Wownero, Zephyr, ArQmA, Graft, Safex Cash, YadaCoin, Kevacoin and Equilibria.
 - **kHeavyHash:** Kaspa.
- coin brings its own address checks (Base58, Bech32, CashAddr for Bitcoin Cash and eCash, Monero and Kaspa formats), its price, block time and earnings history, and the pools that are known to work with it.
+- **Ethash:** Ethereum Classic and EthereumPoW.
+
+Each coin brings its own address checks (Base58, Bech32, CashAddr for Bitcoin Cash and eCash, Monero, Kaspa and EIP-55 checksummed 0x formats), its price, block time and earnings history, and the pools that are known to work with it.
 
 **Pools and nodes**
 
@@ -167,7 +169,7 @@ src/version.hh           the version, shared by the code and the resource file
 
 A Debug build runs its suite with `Alloy.exe --test`, or one group with `--test kaspa`. It checks SHA-256 against FIPS 180, scrypt and PBKDF2 against RFC 7914, Blake2b against RFC 7693, cSHAKE against SP 800-185, ChaCha20-Poly1305 against RFC 8439, HMAC against RFC 4231, BIP340 signatures and BIP324's ElligatorSwift key exchange against their reference vectors, the Bitcoin and Litecoin genesis blocks, RandomX against its reference programs in both modes, Ethash against a reference block and a DAG of Ethereum Classic's size across its buffers, every GPU kernel against the processor, and full sessions on a test pool for every algorithm, solo mining against a node that checks each block in full, and Stratum V2 through the whole handshake. It also covers the schedule, profiles, the history file, the API's access rules, keyboard navigation, undo, and that animated text and hints land on exactly the pixels they rest on.
 
-`Alloy.exe --test online` checks against the real networks instead: a live Kaspa block's header hash and proof of work, signing in and getting jobs from Kaspa, Bitcoin and Monero pools (over TLS too), shares accepted by a Kaspa pool and by the Stratum V2 reference project's hosted pool, and solo templates from a public monerod.
+`Alloy.exe --test online` checks against the real networks instead: a live Ethereum Classic block's mix digest and difficulty, mining on 2Miners and HeroMiners for Ethereum Classic and 2Miners for EthereumPoW, a live Kaspa block's header hash and proof of work, signing in and getting jobs from Kaspa, Bitcoin and Monero pools (over TLS too), shares accepted by a Kaspa pool and by the Stratum V2 reference project's hosted pool, and solo templates from a public monerod.
 
 `Alloy.exe --smoke-window shot.png` checks the real window: the custom frame's hit testing, that animations run at the display's refresh rate while mining, and that a hidden or minimized window draws nothing. `Alloy.exe --capture <folder>` records the screenshots and clips above from a headless run.
 
