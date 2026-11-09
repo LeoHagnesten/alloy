@@ -261,7 +261,7 @@ namespace ui {
 
 		} else {
 
-			const wchar_t* why = kind == chain::ALGORITHM_RANDOMX ? ( monero ? ( settings.lookups ? L"Waiting for Monero's network stats" : L"Turn on online lookups in Settings" ) : L"Only Monero's network is looked up" ) : ( kind == chain::ALGORITHM_KHEAVYHASH ? L"Kaspa pools don't send the block reward, so only shares are counted" : L"Known once the pool sends a job" );
+			const wchar_t* why = kind == chain::ALGORITHM_RANDOMX ? ( monero ? ( settings.lookups ? L"Waiting for Monero's network stats" : L"Turn on online lookups in Settings" ) : L"Only Monero's network is looked up" ) : ( kind == chain::ALGORITHM_KHEAVYHASH ? L"Kaspa pools don't send the block reward, so only shares are counted" : ( kind == chain::ALGORITHM_ETHASH ? L"Ethash pools don't send the network difficulty, so only shares are counted" : L"Known once the pool sends a job" ) );
 
 			surface.text ( why, render::FONT_BODY, render::box { left_x, left_y, left_w, 26.0f }, colors.faint );
 			left_y += 26.0f;
