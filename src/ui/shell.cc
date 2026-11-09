@@ -2123,7 +2123,7 @@ namespace ui {
 		surface.dot ( 17.0f, bar.middle_y ( ), 3.5f, state );
 		surface.text ( view.status, render::FONT_SMALL, render::box { 28.0f, bar.y, width * 0.55f, bar.h }, colors.muted );
 
-		if ( settings.cpu ) {
+		if ( settings.cpu && settings.algorithm != chain::ALGORITHM_ETHASH ) {
 
 			summary.add ( L"CPU " ).number ( settings.threads ).add ( settings.threads == 1 ? L" thread" : L" threads" );
 
@@ -2136,7 +2136,7 @@ namespace ui {
 
 			summary.add ( summary.size ( ) ? L"     GPU " : L"GPU " );
 
-			if ( settings.algorithm == chain::ALGORITHM_SHA256D )
+			if ( settings.algorithm == chain::ALGORITHM_SHA256D || settings.algorithm == chain::ALGORITHM_KHEAVYHASH || settings.algorithm == chain::ALGORITHM_ETHASH )
 				summary.add ( L"intensity " ).number ( settings.intensity );
 			else
 				summary.add ( L"on" );
