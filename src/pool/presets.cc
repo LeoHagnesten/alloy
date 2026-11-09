@@ -14,6 +14,9 @@ namespace pool {
 		{ chain::ALGORITHM_RANDOMX, chain::COIN_ZEPHYR, L"HeroMiners", L"stratum+tcp://zephyr.herominers.com:1123", L"stratum+tcp://de.zephyr.herominers.com:1123", L"No account needed. Put your Zephyr address in Worker." },
 		{ chain::ALGORITHM_KHEAVYHASH, chain::COIN_KASPA, L"HeroMiners", L"stratum+tcp://kaspa.herominers.com:1206", L"stratum+tcp://kas.2miners.com:2020", L"No account needed. Put your kaspa: address in Worker." },
 		{ chain::ALGORITHM_KHEAVYHASH, chain::COIN_KASPA, L"2Miners", L"stratum+tcp://kas.2miners.com:2020", L"stratum+tcp://kaspa.herominers.com:1206", L"No account needed. Put your kaspa: address in Worker." },
+		{ chain::ALGORITHM_ETHASH, chain::COIN_ETHEREUM_CLASSIC, L"2Miners", L"stratum+tcp://etc.2miners.com:1010", L"stratum+tcp://etc.herominers.com:1150", L"No account needed. Put your 0x address in Worker." },
+		{ chain::ALGORITHM_ETHASH, chain::COIN_ETHEREUM_CLASSIC, L"HeroMiners", L"stratum+tcp://etc.herominers.com:1150", L"stratum+tcp://etc.2miners.com:1010", L"No account needed. Put your 0x address in Worker." },
+		{ chain::ALGORITHM_ETHASH, chain::COIN_ETHEREUM_POW, L"2Miners", L"stratum+tcp://ethw.2miners.com:2020", L"", L"No account needed. Put your 0x address in Worker." },
 
 	};
 
