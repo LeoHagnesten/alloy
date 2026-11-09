@@ -9,6 +9,7 @@
 #include "chain/target.hh"
 #include "base/system/clock.hh"
 #include "base/formats/json.hh"
+#include "base/math.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
 #include "base/system/hardware.hh"
@@ -346,6 +347,7 @@ namespace tests {
 		settings.threads = algorithm == chain::ALGORITHM_RANDOMX ? run->processor ( ).threads : 2u;
 		settings.gpu = false;
 		settings.dataset_megabytes = 0;
+		base::copy_text ( settings.coinbase_tag, base::count_of ( settings.coinbase_tag ), L"/mined with alloy, solo/" );
 		run->start ( settings );
 
 		bool found = wait_until ( *run, settings, limit, [ & ] ( const ui::snapshot& view ) {
@@ -365,7 +367,12 @@ namespace tests {
 		if ( !found || server->rejected ( ) )
 			note.add ( L" (node rejected " ).number ( server->rejected ( ) ).add ( L", accepted " ).number ( server->accepted ( ) ).add ( L", link " ).number ( view.link ).put ( L')' );
 
-		check ( found && rejected == 0 && server->rejected ( ) == 0 && server->accepted ( ) >= accepted && known, note.get ( ) );
+		bool signed_off = algorithm == chain::ALGORITHM_RANDOMX || base::same_text ( server->coinbase_message ( ), "/mined with alloy, solo/" );
+
+		if ( algorithm != chain::ALGORITHM_RANDOMX )
+			note.add ( L", each carrying the chosen coinbase message" );
+
+		check ( found && rejected == 0 && server->rejected ( ) == 0 && server->accepted ( ) >= accepted && known && signed_off, note.get ( ) );
 		delete run;
 		server->stop ( );
 		delete server;
@@ -562,7 +569,53 @@ namespace tests {
 
 		run->stop ( );
 		check ( failed_over, L"after three failed tries on the main pool the miner moves to the backup pool and gets shares accepted" );
+
+		run->clear_log ( );
+		settings.failover_tries = 1;
+		run->start ( settings );
+
+		bool quick = wait_until ( *run, settings, 15.0, [ ] ( const ui::snapshot& view ) {
+
+			return view.on_backup && view.accepted >= 1 && view.link == ui::PHASE_READY;
+
+		} );
+
+		int32_t misses = count_logs ( run->view ( ), L"Couldn't reach" );
+
+		run->stop ( );
+		check ( quick && misses == 1, L"with tries before the backup set to one, a single failed connection moves the miner to the backup pool" );
+		settings.failover_tries = 3;
 		settings.pool ( ).backup [ 0 ] = 0;
+		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
+		base::copy_text ( settings.pool ( ).difficulty, base::count_of ( settings.pool ( ).difficulty ), L"0.0005" );
+		run->clear_log ( );
+		run->start ( settings );
+
+		bool suggested = wait_until ( *run, settings, 20.0, [ ] ( const ui::snapshot& view ) {
+
+			return view.accepted >= 2 && base::abs ( view.difficulty - 0.0005 ) < 1e-9 && view.link == ui::PHASE_READY;
+
+		} );
+
+		uint32_t suggested_rejected = run->view ( ).rejected;
+		base::text granted;
+
+		granted.add ( L"a start difficulty goes to the pool as mining.suggest_difficulty and shares follow the difficulty it grants" );
+
+		if ( !suggested ) {
+
+			granted.add ( L" (difficulty " ).decimal ( run->view ( ).difficulty, 6 ).add ( L", accepted " ).number ( run->view ( ).accepted ).add ( L", link " ).number ( run->view ( ).link );
+
+			for ( int32_t i = base::max ( 0, run->view ( ).log_count - 4 ); i < run->view ( ).log_count; i++ )
+				granted.add ( L"; " ).add ( run->view ( ).logs [ i ].text );
+
+			granted.put ( L')' );
+
+		}
+
+		run->stop ( );
+		check ( suggested && suggested_rejected == 0, granted.get ( ) );
+		settings.pool ( ).difficulty [ 0 ] = 0;
 
 		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), L"no port here" );
 		run->start ( settings );

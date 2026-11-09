@@ -69,7 +69,8 @@ namespace mine {
 		compress = extensions && settings.choice != KERNEL_PORTABLE ? hash::sha256_block_extensions : hash::sha256_block;
 		lane_count = base::min ( cpu.threads, max_lanes );
 		level3 = cpu.level3;
-		wide_scrypt = cpu.avx2;
+		wide_scrypt = cpu.avx2 && !settings.narrow_scrypt;
+		interpret = settings.interpret;
 
 		if ( !rx_ready )
 			rx_lanes = lane_count;
@@ -134,7 +135,8 @@ namespace mine {
 
 	void engine::apply ( const limits& settings ) {
 
-		base::atomic_store ( wanted_threads, base::min ( settings.threads, lane_count ) );
+		base::atomic_store ( wanted_threads, base::min ( settings.threads, settings.cores ? base::min ( lane_count, base::count_bits ( settings.cores ) ) : lane_count ) );
+		base::atomic_store ( core_mask, settings.cores );
 		base::atomic_store ( cpu_share, base::clamp ( settings.cpu_percent, 5u, 100u ) );
 		base::atomic_store ( priority, static_cast < uint32_t > ( settings.priority ) );
 		base::atomic_store ( pinning, settings.pin_threads ? 1u : 0u );
@@ -410,6 +412,8 @@ namespace mine {
 			if ( !kit.machine )
 				kit.machine = new randomx::machine;
 
+			kit.machine->interpret = interpret;
+
 			if ( kit.machine->open ( rx_cache, base::atomic_load ( rx_state ) == DATASET_FULL || base::atomic_load ( rx_state ) == DATASET_PART ? rx_dataset : nullptr, work.variant ) ) {
 
 				kit.generation = generation;
@@ -510,7 +514,11 @@ namespace mine {
 		uint32_t applied = ~0u;
 		double debt = 0.0;
 
-		if ( base::atomic_load ( pinning ) )
+		uint32_t picked = base::atomic_load ( core_mask );
+
+		if ( picked )
+			base::pin_to_processor ( base::nth_bit ( picked, self.index % base::count_bits ( picked ) ) );
+		else if ( base::atomic_load ( pinning ) )
 			base::pin_thread ( self.index );
 
 		while ( !base::atomic_load ( quit ) ) {

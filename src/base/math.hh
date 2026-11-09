@@ -36,6 +36,23 @@ namespace base {
 
 	}
 
+	template < typename type, int32_t count >
+	inline type step_through ( const type ( &values ) [ count ], type current, int32_t step ) {
+
+		int32_t at = 0;
+
+		while ( at + 1 < count && values [ at ] < current )
+			at++;
+
+		if ( values [ at ] == current )
+			at += step;
+		else if ( step < 0 && values [ at ] > current )
+			at--;
+
+		return values [ clamp ( at, 0, count - 1 ) ];
+
+	}
+
 	inline float mix ( float a, float b, float t ) {
 
 		return a + ( b - a ) * t;

@@ -25,6 +25,8 @@ namespace base {
 
 	bool pin_thread ( uint32_t index );
 
+	bool pin_to_processor ( uint32_t number );
+
 	void yield ( );
 
 	class lock {

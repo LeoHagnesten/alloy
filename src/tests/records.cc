@@ -141,6 +141,26 @@ namespace tests {
 
 		}
 
+		{
+
+			ui::preferences* tuned = new ui::preferences;
+			ui::preferences* back = new ui::preferences;
+			static const char* const lines [ ] = { "advanced=yes", "cores=0-3, 8", "failover_tries=1", "failback_minutes=never", "connect_timeout=12", "silence_minutes=9", "retry_limit=120", "coinbase_message=/leo/", "hashrate_window=1m", "scrypt_kernel=sse2", "randomx_code=interpreted", "sha256d.difficulty=0.25" };
+			bool read = true;
+
+			for ( const char* line : lines )
+				read = app::apply_setting ( *tuned, line, 16 ) && read;
+
+			read = read && tuned->cores == 0x10Fu && tuned->failover_tries == 1 && tuned->failback_minutes == 0 && tuned->connect_seconds == 12 && tuned->rate_window == 2 && tuned->scrypt_kernel == 1 && tuned->interpret;
+
+			bool kept = app::save_profile ( L"advanced", *tuned, folder ) && app::load_profile ( L"advanced", *back, 16, folder ) && back->advanced && back->cores == 0x10Fu && back->failback_minutes == 0 && back->silence_minutes == 9 && back->retry_seconds == 120 && base::same_text ( back->coinbase_tag, L"/leo/" ) && base::same_text ( back->pools [ chain::ALGORITHM_SHA256D ].difficulty, L"0.25" ) && back->interpret;
+
+			check ( read && kept, L"every advanced setting, from picked cores to the coinbase message, reads from settings.ini and survives a save and load" );
+			delete back;
+			delete tuned;
+
+		}
+
 		ui::snapshot* view = new ui::snapshot;
 
 		view->share_count = 1;

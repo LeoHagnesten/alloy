@@ -284,7 +284,7 @@ namespace pool {
 			base::text message;
 			bool backup = base::atomic_load ( on_backup ) != 0;
 
-			if ( has_backup && !backup && ( failures >= 3 || refused ) ) {
+			if ( has_backup && !backup && ( failures >= config.failover_tries || refused ) ) {
 
 				refused = false;
 				failures = 0;
@@ -298,7 +298,7 @@ namespace pool {
 
 			}
 
-			if ( backup && ( base::seconds ( ) - backup_since > 600.0 || failures >= 3 || refused ) ) {
+			if ( backup && ( ( config.failback_seconds && base::seconds ( ) - backup_since > static_cast < double > ( config.failback_seconds ) ) || failures >= config.failover_tries || refused ) ) {
 
 				refused = false;
 				failures = 0;
@@ -315,7 +315,7 @@ namespace pool {
 			note ( EVENT_INFO, message.get ( ) );
 			set_state ( LINK_WAITING );
 			pause ( backoff );
-			backoff = base::atomic_exchange ( nudged, 0u ) ? 2u : base::min ( backoff * 2, 60u );
+			backoff = base::atomic_exchange ( nudged, 0u ) ? 2u : base::min ( backoff * 2, base::max ( config.retry_limit, 2u ) );
 
 		}
 
@@ -356,7 +356,7 @@ namespace pool {
 
 		net::connection* connection = new net::connection;
 
-		if ( !connection->open ( host, port, 5000 ) ) {
+		if ( !connection->open ( host, port, config.connect_ms ) ) {
 
 			message.clear ( );
 			message.add ( L"Couldn't reach " ).add ( address );
@@ -468,9 +468,12 @@ namespace pool {
 			if ( blob_mode ( ) )
 				keep_alive ( );
 
-			if ( base::seconds ( ) - heard > 300.0 ) {
+			if ( base::seconds ( ) - heard > static_cast < double > ( config.silence_seconds ) ) {
 
-				note ( EVENT_WARNING, L"The pool has been silent for five minutes" );
+				base::text quiet;
+
+				quiet.add ( L"The pool has been silent for " ).number ( config.silence_seconds / 60 ).add ( config.silence_seconds >= 120 ? L" minutes" : L" minute" );
+				note ( EVENT_WARNING, quiet.get ( ) );
 
 				break;
 
@@ -524,6 +527,14 @@ namespace pool {
 		base::add_json_string ( request, password );
 		request.add ( "]}" );
 		link->send_line ( request.get ( ) );
+
+		if ( config.difficulty > 0.0 ) {
+
+			request.clear ( );
+			request.add ( "{\"id\":3,\"method\":\"mining.suggest_difficulty\",\"params\":[" ).decimal ( config.difficulty, 6 ).add ( "]}" );
+			link->send_line ( request.get ( ) );
+
+		}
 
 	}
 
@@ -824,6 +835,15 @@ namespace pool {
 			set_state ( LINK_REFUSED );
 
 			return false;
+
+		}
+
+		if ( number == 3 ) {
+
+			if ( message.kind ( error ) == base::JSON_ARRAY || message.kind ( error ) == base::JSON_OBJECT )
+				note ( EVENT_INFO, L"The pool turned down the suggested start difficulty and keeps its own" );
+
+			return true;
 
 		}
 

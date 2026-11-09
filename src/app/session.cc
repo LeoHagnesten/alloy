@@ -61,6 +61,9 @@ namespace app {
 		out.gpu_intensity = settings.intensity;
 		out.gpu_heat = settings.gpu_heat;
 		out.pin_threads = settings.pin_threads;
+		out.cores = settings.cores;
+		out.narrow_scrypt = settings.scrypt_kernel == 1;
+		out.interpret = settings.interpret;
 		out.dataset_megabytes = settings.dataset_megabytes;
 		out.algorithm = algorithm_of ( settings );
 
@@ -387,6 +390,13 @@ namespace app {
 			base::copy_text ( link.backup_pin, sizeof ( link.backup_pin ), profile.backup_pin );
 			base::copy_text ( link.worker, base::count_of ( link.worker ), profile.worker );
 			base::copy_text ( link.password, base::count_of ( link.password ), profile.password );
+			base::narrow ( link.tag, sizeof ( link.tag ), settings.coinbase_tag );
+			link.difficulty = base::read_decimal ( profile.difficulty );
+			link.failover_tries = settings.failover_tries;
+			link.failback_seconds = settings.failback_minutes * 60;
+			link.connect_ms = settings.connect_seconds * 1000;
+			link.silence_seconds = settings.silence_minutes * 60;
+			link.retry_limit = settings.retry_seconds;
 			client.start ( link );
 			feed = &client;
 
@@ -752,7 +762,8 @@ namespace app {
 			last_total = total;
 			last_sample = now;
 
-			int32_t window = base::min ( view.history_count, 5 );
+			static const int32_t windows [ 4 ] = { 5, 30, 60, 300 };
+			int32_t window = base::min ( view.history_count, windows [ rate_window % 4 ] );
 			double sum = 0.0;
 
 			for ( int32_t i = view.history_count - window; i < view.history_count; i++ )
@@ -957,6 +968,8 @@ namespace app {
 	}
 
 	bool session::tick ( double now, const ui::preferences& settings ) {
+
+		rate_window = settings.rate_window;
 
 		uint64_t logs = shown->log_serial;
 		uint64_t shares = shown->share_serial;

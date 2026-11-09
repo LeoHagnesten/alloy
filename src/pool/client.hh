@@ -67,6 +67,13 @@ namespace pool {
 		wchar_t password [ 128 ] = { };
 		char pin [ 65 ] = { };
 		char backup_pin [ 65 ] = { };
+		char tag [ 41 ] = "/alloy/";
+		double difficulty = 0.0;
+		uint32_t failover_tries = 3;
+		uint32_t failback_seconds = 600;
+		uint32_t connect_ms = 5000;
+		uint32_t silence_seconds = 300;
+		uint32_t retry_limit = 60;
 
 	};
 

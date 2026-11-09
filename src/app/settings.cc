@@ -52,6 +52,8 @@ namespace app {
 	static const char* const update_names [ ] = { "1s", "5s", "15s", "continuous" };
 	static const char* const clock_names [ ] = { "ago", "clock" };
 	static const char* const smoothing_names [ ] = { "off", "5s", "30s" };
+	static const char* const window_names [ ] = { "5s", "30s", "1m", "5m" };
+	static const char* const scrypt_kernel_names [ ] = { "auto", "sse2" };
 
 	static uint32_t day_mask ( const char* value ) {
 
@@ -90,6 +92,86 @@ namespace app {
 
 			out.add ( first ? "" : "," ).add ( day_names [ day ] );
 			first = false;
+
+		}
+
+	}
+
+	static uint32_t core_mask ( const char* value ) {
+
+		uint32_t mask = 0;
+
+		for ( int32_t at = 0; value [ at ]; ) {
+
+			while ( value [ at ] == ',' || value [ at ] == ' ' )
+				at++;
+
+			if ( value [ at ] < '0' || value [ at ] > '9' ) {
+
+				while ( value [ at ] && value [ at ] != ',' )
+					at++;
+
+				continue;
+
+			}
+
+			uint32_t first = 0;
+			uint32_t last = 0;
+
+			while ( value [ at ] >= '0' && value [ at ] <= '9' )
+				first = first * 10 + static_cast < uint32_t > ( value [ at++ ] - '0' );
+
+			last = first;
+
+			if ( value [ at ] == '-' ) {
+
+				last = 0;
+				at++;
+
+				while ( value [ at ] >= '0' && value [ at ] <= '9' )
+					last = last * 10 + static_cast < uint32_t > ( value [ at++ ] - '0' );
+
+			}
+
+			for ( uint32_t core = first; core <= last && core < 32; core++ )
+				mask |= 1u << core;
+
+		}
+
+		return mask;
+
+	}
+
+	template < typename writer >
+	static void write_cores ( writer& out, uint32_t mask ) {
+
+		if ( !mask ) {
+
+			out.add ( "all" );
+
+			return;
+
+		}
+
+		bool first = true;
+
+		for ( uint32_t core = 0; core < 32; core++ ) {
+
+			if ( !( mask >> core & 1u ) )
+				continue;
+
+			uint32_t last = core;
+
+			while ( last + 1 < 32 && mask >> ( last + 1 ) & 1u )
+				last++;
+
+			out.add ( first ? "" : "," ).number ( core );
+
+			if ( last > core )
+				out.add ( "-" ).number ( last );
+
+			first = false;
+			core = last;
 
 		}
 
@@ -200,6 +282,8 @@ namespace app {
 					base::widen ( profile->worker, base::count_of ( profile->worker ), value );
 				else if ( base::same_text ( key, "password" ) )
 					base::widen ( profile->password, base::count_of ( profile->password ), value );
+				else if ( base::same_text ( key, "difficulty" ) )
+					base::widen ( profile->difficulty, base::count_of ( profile->difficulty ), value );
 				else if ( base::same_text ( key, "threads" ) )
 					tuning->threads = number_in ( value, 1u, threads );
 				else if ( base::same_text ( key, "cpu_limit" ) )
@@ -238,6 +322,28 @@ namespace app {
 
 				} else if ( base::same_text ( key, "pin_threads" ) )
 					out.pin_threads = yes ( value );
+				else if ( base::same_text ( key, "cores" ) )
+					out.cores = core_mask ( value );
+				else if ( base::same_text ( key, "scrypt_kernel" ) )
+					out.scrypt_kernel = pick ( scrypt_kernel_names, value, out.scrypt_kernel );
+				else if ( base::same_text ( key, "randomx_code" ) )
+					out.interpret = base::same_text ( value, "interpreted" );
+				else if ( base::same_text ( key, "advanced" ) )
+					out.advanced = yes ( value );
+				else if ( base::same_text ( key, "failover_tries" ) )
+					out.failover_tries = number_in ( value, 1u, 10u );
+				else if ( base::same_text ( key, "failback_minutes" ) )
+					out.failback_minutes = base::same_text ( value, "never" ) ? 0u : number_in ( value, 1u, 120u );
+				else if ( base::same_text ( key, "connect_timeout" ) )
+					out.connect_seconds = number_in ( value, 2u, 30u );
+				else if ( base::same_text ( key, "silence_minutes" ) )
+					out.silence_minutes = number_in ( value, 1u, 30u );
+				else if ( base::same_text ( key, "retry_limit" ) )
+					out.retry_seconds = number_in ( value, 10u, 300u );
+				else if ( base::same_text ( key, "coinbase_message" ) )
+					base::widen ( out.coinbase_tag, base::count_of ( out.coinbase_tag ), value );
+				else if ( base::same_text ( key, "hashrate_window" ) )
+					out.rate_window = pick ( window_names, value, out.rate_window );
 				else if ( base::same_text ( key, "pause_when_active" ) )
 					out.pause_active = yes ( value );
 				else if ( base::same_text ( key, "idle_minutes" ) )
@@ -376,6 +482,8 @@ namespace app {
 			out.add ( name ).add ( ".worker=" ).add ( text ).add ( "\r\n" );
 			base::narrow ( text, sizeof ( text ), profile.password );
 			out.add ( name ).add ( ".password=" ).add ( text ).add ( "\r\n" );
+			base::narrow ( text, sizeof ( text ), profile.difficulty );
+			out.add ( name ).add ( ".difficulty=" ).add ( text ).add ( "\r\n" );
 			out.add ( name ).add ( ".threads=" ).number ( tuning.threads ).add ( "\r\n" );
 			out.add ( name ).add ( ".cpu_limit=" ).number ( tuning.cpu_limit ).add ( "\r\n" );
 			out.add ( name ).add ( ".gpu=" ).add ( tuning.gpu ? "yes" : "no" ).add ( "\r\n" );
@@ -419,6 +527,25 @@ namespace app {
 		}
 
 		out.add ( "pin_threads=" ).add ( copy->pin_threads ? "yes" : "no" ).add ( "\r\n" );
+		out.add ( "cores=" );
+		write_cores ( out, copy->cores );
+		out.add ( "\r\n" );
+		out.add ( "scrypt_kernel=" ).add ( scrypt_kernel_names [ copy->scrypt_kernel % 2 ] ).add ( "\r\n" );
+		out.add ( "randomx_code=" ).add ( copy->interpret ? "interpreted" : "compiled" ).add ( "\r\n" );
+		out.add ( "advanced=" ).add ( copy->advanced ? "yes" : "no" ).add ( "\r\n" );
+		out.add ( "failover_tries=" ).number ( copy->failover_tries ).add ( "\r\n" );
+
+		if ( copy->failback_minutes )
+			out.add ( "failback_minutes=" ).number ( copy->failback_minutes ).add ( "\r\n" );
+		else
+			out.add ( "failback_minutes=never\r\n" );
+
+		out.add ( "connect_timeout=" ).number ( copy->connect_seconds ).add ( "\r\n" );
+		out.add ( "silence_minutes=" ).number ( copy->silence_minutes ).add ( "\r\n" );
+		out.add ( "retry_limit=" ).number ( copy->retry_seconds ).add ( "\r\n" );
+		base::narrow ( text, sizeof ( text ), copy->coinbase_tag );
+		out.add ( "coinbase_message=" ).add ( text ).add ( "\r\n" );
+		out.add ( "hashrate_window=" ).add ( window_names [ copy->rate_window % 4 ] ).add ( "\r\n" );
 		out.add ( "pause_when_active=" ).add ( copy->pause_active ? "yes" : "no" ).add ( "\r\n" );
 		out.add ( "idle_minutes=" ).number ( copy->idle_minutes ).add ( "\r\n" );
 		out.add ( "pause_on_battery=" ).add ( copy->pause_battery ? "yes" : "no" ).add ( "\r\n" );

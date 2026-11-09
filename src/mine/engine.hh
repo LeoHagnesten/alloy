@@ -96,6 +96,9 @@ namespace mine {
 		uint32_t adapter_count = 1;
 		uint32_t dataset_megabytes = 2080;
 		bool pin_threads = true;
+		uint32_t cores = 0;
+		bool narrow_scrypt = false;
+		bool interpret = false;
 
 	};
 
@@ -370,6 +373,8 @@ namespace mine {
 		volatile uint32_t cpu_share = 100;
 		volatile uint32_t priority = base::PRIORITY_LOW;
 		volatile uint32_t pinning = 1;
+		volatile uint32_t core_mask = 0;
+		bool interpret = false;
 		volatile uint32_t seen_algorithm = chain::ALGORITHM_SHA256D;
 		volatile uint32_t gpu_wanted = 0;
 		volatile uint32_t gpu_share = 100;

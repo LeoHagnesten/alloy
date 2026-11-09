@@ -580,7 +580,7 @@ namespace pool {
 
 		net::connection* connection = new net::connection;
 
-		if ( !connection->open ( host, port, 5000 ) ) {
+		if ( !connection->open ( host, port, config.connect_ms ) ) {
 
 			line.clear ( );
 			line.add ( L"Couldn't reach " ).add ( host_port );
@@ -685,9 +685,12 @@ namespace pool {
 
 				sv2_submit ( link );
 
-				if ( base::seconds ( ) - heard > 300.0 ) {
+				if ( base::seconds ( ) - heard > static_cast < double > ( config.silence_seconds ) ) {
 
-					note ( EVENT_WARNING, L"The pool has been silent for five minutes" );
+					base::text quiet;
+
+					quiet.add ( L"The pool has been silent for " ).number ( config.silence_seconds / 60 ).add ( config.silence_seconds >= 120 ? L" minutes" : L" minute" );
+					note ( EVENT_WARNING, quiet.get ( ) );
 
 					break;
 

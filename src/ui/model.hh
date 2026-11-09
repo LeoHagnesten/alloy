@@ -96,6 +96,7 @@ namespace ui {
 		wchar_t backup [ 256 ] = { };
 		char pin [ 65 ] = { };
 		char backup_pin [ 65 ] = { };
+		wchar_t difficulty [ 24 ] = { };
 
 	};
 
@@ -164,6 +165,17 @@ namespace ui {
 		uint32_t gpu_heat = 0;
 		card_tuning cards [ adapter_room ];
 		bool pin_threads = true;
+		uint32_t cores = 0;
+		uint8_t scrypt_kernel = 0;
+		bool interpret = false;
+		bool advanced = false;
+		uint32_t failover_tries = 3;
+		uint32_t failback_minutes = 10;
+		uint32_t connect_seconds = 5;
+		uint32_t silence_minutes = 5;
+		uint32_t retry_seconds = 60;
+		wchar_t coinbase_tag [ 41 ] = L"/alloy/";
+		uint8_t rate_window = 0;
 		bool pause_active = false;
 		uint32_t idle_minutes = 2;
 		bool pause_battery = true;

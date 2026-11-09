@@ -326,6 +326,13 @@ namespace app {
 		self->view->wheel ( 700.0f, 500.0f, 2400.0f, self->clock );
 		self->settings.dataset_megabytes = ui::dataset_full;
 		self->settings.choose_algorithm ( picked );
+		self->settings.advanced = true;
+		self->view->wheel ( 700.0f, 500.0f, -560.0f, self->clock );
+		shoot ( *self, L"settings-advanced-dark.png" );
+		self->view->wheel ( 700.0f, 500.0f, -1500.0f, self->clock );
+		shoot ( *self, L"settings-advanced-cores-dark.png" );
+		self->view->wheel ( 700.0f, 500.0f, 4000.0f, self->clock );
+		self->settings.advanced = false;
 		self->view->open_page ( ui::PAGE_OVERVIEW, self->clock );
 		self->view->open_setup ( self->clock );
 		self->view->reload ( );

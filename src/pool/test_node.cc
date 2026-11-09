@@ -26,6 +26,7 @@ namespace pool {
 		uint64_t difficulty = 400;
 		randomx::cache* cache = nullptr;
 		randomx::machine* machine = nullptr;
+		char* message = nullptr;
 
 	};
 
@@ -275,6 +276,15 @@ namespace pool {
 		if ( !base::same ( level, header.merkle_root ( ), 32 ) || at != size )
 			return false;
 
+		int32_t said = script_size > 14 ? base::min ( static_cast < int32_t > ( block [ script_at + 13 ] ), static_cast < int32_t > ( script_size ) - 14 ) : 0;
+
+		if ( state.message ) {
+
+			base::copy ( state.message, block + script_at + 14, static_cast < size_t > ( base::min ( said, 47 ) ) );
+			state.message [ base::min ( said, 47 ) ] = 0;
+
+		}
+
 		base::copy ( state.tip, digest, 32 );
 		state.height++;
 		reason = nullptr;
@@ -433,6 +443,7 @@ namespace pool {
 		base::line* out = new base::line;
 		bool monero = config.algorithm == chain::ALGORITHM_RANDOMX;
 
+		state->message = coinbase;
 		hash::sha256_twice ( "alloy test node", 15, state->tip );
 		hash::sha256_twice ( "alloy test seed", 15, state->seed );
 

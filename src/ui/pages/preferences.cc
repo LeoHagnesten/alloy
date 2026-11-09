@@ -72,6 +72,8 @@ namespace ui {
 
 		};
 
+		section ( L"DETAIL", false );
+		toggle ( surface, row ( L"Advanced settings", L"Shows the controls experienced miners reach for: start difficulty, failover timing, exact cores, kernels, the solo coinbase message and hashrate averaging. Off keeps this page simple.", 36.0f, 20.0f ), SETTING_ADVANCED, settings.advanced, true, now );
 		section ( L"PROFILES", false );
 
 		if ( view.profile_count ) {
@@ -147,7 +149,15 @@ namespace ui {
 		}
 
 		field ( surface, row ( L"Pool address", address_tips [ kind ], 300.0f, 30.0f ), SETTING_ADDRESS, false, now );
-		field ( surface, row ( L"Backup pool", L"Alloy moves here after three failed tries on the main pool, and goes back after ten minutes. Leave it empty to keep retrying.", 300.0f, 30.0f ), SETTING_BACKUP, false, now );
+		tip.clear ( );
+		tip.add ( L"Alloy moves here after " ).number ( settings.failover_tries ).add ( settings.failover_tries == 1 ? L" failed try" : L" failed tries" ).add ( L" on the main pool" );
+
+		if ( settings.failback_minutes )
+			tip.add ( L", and goes back after " ).number ( settings.failback_minutes ).add ( settings.failback_minutes == 1 ? L" minute" : L" minutes" );
+
+		tip.add ( L". Leave it empty to keep retrying." );
+		field ( surface, row ( L"Backup pool", tip.get ( ), 300.0f, 30.0f ), SETTING_BACKUP, false, now );
+		tip.clear ( );
 
 		chain::address_check check = chain::check_worker ( chosen, fields [ SETTING_WORKER ].text );
 		bool flagged = check.verdict == chain::ADDRESS_BROKEN || check.verdict == chain::ADDRESS_OTHER_COIN;
@@ -163,6 +173,38 @@ namespace ui {
 
 		field ( surface, row ( L"Worker", tip.get ( ), 300.0f, 30.0f ), SETTING_WORKER, false, now, flagged );
 		field ( surface, row ( L"Password", L"Most pools ignore this. Leave it as x unless yours says otherwise.", 300.0f, 30.0f ), SETTING_PASSWORD, true, now );
+
+		if ( settings.advanced ) {
+
+			if ( kind != chain::ALGORITHM_RANDOMX )
+				field ( surface, row ( L"Start difficulty", L"Asks the pool for this share difficulty right after signing in. Empty lets the pool choose, and pools that ignore the request keep their own. Monero pools usually take +5000 after the address in Worker instead.", 160.0f, 30.0f ), SETTING_DIFFICULTY, false, now );
+
+			value.clear ( );
+			value.number ( settings.failover_tries );
+			stepper ( surface, row ( L"Tries before the backup pool", L"Failed connections in a row before Alloy moves to the backup pool. Applies the next time mining starts.", 124.0f, 30.0f ), SETTING_FAILOVER, value.get ( ), settings.failover_tries > 1, settings.failover_tries < 10, now );
+			value.clear ( );
+
+			if ( settings.failback_minutes )
+				value.number ( settings.failback_minutes ).add ( L" min" );
+			else
+				value.add ( L"Never" );
+
+			stepper ( surface, row ( L"Back to the main pool after", L"How long Alloy stays on the backup pool before trying the main one again. Never keeps it there until mining restarts.", 124.0f, 30.0f ), SETTING_FAILBACK, value.get ( ), settings.failback_minutes > 0, settings.failback_minutes < 120, now );
+			value.clear ( );
+			value.number ( settings.connect_seconds ).add ( L" s" );
+			stepper ( surface, row ( L"Connection timeout", L"How long a new connection may take to answer before it counts as a failed try.", 124.0f, 30.0f ), SETTING_CONNECT, value.get ( ), settings.connect_seconds > 2, settings.connect_seconds < 30, now );
+			value.clear ( );
+			value.number ( settings.silence_minutes ).add ( L" min" );
+			stepper ( surface, row ( L"Reconnect after silence", L"A pool that sends nothing for this long gets a fresh connection. Pools for slow coins can stay quiet for minutes.", 124.0f, 30.0f ), SETTING_SILENCE, value.get ( ), settings.silence_minutes > 1, settings.silence_minutes < 30, now );
+			value.clear ( );
+			value.number ( settings.retry_seconds ).add ( L" s" );
+			stepper ( surface, row ( L"Longest wait between tries", L"After a failed connection Alloy waits 2 seconds and doubles the wait each time, up to this.", 124.0f, 30.0f ), SETTING_RETRY, value.get ( ), settings.retry_seconds > 10, settings.retry_seconds < 300, now );
+			value.clear ( );
+
+			if ( kind == chain::ALGORITHM_SHA256D || kind == chain::ALGORITHM_SCRYPT )
+				field ( surface, row ( L"Coinbase message", L"Text written into the coinbase of blocks found solo against your own node, up to 40 bytes. Pools write their own.", 300.0f, 30.0f ), SETTING_TAG, false, now );
+
+		}
 
 		int32_t matches [ 4 ];
 		int32_t known = 0;
@@ -217,6 +259,22 @@ namespace ui {
 
 		if ( kind == chain::ALGORITHM_SHA256D )
 			segmented ( surface, row ( L"Hash kernel", view.sha ? L"Auto uses the CPU's SHA instructions, about three times faster than the portable code." : L"This CPU has no SHA instructions, so Auto runs the portable code.", 324.0f, 30.0f ), kernels, 3, settings.kernel, CONTROL_CHOICE, SETTING_KERNEL * 16, true, now );
+
+		if ( kind == chain::ALGORITHM_SCRYPT && settings.advanced ) {
+
+			static const wchar_t* const scrypt_kernels [ ] = { L"Auto", L"SSE2" };
+
+			segmented ( surface, row ( L"Hash kernel", L"Auto uses AVX2 when the processor has it, which hashes twice as many at once. SSE2 is the narrower code, for comparing or for processors that clock down under AVX2.", 252.0f, 30.0f ), scrypt_kernels, 2, settings.scrypt_kernel, CONTROL_CHOICE, SETTING_SCRYPT_KERNEL * 16, true, now );
+
+		}
+
+		if ( kind == chain::ALGORITHM_RANDOMX && settings.advanced ) {
+
+			static const wchar_t* const codes [ ] = { L"Compiled", L"Interpreted" };
+
+			segmented ( surface, row ( L"RandomX code", L"Compiled turns every program into x86-64 and runs several times faster. Interpreted walks the instructions one by one, for checking results. Applies next start.", 252.0f, 30.0f ), codes, 2, settings.interpret ? 1 : 0, CONTROL_CHOICE, SETTING_RANDOMX_CODE * 16, true, now );
+
+		}
 
 		if ( kind == chain::ALGORITHM_RANDOMX ) {
 
@@ -275,6 +333,25 @@ namespace ui {
 		}
 
 		toggle ( surface, row ( L"Keep threads on their cores", L"Each thread stays on one core, physical cores first. A little faster for scrypt and RandomX. Applies next start.", 36.0f, 20.0f ), SETTING_PIN, settings.pin_threads, true, now );
+
+		if ( settings.advanced ) {
+
+			static const wchar_t* const numbers [ 32 ] = { L"0", L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9", L"10", L"11", L"12", L"13", L"14", L"15", L"16", L"17", L"18", L"19", L"20", L"21", L"22", L"23", L"24", L"25", L"26", L"27", L"28", L"29", L"30", L"31" };
+			int32_t count = static_cast < int32_t > ( base::clamp ( view.threads, 1u, 32u ) );
+			int32_t low = base::min ( count, 16 );
+			uint32_t every = count >= 32 ? ~0u : ( 1u << count ) - 1u;
+			uint32_t mask = settings.cores ? settings.cores & every : every;
+
+			tip.clear ( );
+			tip.add ( L"Threads run only on the logical processors picked here, one each, and never more threads than picks. All picked lets Alloy place them, physical cores first. Applies next start." );
+			chips ( surface, row ( count > 16 ? L"Cores 0 to 15" : L"Cores", tip.get ( ), 30.0f * static_cast < float > ( low ) + 4.0f * static_cast < float > ( low - 1 ), 28.0f ), numbers, low, mask & 0xFFFFu, SETTING_CORES, true, now );
+
+			if ( count > 16 )
+				chips ( surface, row ( L"Cores 16 to 31", tip.get ( ), 30.0f * static_cast < float > ( count - 16 ) + 4.0f * static_cast < float > ( count - 17 ), 28.0f ), numbers + 16, count - 16, mask >> 16, SETTING_CORES_HIGH, true, now );
+
+			tip.clear ( );
+
+		}
 
 		section ( L"GRAPHICS", true );
 
@@ -455,6 +532,14 @@ namespace ui {
 
 		section ( L"APPEARANCE", false );
 		segmented ( surface, row ( L"Theme", L"System follows the light or dark setting in Windows.", 252.0f, 30.0f ), themes, 3, settings.theme, CONTROL_CHOICE, SETTING_THEME * 16, true, now );
+
+		if ( settings.advanced ) {
+
+			static const wchar_t* const windows [ ] = { L"5 s", L"30 s", L"1 min", L"5 min" };
+
+			segmented ( surface, row ( L"Hashrate average", L"How long the big hashrate number averages over. Short reacts at once, long holds steady through the ups and downs.", 300.0f, 30.0f ), windows, 4, settings.rate_window, CONTROL_CHOICE, SETTING_RATE_WINDOW * 16, true, now );
+
+		}
 
 		section ( L"ABOUT", false );
 		surface.text ( L"Alloy " ALLOY_VERSION_TEXT, render::FONT_BODY, row ( L"Version", L"SHA-256, scrypt, RandomX, the pool protocols, the shaders and this window are all written from scratch.", 200.0f, 30.0f ), colors.muted, render::ALIGN_RIGHT );

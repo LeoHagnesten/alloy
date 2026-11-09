@@ -53,6 +53,8 @@ namespace ui {
 		SETTING_APPS,
 		SETTING_PROFILE_NAME,
 		SETTING_RIG,
+		SETTING_DIFFICULTY,
+		SETTING_TAG,
 		SETTING_CPU,
 		SETTING_THREADS,
 		SETTING_CPU_LIMIT,
@@ -98,6 +100,17 @@ namespace ui {
 		SETTING_CARD_INTENSITY,
 		SETTING_CARD_LIMIT,
 		SETTING_CARD_HEAT,
+		SETTING_ADVANCED,
+		SETTING_FAILOVER,
+		SETTING_FAILBACK,
+		SETTING_CONNECT,
+		SETTING_SILENCE,
+		SETTING_RETRY,
+		SETTING_CORES,
+		SETTING_CORES_HIGH,
+		SETTING_SCRYPT_KERNEL,
+		SETTING_RANDOMX_CODE,
+		SETTING_RATE_WINDOW,
 		SETTING_COUNT,
 
 	};
@@ -125,7 +138,7 @@ namespace ui {
 
 	};
 
-	static constexpr int32_t field_count = 7;
+	static constexpr int32_t field_count = 9;
 	static constexpr int32_t pool_fields = 4;
 
 	struct text_field {

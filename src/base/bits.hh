@@ -85,6 +85,28 @@ namespace base {
 
 	}
 
+	inline uint32_t count_bits ( uint32_t value ) {
+
+		return static_cast < uint32_t > ( __builtin_popcount ( value ) );
+
+	}
+
+	inline uint32_t nth_bit ( uint32_t value, uint32_t index ) {
+
+		for ( uint32_t bit = 0; bit < 32; bit++ ) {
+
+			if ( !( value >> bit & 1u ) )
+				continue;
+
+			if ( !index-- )
+				return bit;
+
+		}
+
+		return 0;
+
+	}
+
 	inline uint32_t leading_zeros ( uint32_t value ) {
 
 		return value ? static_cast < uint32_t > ( __builtin_clz ( value ) ) : 32;

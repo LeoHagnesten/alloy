@@ -105,6 +105,35 @@ namespace base {
 
 	}
 
+	bool pin_to_processor ( uint32_t number ) {
+
+		WORD groups = GetActiveProcessorGroupCount ( );
+
+		for ( WORD group = 0; group < groups; group++ ) {
+
+			DWORD count = GetActiveProcessorCount ( group );
+
+			if ( number >= count ) {
+
+				number -= count;
+
+				continue;
+
+			}
+
+			GROUP_AFFINITY wanted = { };
+
+			wanted.Group = group;
+			wanted.Mask = static_cast < KAFFINITY > ( 1 ) << number;
+
+			return SetThreadGroupAffinity ( GetCurrentThread ( ), &wanted, nullptr ) != 0;
+
+		}
+
+		return false;
+
+	}
+
 	void set_thread_priority ( thread_priority level ) {
 
 		static constexpr int levels [ ] = { THREAD_PRIORITY_IDLE, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_ABOVE_NORMAL };

@@ -9,6 +9,8 @@
 
 namespace ui {
 
+	static constexpr uint32_t failback_steps [ ] = { 0, 1, 2, 5, 10, 15, 30, 60, 120 };
+	static constexpr uint32_t retry_steps [ ] = { 10, 20, 30, 60, 120, 300 };
 	static constexpr uint32_t key_back = 0x08;
 	static constexpr uint32_t key_tab = 0x09;
 	static constexpr uint32_t key_space = 0x20;
@@ -810,6 +812,8 @@ namespace ui {
 					settings.show_fiat = !settings.show_fiat;
 				else if ( index == SETTING_HOTKEY )
 					settings.hotkey = !settings.hotkey;
+				else if ( index == SETTING_ADVANCED )
+					settings.advanced = !settings.advanced;
 				return COMMAND_PREFERENCES;
 
 			case CONTROL_STEP_DOWN:
@@ -828,6 +832,16 @@ namespace ui {
 					settings.schedule_from = static_cast < uint32_t > ( ( static_cast < int32_t > ( settings.schedule_from ) + step + 24 ) % 24 );
 				else if ( index == SETTING_SCHEDULE_TO )
 					settings.schedule_to = static_cast < uint32_t > ( ( static_cast < int32_t > ( settings.schedule_to ) + step + 24 ) % 24 );
+				else if ( index == SETTING_FAILOVER )
+					settings.failover_tries = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( settings.failover_tries ) + step, 1, 10 ) );
+				else if ( index == SETTING_FAILBACK )
+					settings.failback_minutes = base::step_through ( failback_steps, settings.failback_minutes, step );
+				else if ( index == SETTING_CONNECT )
+					settings.connect_seconds = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( settings.connect_seconds ) + step, 2, 30 ) );
+				else if ( index == SETTING_SILENCE )
+					settings.silence_minutes = static_cast < uint32_t > ( base::clamp ( static_cast < int32_t > ( settings.silence_minutes ) + step, 1, 30 ) );
+				else if ( index == SETTING_RETRY )
+					settings.retry_seconds = base::step_through ( retry_steps, settings.retry_seconds, step );
 
 				return COMMAND_PREFERENCES;
 
@@ -896,6 +910,23 @@ namespace ui {
 				}
 				else if ( which == SETTING_CURRENCY )
 					settings.currency = option;
+				else if ( which == SETTING_CORES || which == SETTING_CORES_HIGH ) {
+
+					uint32_t count = data ? base::min ( data->threads, 32u ) : 32u;
+					uint32_t every = count >= 32 ? ~0u : ( 1u << count ) - 1u;
+					uint32_t current = settings.cores ? settings.cores & every : every;
+					uint32_t flipped = current ^ 1u << ( option + ( which == SETTING_CORES_HIGH ? 16 : 0 ) );
+
+					if ( flipped & every )
+						settings.cores = ( flipped & every ) == every ? 0u : flipped & every;
+
+				}
+				else if ( which == SETTING_SCRYPT_KERNEL )
+					settings.scrypt_kernel = option;
+				else if ( which == SETTING_RANDOMX_CODE )
+					settings.interpret = option == 1;
+				else if ( which == SETTING_RATE_WINDOW )
+					settings.rate_window = option;
 				else if ( which == SETTING_CARD ) {
 
 					card_view = option;
@@ -1083,7 +1114,7 @@ namespace ui {
 		int32_t room = 0;
 		wchar_t* target = field_target ( focus, room );
 		bool changed = !base::same_text ( target, fields [ focus ].text );
-		bool stored = focus < pool_fields || focus == SETTING_APPS;
+		bool stored = focus < pool_fields || focus == SETTING_APPS || focus == SETTING_DIFFICULTY || focus == SETTING_TAG;
 
 		if ( changed && stored ) {
 
@@ -1104,7 +1135,9 @@ namespace ui {
 		if ( !changed || !stored )
 			return COMMAND_NONE;
 
-		return was < pool_fields && data && data->running && settings.mode == MODE_POOL ? COMMAND_RESTART : COMMAND_PREFERENCES;
+		bool linked = was < pool_fields || was == SETTING_DIFFICULTY || was == SETTING_TAG;
+
+		return linked && data && data->running && settings.mode == MODE_POOL ? COMMAND_RESTART : COMMAND_PREFERENCES;
 
 	}
 
@@ -1137,6 +1170,14 @@ namespace ui {
 			case SETTING_PROFILE_NAME:
 				room = base::count_of ( profile_name );
 				return profile_name;
+
+			case SETTING_DIFFICULTY:
+				room = base::count_of ( profile.difficulty );
+				return profile.difficulty;
+
+			case SETTING_TAG:
+				room = base::count_of ( settings.coinbase_tag );
+				return settings.coinbase_tag;
 
 			default:
 				room = base::count_of ( rig_entry );

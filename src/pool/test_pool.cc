@@ -28,6 +28,8 @@ namespace pool {
 		int32_t seen_count = 0;
 		wchar_t worker [ 64 ] = { };
 		char session [ 24 ] = { };
+		double difficulty = 0.0;
+		uint8_t target [ 32 ] = { };
 
 	};
 
@@ -294,7 +296,7 @@ namespace pool {
 
 		}
 
-		out.add ( "{\"id\":null,\"method\":\"mining.set_difficulty\",\"params\":[" ).decimal ( state.config.difficulty, 6 ).add ( "]}" );
+		out.add ( "{\"id\":null,\"method\":\"mining.set_difficulty\",\"params\":[" ).decimal ( client.difficulty > 0.0 ? client.difficulty : state.config.difficulty, 6 ).add ( "]}" );
 		client.link.send_line ( out.get ( ) );
 		out.clear ( );
 
@@ -376,6 +378,29 @@ namespace pool {
 			client.authorized = true;
 			reply ( client, message, id, "true", 0, nullptr );
 			send_work ( client, state );
+
+			return;
+
+		}
+
+		if ( message.text_is ( method, "mining.suggest_difficulty" ) ) {
+
+			double wanted = message.number ( message.item ( params, 0 ) );
+
+			if ( !( wanted > 0.0 ) ) {
+
+				reply ( client, message, id, nullptr, 20, "Bad difficulty" );
+
+				return;
+
+			}
+
+			client.difficulty = wanted;
+			chain::target_for ( wanted, client.target, state.config.algorithm );
+			reply ( client, message, id, "true", 0, nullptr );
+
+			if ( client.authorized )
+				send_work ( client, state );
 
 			return;
 
@@ -463,7 +488,7 @@ namespace pool {
 		else
 			hash::sha256_twice ( header.bytes, chain::header_size, digest );
 
-		if ( !chain::meets ( digest, state.target ) ) {
+		if ( !chain::meets ( digest, client.difficulty > 0.0 ? client.target : state.target ) ) {
 
 			reply ( client, message, id, nullptr, 23, "Low difficulty share" );
 			tally ( state, false );
@@ -733,7 +758,7 @@ namespace pool {
 		state.heavy->prepare ( work.pre_pow, work.timestamp );
 		state.heavy->hash ( nonce, digest );
 
-		if ( !chain::meets ( digest, state.target ) ) {
+		if ( !chain::meets ( digest, client.difficulty > 0.0 ? client.target : state.target ) ) {
 
 			reply ( client, message, id, nullptr, 23, "Low difficulty share" );
 			tally ( state, false );
@@ -872,6 +897,7 @@ namespace pool {
 				client.used = true;
 				client.authorized = false;
 				client.seen_count = 0;
+				client.difficulty = 0.0;
 				client.nonce = session_nonce { };
 				client.nonce.first_size = 4;
 				base::store_big ( client.nonce.first, ( config.algorithm == chain::ALGORITHM_KHEAVYHASH ? 0xA7000000 : 0xA1100000 ) + ( sessions << ( config.algorithm == chain::ALGORITHM_KHEAVYHASH ? 16 : 0 ) ) );

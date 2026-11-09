@@ -291,7 +291,7 @@ namespace pool {
 		base::list < uint8_t > pushed;
 		static const uint8_t opening [ ] = { 0x01, 0x00, 0x00, 0x00, 0x01 };
 		static const uint8_t spent [ 4 ] = { 0xFF, 0xFF, 0xFF, 0xFF };
-		static const char tag [ ] = "/alloy/";
+		int32_t tag_size = base::min ( static_cast < int32_t > ( base::length ( config.tag ) ), 40 );
 		uint8_t zero [ 32 ] = { };
 		uint8_t amount [ 8 ];
 		bool witness = message.kind ( commitment ) == base::JSON_STRING && message.raw_size ( commitment ) > 0 && message.raw_size ( commitment ) <= 160;
@@ -300,12 +300,17 @@ namespace pool {
 		head.append ( opening, 5 );
 		head.append ( zero, 32 );
 		head.append ( spent, 4 );
-		head.push ( static_cast < uint8_t > ( pushed.size ( ) + 1 + 8 + 1 + 7 ) );
+		head.push ( static_cast < uint8_t > ( pushed.size ( ) + 1 + 8 + ( tag_size ? 1 + tag_size : 0 ) ) );
 		head.append ( pushed.data ( ), pushed.size ( ) );
 		head.push ( 0x08 );
 
-		tail.push ( 0x07 );
-		tail.append ( reinterpret_cast < const uint8_t* > ( tag ), 7 );
+		if ( tag_size ) {
+
+			tail.push ( static_cast < uint8_t > ( tag_size ) );
+			tail.append ( reinterpret_cast < const uint8_t* > ( config.tag ), static_cast < size_t > ( tag_size ) );
+
+		}
+
 		tail.append ( spent, 4 );
 		tail.push ( witness ? 2 : 1 );
 		base::store_little64 ( amount, value );

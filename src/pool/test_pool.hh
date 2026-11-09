@@ -59,6 +59,12 @@ namespace pool {
 
 		}
 
+		const char* coinbase_message ( ) const {
+
+			return coinbase;
+
+		}
+
 		const char* authority_key ( ) const {
 
 			return authority;
@@ -92,6 +98,7 @@ namespace pool {
 		volatile uint32_t made = 0;
 		volatile uint32_t listening = 0;
 		char authority [ 80 ] = { };
+		char coinbase [ 48 ] = { };
 
 	};
 
