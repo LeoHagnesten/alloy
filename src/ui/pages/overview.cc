@@ -642,12 +642,13 @@ namespace ui {
 		bool randomx = ( view.running ? view.algorithm : settings.algorithm ) == chain::ALGORITHM_RANDOMX;
 
 		add_hint ( render::box { area.x, row, area.w, 70.0f }, randomx ? L"RandomX keeps a 2 MB scratchpad per thread in the processor's cache, so Alloy only runs as many threads as fit there." : L"One bar per thread, scaled to the fastest. Threads left out in Settings stay grey." );
-		draw_icon ( surface, ICON_PROCESSOR, area.x, row + 12.0f, 16.0f, settings.cpu ? colors.text : colors.faint );
-		surface.text ( view.cpu_name, render::FONT_BODY, render::box { area.x + 28.0f, row + 6.0f, name_width, 20.0f }, settings.cpu ? colors.text : colors.faint );
-
 		uint8_t kind = view.running ? view.algorithm : settings.algorithm;
+		bool cpu_on = settings.cpu && kind != chain::ALGORITHM_ETHASH;
 
-		if ( settings.cpu ) {
+		draw_icon ( surface, ICON_PROCESSOR, area.x, row + 12.0f, 16.0f, cpu_on ? colors.text : colors.faint );
+		surface.text ( view.cpu_name, render::FONT_BODY, render::box { area.x + 28.0f, row + 6.0f, name_width, 20.0f }, cpu_on ? colors.text : colors.faint );
+
+		if ( cpu_on ) {
 
 			detail.number ( view.running ? view.active_threads : base::min ( settings.threads, view.threads ) ).add ( L" of " ).number ( view.threads ).add ( L" threads, " );
 
@@ -668,17 +669,17 @@ namespace ui {
 				detail.add ( L", " ).number ( settings.cpu_limit ).add ( L"% limit" );
 
 		} else
-			detail.add ( L"Off" );
+			detail.add ( settings.cpu && kind == chain::ALGORITHM_ETHASH ? L"Not used, Ethash runs on the graphics card" : L"Off" );
 
 		surface.text ( detail.get ( ), render::FONT_SMALL, render::box { area.x + 28.0f, row + 26.0f, name_width, 16.0f }, colors.muted );
 
-		if ( settings.cpu && view.running )
+		if ( cpu_on && view.running )
 			rate.scaled ( view.cpu_rate, L"H/s" );
 		else
 			rate.add ( L"\x2014" );
 
-		surface.text ( rate.get ( ), render::FONT_STRONG, render::box { rate_right - 130.0f, row + 6.0f, 130.0f, 20.0f }, settings.cpu ? colors.text : colors.faint, render::ALIGN_RIGHT );
-		share_bar ( row + 16.0f, view.cpu_rate, settings.cpu && view.running );
+		surface.text ( rate.get ( ), render::FONT_STRONG, render::box { rate_right - 130.0f, row + 6.0f, 130.0f, 20.0f }, cpu_on ? colors.text : colors.faint, render::ALIGN_RIGHT );
+		share_bar ( row + 16.0f, view.cpu_rate, cpu_on && view.running );
 
 		int32_t lanes = base::min ( view.lane_count > 0 ? view.lane_count : static_cast < int32_t > ( view.threads ), lane_room );
 		float lane_area = name_width;
@@ -690,7 +691,7 @@ namespace ui {
 
 		for ( int32_t i = 0; i < lanes; i++ ) {
 
-			bool working = settings.cpu && view.running && static_cast < uint32_t > ( i ) < view.active_threads;
+			bool working = cpu_on && view.running && static_cast < uint32_t > ( i ) < view.active_threads;
 			float fraction = working && i < view.lane_count ? base::clamp ( view.lane_rates [ i ] / fastest, 0.08f, 1.0f ) : 0.0f;
 			float left = area.x + 28.0f + static_cast < float > ( i ) * ( lane_width + 2.0f );
 			float bottom = row + 62.0f;
@@ -722,9 +723,11 @@ namespace ui {
 			detail.add ( view.gpu_name );
 		else {
 
-			uint32_t batch = kind == chain::ALGORITHM_KHEAVYHASH ? settings.intensity - 2 : settings.intensity;
+			uint32_t batch = kind == chain::ALGORITHM_KHEAVYHASH || kind == chain::ALGORITHM_ETHASH ? settings.intensity - 2 : settings.intensity;
 
-			if ( kind == chain::ALGORITHM_SCRYPT )
+			if ( view.running && view.gpu_state == GPU_BUILDING )
+				detail.add ( L"Building the " ).decimal ( static_cast < double > ( view.dag_bytes ) / 1073741824.0, 2 ).add ( L" GB DAG, " ).number ( view.dag_progress / 10 ).put ( L'%' );
+			else if ( kind == chain::ALGORITHM_SCRYPT )
 				detail.add ( L"scrypt, 64 KB of video memory per hash" );
 			else
 				detail.add ( L"intensity " ).number ( settings.intensity ).add ( L", " ).compact ( static_cast < double > ( 1u << batch ) ).add ( L" hashes per dispatch" );
