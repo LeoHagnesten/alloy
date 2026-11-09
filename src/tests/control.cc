@@ -92,7 +92,7 @@ namespace tests {
 		pool::server_settings config;
 
 		config.port = 0;
-		config.difficulty = 0.02;
+		config.difficulty = 0.002;
 		config.job_seconds = 30;
 
 		if ( !server->start ( config ) ) {
