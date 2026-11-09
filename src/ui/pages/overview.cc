@@ -95,7 +95,12 @@ namespace ui {
 		else
 			cells [ 0 ].detail.add ( L"not mining" );
 
-		if ( !settings.cpu ) {
+		if ( kind == chain::ALGORITHM_ETHASH ) {
+
+			cells [ 1 ].value.add ( L"Idle" );
+			cells [ 1 ].quiet = true;
+
+		} else if ( !settings.cpu ) {
 
 			cells [ 1 ].value.add ( L"Off" );
 			cells [ 1 ].quiet = true;
@@ -107,9 +112,12 @@ namespace ui {
 
 		uint32_t working = view.running && view.active_threads ? view.active_threads : settings.threads;
 
-		cells [ 1 ].detail.number ( working ).add ( working == 1 ? L" thread" : L" threads" );
+		if ( kind == chain::ALGORITHM_ETHASH )
+			cells [ 1 ].detail.add ( L"Ethash is GPU only" );
+		else
+			cells [ 1 ].detail.number ( working ).add ( working == 1 ? L" thread" : L" threads" );
 
-		if ( settings.cpu_limit < 100 )
+		if ( settings.cpu_limit < 100 && kind != chain::ALGORITHM_ETHASH )
 			cells [ 1 ].detail.add ( L" at " ).number ( settings.cpu_limit ).put ( L'%' );
 
 		if ( kind == chain::ALGORITHM_RANDOMX && view.adapter_count ) {
@@ -133,10 +141,14 @@ namespace ui {
 
 			if ( view.running && view.gpu_state == GPU_WORKING )
 				cells [ 2 ].value.scaled ( view.gpu_rate, L"H/s" );
+			else if ( view.running && view.gpu_state == GPU_BUILDING )
+				cells [ 2 ].value.add ( L"Building" );
 			else
 				cells [ 2 ].value.add ( view.running ? L"Starting" : L"\x2014" );
 
-			if ( kind == chain::ALGORITHM_SCRYPT )
+			if ( view.running && view.gpu_state == GPU_BUILDING )
+				cells [ 2 ].detail.add ( L"DAG " ).number ( view.dag_progress / 10 ).put ( L'%' );
+			else if ( kind == chain::ALGORITHM_SCRYPT )
 				cells [ 2 ].detail.add ( L"scrypt kernels" );
 			else
 				cells [ 2 ].detail.add ( L"intensity " ).number ( settings.intensity );
