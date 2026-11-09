@@ -19,6 +19,7 @@ namespace app {
 
 		uint8_t algorithm = 0;
 		uint8_t variant = 0;
+		uint8_t coin = 0;
 		wchar_t pool [ 256 ] = { };
 		wchar_t worker [ 128 ] = { };
 		bool balances = false;
@@ -29,6 +30,7 @@ namespace app {
 	struct lookup_result {
 
 		bool network = false;
+		uint8_t coin = 0;
 		double difficulty = 0.0;
 		uint64_t height = 0;
 		double reward = 0.0;

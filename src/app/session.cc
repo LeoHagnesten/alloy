@@ -1215,6 +1215,7 @@ namespace app {
 		accounted = now;
 		wanted.algorithm = kind;
 		wanted.variant = flavour;
+		wanted.coin = current_coin;
 		base::copy_text ( wanted.pool, base::count_of ( wanted.pool ), view.on_backup ? profile.backup : profile.address );
 		base::copy_text ( wanted.worker, base::count_of ( wanted.worker ), profile.worker );
 		wanted.balances = settings.lookups;
@@ -1238,7 +1239,7 @@ namespace app {
 			reward = static_cast < double > ( pool_reward ) / 1e8;
 			known = difficulty > 0.0;
 
-		} else if ( kind == chain::ALGORITHM_RANDOMX && flavour <= 1 && found.network ) {
+		} else if ( ( ( kind == chain::ALGORITHM_RANDOMX && flavour <= 1 ) || kind == chain::ALGORITHM_ETHASH ) && found.network && found.coin == current_coin ) {
 
 			difficulty = found.difficulty;
 			reward = found.reward;

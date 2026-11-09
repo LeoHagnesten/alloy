@@ -46,7 +46,7 @@ namespace app {
 
 		base::guard hold ( guard_lock );
 
-		bool same = wanted.algorithm == request.algorithm && wanted.variant == request.variant && wanted.balances == request.balances && wanted.prices == request.prices && base::same_text ( wanted.pool, request.pool ) && base::same_text ( wanted.worker, request.worker );
+		bool same = wanted.algorithm == request.algorithm && wanted.variant == request.variant && wanted.coin == request.coin && wanted.balances == request.balances && wanted.prices == request.prices && base::same_text ( wanted.pool, request.pool ) && base::same_text ( wanted.worker, request.worker );
 
 		if ( same )
 			return;
@@ -100,6 +100,38 @@ namespace app {
 
 	}
 
+	static bool ethereum_tip ( uint8_t coin, base::json& parsed, net::http_reply& reply, lookup_result& out ) {
+
+		static const char request [ ] = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBlockByNumber\",\"params\":[\"latest\",false]}";
+		const char* node = coin == chain::COIN_ETHEREUM_CLASSIC ? "https://etc.etcdesktop.com" : "https://mainnet.ethereumpow.org";
+
+		if ( !net::http_request ( "POST", node, "Content-Type: application/json\r\n", request, sizeof ( request ) - 1, reply, 10000 ) || reply.status != 200 || reply.body.size ( ) < 2 || !parsed.parse ( reply.body.data ( ), reply.body.size ( ) - 1 ) )
+			return false;
+
+		int32_t block = parsed.member ( 0, "result" );
+		char digits [ 40 ] = { };
+
+		parsed.text ( parsed.member ( block, "difficulty" ), digits, sizeof ( digits ) );
+		out.difficulty = static_cast < double > ( base::read_hex_number ( digits ) );
+		parsed.text ( parsed.member ( block, "number" ), digits, sizeof ( digits ) );
+		out.height = base::read_hex_number ( digits );
+		out.reward = 2.0;
+
+		if ( coin == chain::COIN_ETHEREUM_CLASSIC ) {
+
+			out.reward = 5.0;
+
+			for ( uint64_t era = out.height ? ( out.height - 1 ) / 5000000 : 0; era; era-- )
+				out.reward *= 0.8;
+
+		}
+
+		out.coin = coin;
+
+		return out.difficulty > 0.0 && out.height;
+
+	}
+
 	void lookup::poll ( const lookup_request& wanted, lookup_result& out, bool prices_due ) {
 
 		base::json* parsed = new base::json;
@@ -141,11 +173,15 @@ namespace app {
 		if ( monero && fetch ( "https://supportxmr.com/api/network/stats", *parsed, *reply ) ) {
 
 			out.network = true;
+			out.coin = wanted.coin;
 			out.difficulty = parsed->number ( parsed->member ( 0, "difficulty" ) );
 			out.height = static_cast < uint64_t > ( parsed->number ( parsed->member ( 0, "height" ) ) );
 			out.reward = parsed->number ( parsed->member ( 0, "value" ) ) / 1e12;
 
 		}
+
+		if ( wanted.algorithm == chain::ALGORITHM_ETHASH && ethereum_tip ( wanted.coin, *parsed, *reply, out ) )
+			out.network = true;
 
 		if ( wanted.balances && length > 20 && mentions ( "supportxmr.com" ) ) {
 
