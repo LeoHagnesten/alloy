@@ -14,6 +14,8 @@ namespace base {
 
 	void release_pages ( void* memory );
 
+	uint64_t available_memory ( );
+
 	bool make_writable ( void* memory, size_t size );
 
 	bool make_executable ( void* memory, size_t size );

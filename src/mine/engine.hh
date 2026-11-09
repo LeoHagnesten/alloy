@@ -94,7 +94,7 @@ namespace mine {
 		uint32_t adapters [ max_gpus ] = { };
 		card_setting cards [ max_gpus ];
 		uint32_t adapter_count = 1;
-		bool full_dataset = true;
+		uint32_t dataset_megabytes = 2080;
 		bool pin_threads = true;
 
 	};
@@ -117,6 +117,7 @@ namespace mine {
 		DATASET_FULL,
 		DATASET_LIGHT,
 		DATASET_SHORT,
+		DATASET_PART,
 
 	};
 
@@ -280,6 +281,12 @@ namespace mine {
 
 		}
 
+		uint32_t dataset_megabytes ( ) const {
+
+			return rx_built_for;
+
+		}
+
 		bool dataset_large ( ) const {
 
 			return rx_large;
@@ -380,7 +387,7 @@ namespace mine {
 		uint64_t level3 = 0;
 		bool wide_scrypt = false;
 		volatile uint32_t rx_lanes = max_lanes;
-		volatile uint32_t rx_full = 1;
+		volatile uint32_t rx_megabytes = 2080;
 		volatile uint32_t rx_ready = 0;
 		volatile uint32_t rx_building = 0;
 		volatile uint32_t rx_users = 0;

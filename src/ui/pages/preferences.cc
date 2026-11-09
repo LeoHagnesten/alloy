@@ -16,8 +16,7 @@ namespace ui {
 		static const wchar_t* const priorities [ ] = { L"Idle", L"Low", L"Normal" };
 		static const wchar_t* const kernels [ ] = { L"Auto", L"SHA extensions", L"Portable" };
 		static const wchar_t* const themes [ ] = { L"System", L"Dark", L"Light" };
-		static const wchar_t* const datasets [ ] = { L"Full, 2 GB", L"Light, 256 MB" };
-		static const wchar_t* const address_tips [ ] = {
+			static const wchar_t* const address_tips [ ] = {
 
 			L"The pool's address as host:port. Start it with stratum+ssl:// for an encrypted link, or stratum2+tcp://host:port/ and the pool's authority key for Stratum V2. Your own node's RPC address, like http://127.0.0.1:8332, mines solo. Alloy.exe --test-pool runs a local pool.",
 			L"The scrypt pool's address as host:port, with stratum+ssl:// in front for an encrypted link.",
@@ -230,8 +229,34 @@ namespace ui {
 
 		}
 
-		if ( kind == chain::ALGORITHM_RANDOMX )
-			segmented ( surface, row ( L"Dataset", L"Full hashes about three times faster but keeps 2 GB of memory busy. Light gets by on 256 MB.", 252.0f, 30.0f ), datasets, 2, settings.full_dataset ? 0 : 1, CONTROL_CHOICE, SETTING_DATASET * 16, true, now );
+		if ( kind == chain::ALGORITHM_RANDOMX ) {
+
+			uint32_t held = base::min ( settings.dataset_megabytes, dataset_full );
+			uint32_t total = held + dataset_cache;
+			double share = static_cast < double > ( held ) / static_cast < double > ( dataset_full );
+
+			value.clear ( );
+			tip.clear ( );
+
+			if ( total < 1024 )
+				value.number ( total ).add ( L" MB" );
+			else
+				value.decimal ( static_cast < double > ( total ) / 1024.0, 2 ).add ( L" GB" );
+
+			if ( held >= dataset_full )
+				tip.add ( L"The whole 2 GB dataset sits in memory next to the 256 MB cache. The fastest RandomX gets, about twelve times light mode." );
+			else if ( !held )
+				tip.add ( L"Light mode works every dataset item out from the 256 MB cache. Slow, about a twelfth of full speed, but it fits almost anywhere." );
+			else
+				tip.add ( L"Keeps " ).number ( static_cast < uint64_t > ( share * 100.0 + 0.5 ) ).add ( L"% of the dataset in memory and works the rest out as it goes, roughly " ).number ( static_cast < uint64_t > ( 100.0 / ( 1.0 + 11.0 * ( 1.0 - share ) ) + 0.5 ) ).add ( L"% of full speed. Most of the gain comes near the top." );
+
+			if ( view.memory_free )
+				tip.add ( L" This PC has " ).decimal ( static_cast < double > ( view.memory_free ) / 1024.0, 1 ).add ( L" GB free." );
+
+			slider ( surface, row ( L"Memory", tip.get ( ), 300.0f, 30.0f ), SETTING_DATASET, static_cast < float > ( held ) / static_cast < float > ( dataset_full ), value.get ( ), true, now );
+			tip.clear ( );
+
+		}
 
 		{
 

@@ -264,11 +264,25 @@ namespace tests {
 		check ( agrees ( *vm, 4 ), L"compiled and interpreted light mode agree on four more inputs" );
 
 		randomx::dataset* fast = new randomx::dataset;
+		randomx::dataset* part = new randomx::dataset;
 
-		began = base::seconds ( );
 		light->build ( "test key 000", 12 );
 
-		bool full = fast->build ( *light, cpu.threads, nullptr, nullptr );
+		bool sliced = part->build ( *light, randomx::items_for ( 512 ), cpu.threads, nullptr, nullptr );
+		int32_t sliced_passed = 0;
+
+		if ( sliced && vm->open ( light, part ) ) {
+
+			for ( int32_t i = 0; i < 3; i++ )
+				sliced_passed += hash_matches ( *vm, hash_cases [ i ] ) ? 1 : 0;
+
+		}
+
+		check ( sliced && part->count ( ) == 512ull * 16384 && !part->complete ( ) && sliced_passed == 3 && agrees ( *vm, 4 ), L"a 512 MB slice of the dataset, with every other item worked out from the cache, hashes the same reference vectors" );
+		delete part;
+		began = base::seconds ( );
+
+		bool full = fast->build ( *light, randomx::dataset_items, cpu.threads, nullptr, nullptr );
 		double dataset_time = base::seconds ( ) - began;
 
 		passed = 0;

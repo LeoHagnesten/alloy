@@ -135,7 +135,7 @@ namespace tests {
 
 		bench.set_algorithm ( chain::ALGORITHM_RANDOMX );
 		limits.threads = cpu.threads;
-		limits.full_dataset = false;
+		limits.dataset_megabytes = 0;
 		engine->start ( &bench, limits );
 
 		bool light = wait_dataset ( mine::DATASET_LIGHT, 15.0 );
@@ -149,7 +149,20 @@ namespace tests {
 		note.add ( L"RandomX light mode builds its cache in " ).decimal ( light_build, 2 ).add ( L" s and hashes at " ).scaled ( light_rate, L"H/s" );
 		check ( light && light_rate > 0.0, note.get ( ) );
 
-		limits.full_dataset = true;
+		limits.dataset_megabytes = 1600;
+		engine->apply ( limits );
+
+		bool part_ready = wait_dataset ( mine::DATASET_PART, 60.0 );
+
+		base::sleep ( 300 );
+
+		double part_rate = measure ( *engine, 2.0 );
+
+		note.clear ( );
+		note.add ( L"a 1600 MB slice of the dataset builds in " ).decimal ( engine->dataset_seconds ( ), 1 ).add ( L" s and hashes at " ).scaled ( part_rate, L"H/s" ).add ( L", between light and full" );
+		check ( part_ready && engine->dataset_megabytes ( ) == 1600 && part_rate > light_rate * 1.3, note.get ( ) );
+
+		limits.dataset_megabytes = 2080;
 		engine->apply ( limits );
 
 		bool full_ready = wait_dataset ( mine::DATASET_FULL, 60.0 );
@@ -162,7 +175,7 @@ namespace tests {
 		engine->stop ( );
 		note.clear ( );
 		note.add ( L"switching to the full dataset rebuilds it in " ).decimal ( full_build, 1 ).add ( L" s and hashes at " ).scaled ( full_rate, L"H/s" );
-		check ( full_ready && full_rate > light_rate * 2.0, note.get ( ) );
+		check ( full_ready && full_rate > light_rate * 2.0 && full_rate > part_rate, note.get ( ) );
 		engine->release_dataset ( );
 		bench.set_algorithm ( chain::ALGORITHM_SHA256D );
 

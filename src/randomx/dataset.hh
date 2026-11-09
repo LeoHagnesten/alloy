@@ -12,6 +12,8 @@ namespace randomx {
 	static constexpr uint64_t dataset_base = 2147483648ull;
 	static constexpr uint64_t dataset_extra = 33554368ull;
 	static constexpr uint64_t dataset_items = ( dataset_base + dataset_extra ) / 64;
+	static constexpr uint32_t dataset_megabytes = 2080;
+	static constexpr uint32_t cache_megabytes = 256;
 	static constexpr int32_t cache_accesses = 8;
 	static constexpr int32_t key_room = 60;
 
@@ -77,6 +79,8 @@ namespace randomx {
 
 	};
 
+	uint64_t items_for ( uint32_t megabytes );
+
 	class dataset {
 
 	public:
@@ -89,13 +93,25 @@ namespace randomx {
 
 		~dataset ( );
 
-		bool build ( const cache& source, uint32_t threads, volatile uint32_t* progress, volatile uint32_t* cancel );
+		bool build ( const cache& source, uint64_t items, uint32_t threads, volatile uint32_t* progress, volatile uint32_t* cancel );
 
 		void release ( );
 
 		const uint8_t* data ( ) const {
 
 			return memory;
+
+		}
+
+		uint64_t count ( ) const {
+
+			return held;
+
+		}
+
+		bool complete ( ) const {
+
+			return memory && held == dataset_items;
 
 		}
 
@@ -108,6 +124,7 @@ namespace randomx {
 	private:
 
 		uint8_t* memory = nullptr;
+		uint64_t held = 0;
 		bool large = false;
 
 	};

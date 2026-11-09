@@ -154,7 +154,7 @@ namespace tests {
 		settings.mode = ui::MODE_POOL;
 		settings.threads = algorithm == chain::ALGORITHM_RANDOMX ? run->processor ( ).threads : base::min ( run->processor ( ).threads, 4u );
 		settings.gpu = gpu;
-		settings.full_dataset = true;
+		settings.dataset_megabytes = ui::dataset_full;
 		run->start ( settings );
 
 		bool flowing = wait_until ( *run, settings, limit, [ & ] ( const ui::snapshot& view ) {
@@ -234,7 +234,7 @@ namespace tests {
 		settings.algorithm = chain::ALGORITHM_RANDOMX;
 		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
 		settings.threads = run->processor ( ).threads;
-		settings.full_dataset = false;
+		settings.dataset_megabytes = 0;
 		settings.variant = randomx::VARIANT_RX0;
 		run->start ( settings );
 
@@ -345,7 +345,7 @@ namespace tests {
 		settings.mode = ui::MODE_POOL;
 		settings.threads = algorithm == chain::ALGORITHM_RANDOMX ? run->processor ( ).threads : 2u;
 		settings.gpu = false;
-		settings.full_dataset = false;
+		settings.dataset_megabytes = 0;
 		run->start ( settings );
 
 		bool found = wait_until ( *run, settings, limit, [ & ] ( const ui::snapshot& view ) {

@@ -61,7 +61,7 @@ namespace app {
 		out.gpu_intensity = settings.intensity;
 		out.gpu_heat = settings.gpu_heat;
 		out.pin_threads = settings.pin_threads;
-		out.full_dataset = settings.full_dataset;
+		out.dataset_megabytes = settings.dataset_megabytes;
 		out.algorithm = algorithm_of ( settings );
 
 		if ( settings.adapter == ui::all_adapters && adapters > 1 ) {
@@ -112,6 +112,9 @@ namespace app {
 
 			case mine::DATASET_SHORT:
 				return ui::DATASET_SHORT;
+
+			case mine::DATASET_PART:
+				return ui::DATASET_PART;
 
 			default:
 				return ui::DATASET_NONE;
@@ -834,8 +837,24 @@ namespace app {
 			}
 			else if ( dataset == ui::DATASET_LIGHT )
 				line.add ( L"RandomX runs in light mode from the 256 MB cache" );
-			else if ( dataset == ui::DATASET_SHORT )
-				line.add ( L"Not enough free memory for the 2 GB dataset, so RandomX runs in light mode" );
+			else if ( dataset == ui::DATASET_PART ) {
+
+				line.add ( L"RandomX keeps " ).number ( engine.dataset_megabytes ( ) ).add ( L" MB of the dataset in memory and works out the rest from the cache, ready after " ).decimal ( engine.dataset_seconds ( ), 1 ).add ( L" s" );
+				line.add ( engine.dataset_large ( ) ? L", in large pages" : L"" );
+
+			}
+			else if ( dataset == ui::DATASET_SHORT ) {
+
+				line.add ( L"Not enough free memory for " );
+
+				if ( engine.dataset_megabytes ( ) >= ui::dataset_full )
+					line.add ( L"the 2 GB dataset" );
+				else
+					line.add ( L"" ).number ( engine.dataset_megabytes ( ) ).add ( L" MB of the dataset" );
+
+				line.add ( L", so RandomX runs in light mode" );
+
+			}
 
 			if ( line.size ( ) )
 				log ( dataset == ui::DATASET_SHORT ? ui::LEVEL_WARNING : ui::LEVEL_INFO, line.get ( ) );
@@ -845,6 +864,8 @@ namespace app {
 		}
 
 		view.dataset_progress = engine.dataset_progress ( );
+		view.memory_free = static_cast < uint32_t > ( base::available_memory ( ) >> 20 );
+		view.dataset_megabytes = dataset == ui::DATASET_FULL || dataset == ui::DATASET_PART ? engine.dataset_megabytes ( ) : 0u;
 		view.dataset_seconds = engine.dataset_seconds ( );
 
 		if ( mode == ui::MODE_POOL ) {

@@ -124,6 +124,23 @@ namespace tests {
 
 		}
 
+		{
+
+			ui::preferences* sized = new ui::preferences;
+			ui::preferences* back = new ui::preferences;
+			bool old = app::apply_setting ( *sized, "dataset=light", 16 ) && sized->dataset_megabytes == 0 && app::apply_setting ( *sized, "dataset=full", 16 ) && sized->dataset_megabytes == ui::dataset_full;
+			bool capped = app::apply_setting ( *sized, "dataset=9000", 16 ) && sized->dataset_megabytes == ui::dataset_full;
+
+			app::apply_setting ( *sized, "dataset=1280", 16 );
+
+			bool kept = app::save_profile ( L"memory", *sized, folder ) && app::load_profile ( L"memory", *back, 16, folder ) && back->dataset_megabytes == 1280;
+
+			check ( old && capped && kept, L"the RandomX memory setting reads the old full and light words, caps at the whole dataset and keeps any size in between" );
+			delete back;
+			delete sized;
+
+		}
+
 		ui::snapshot* view = new ui::snapshot;
 
 		view->share_count = 1;

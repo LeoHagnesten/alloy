@@ -10,6 +10,8 @@ namespace ui {
 	static constexpr int32_t log_room = 300;
 	static constexpr int32_t lane_room = 256;
 	static constexpr int32_t adapter_room = 8;
+	static constexpr uint32_t dataset_full = 2080;
+	static constexpr uint32_t dataset_cache = 256;
 
 	enum work_mode : uint8_t {
 
@@ -147,7 +149,7 @@ namespace ui {
 			{ L"127.0.0.1:3336", L"alloy.worker", L"x" },
 
 		};
-		bool full_dataset = true;
+		uint32_t dataset_megabytes = dataset_full;
 		uint8_t variant = 0;
 		uint8_t coins [ chain::ALGORITHM_COUNT ] = { chain::COIN_BITCOIN, chain::COIN_LITECOIN, chain::COIN_MONERO, chain::COIN_KASPA };
 		bool cpu = true;
@@ -263,6 +265,7 @@ namespace ui {
 		DATASET_FULL,
 		DATASET_LIGHT,
 		DATASET_SHORT,
+		DATASET_PART,
 
 	};
 
@@ -323,6 +326,8 @@ namespace ui {
 		uint8_t algorithm = chain::ALGORITHM_SHA256D;
 		uint8_t dataset = DATASET_NONE;
 		uint32_t dataset_progress = 0;
+		uint32_t dataset_megabytes = 0;
+		uint32_t memory_free = 0;
 		double dataset_seconds = 0.0;
 		uint64_t height = 0;
 		int32_t blob_size = 0;

@@ -210,7 +210,7 @@ namespace tests {
 		settings.mode = ui::MODE_POOL;
 		settings.threads = 2;
 		settings.gpu = gpu;
-		settings.full_dataset = false;
+		settings.dataset_megabytes = 0;
 		base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address );
 		base::copy_text ( settings.pool ( ).backup, base::count_of ( settings.pool ( ).backup ), L"" );
 		base::copy_text ( settings.pool ( ).worker, base::count_of ( settings.pool ( ).worker ), worker );

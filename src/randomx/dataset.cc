@@ -129,6 +129,15 @@ namespace randomx {
 
 	}
 
+	uint64_t items_for ( uint32_t megabytes ) {
+
+		if ( megabytes >= dataset_megabytes )
+			return dataset_items;
+
+		return static_cast < uint64_t > ( megabytes ) * 16384;
+
+	}
+
 	dataset::~dataset ( ) {
 
 		release ( );
@@ -139,27 +148,35 @@ namespace randomx {
 
 		base::release_pages ( memory );
 		memory = nullptr;
+		held = 0;
 
 	}
 
-	bool dataset::build ( const cache& source, uint32_t threads, volatile uint32_t* progress, volatile uint32_t* cancel ) {
+	bool dataset::build ( const cache& source, uint64_t items, uint32_t threads, volatile uint32_t* progress, volatile uint32_t* cancel ) {
 
-		if ( !memory )
-			memory = static_cast < uint8_t* > ( base::allocate_large ( dataset_items * 64, large ) );
+		items = base::min ( items, dataset_items );
+
+		if ( memory && items != held )
+			release ( );
+
+		if ( !memory && items )
+			memory = static_cast < uint8_t* > ( base::allocate_large ( static_cast < size_t > ( items * 64 ), large ) );
 
 		if ( !memory || !source.ready ( ) )
 			return false;
+
+		held = items;
 
 		threads = base::clamp ( threads, 1u, 64u );
 
 		fill_job jobs [ 64 ];
 		void* handles [ 64 ] = { };
 		volatile uint64_t done = 0;
-		uint64_t share = dataset_items / threads;
+		uint64_t share = items / threads;
 
 		for ( uint32_t i = 0; i < threads; i++ ) {
 
-			jobs [ i ] = fill_job { &source, memory, share * i, i + 1 == threads ? dataset_items : share * ( i + 1 ), &done, cancel };
+			jobs [ i ] = fill_job { &source, memory, share * i, i + 1 == threads ? items : share * ( i + 1 ), &done, cancel };
 			handles [ i ] = base::start_thread ( &fill_main, &jobs [ i ] );
 
 		}
@@ -178,7 +195,7 @@ namespace randomx {
 			}
 
 			if ( progress )
-				base::atomic_store ( *progress, static_cast < uint32_t > ( base::min ( base::atomic_load ( done ) * 1000 / dataset_items, 999ull ) ) );
+				base::atomic_store ( *progress, static_cast < uint32_t > ( base::min ( base::atomic_load ( done ) * 1000 / items, 999ull ) ) );
 
 			if ( waiting )
 				base::sleep ( 20 );

@@ -264,7 +264,7 @@ namespace tests {
 		base::detect ( cpu );
 		light->build ( "test key 000", 12, randomx::VARIANT_RX2 );
 
-		bool full = fast->build ( *light, cpu.threads, nullptr, nullptr );
+		bool full = fast->build ( *light, randomx::dataset_items, cpu.threads, nullptr, nullptr );
 		int32_t whole = full ? run_cases ( *vm, light, fast, randomx::VARIANT_RX2, false ) : 0;
 
 		note.clear ( );
@@ -359,7 +359,7 @@ namespace tests {
 
 			light->build ( seed, 32, item.kind );
 
-			bool full = fast->build ( *light, cpu.threads, nullptr, nullptr );
+			bool full = fast->build ( *light, randomx::dataset_items, cpu.threads, nullptr, nullptr );
 			uint32_t threads = base::clamp ( cpu.threads, 1u, 64u );
 			bench_share shares [ 64 ];
 			void* handles [ 64 ] = { };

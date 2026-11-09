@@ -885,8 +885,6 @@ namespace ui {
 					settings.adapter = data && option >= data->adapter_count ? all_adapters : option;
 				else if ( which == SETTING_THEME )
 					settings.theme = option;
-				else if ( which == SETTING_DATASET )
-					settings.full_dataset = option == 0;
 				else if ( which == SETTING_COIN ) {
 
 					uint8_t list [ chain::coin_room ];
@@ -985,6 +983,11 @@ namespace ui {
 
 			target = &settings.intensity;
 			value = 16 + static_cast < uint32_t > ( base::round ( fraction * 10.0f ) );
+
+		} else if ( which == SETTING_DATASET ) {
+
+			target = &settings.dataset_megabytes;
+			value = static_cast < uint32_t > ( base::round ( fraction * 65.0f ) ) * 32;
 
 		} else if ( which == SETTING_HEAT ) {
 
@@ -1431,6 +1434,9 @@ namespace ui {
 
 			case SETTING_INTENSITY:
 				return bump ( settings.intensity, 1, 16, 26 );
+
+			case SETTING_DATASET:
+				return bump ( settings.dataset_megabytes, 160, 0, dataset_full );
 
 			case SETTING_HEAT:
 				if ( !settings.gpu_heat && direction > 0 ) {
@@ -2082,8 +2088,18 @@ namespace ui {
 
 		}
 
-		if ( settings.algorithm == chain::ALGORITHM_RANDOMX )
-			summary.add ( summary.size ( ) ? L"     " : L"" ).add ( settings.full_dataset ? L"Full dataset" : L"Light dataset" );
+		if ( settings.algorithm == chain::ALGORITHM_RANDOMX ) {
+
+			summary.add ( summary.size ( ) ? L"     " : L"" );
+
+			if ( settings.dataset_megabytes >= dataset_full )
+				summary.add ( L"Full dataset" );
+			else if ( settings.dataset_megabytes )
+				summary.number ( settings.dataset_megabytes ).add ( L" MB dataset" );
+			else
+				summary.add ( L"Light dataset" );
+
+		}
 
 		summary.add ( summary.size ( ) ? L"     Alloy " ALLOY_VERSION_TEXT : L"Alloy " ALLOY_VERSION_TEXT );
 		surface.text ( summary.get ( ), render::FONT_SMALL, render::box { width * 0.45f, bar.y, width * 0.55f - 16.0f, bar.h }, colors.faint, render::ALIGN_RIGHT );

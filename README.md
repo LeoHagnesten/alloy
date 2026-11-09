@@ -14,7 +14,7 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt, Monero's RandomX and 
 
 - **SHA-256d** on the processor with the x86 SHA extensions, falling back to a portable kernel, and on the graphics card with a compute shader that skips every round the nonce can't change.
 - **Scrypt** (N 1024, r 1, p 1) on the processor with SSE2 or AVX2, and on the graphics card as three kernels that keep every other scratchpad block and recompute the rest, which fits 32,768 hashes in flight.
-- **RandomX** with its own Argon2d, Blake2b, AES generators and SuperscalarHash, and the Wownero, ArQmA, Graft, Safex, Yada, Keva and Equilibria variants. Each program is compiled to x86-64 at run time. The 2 GB dataset builds in seconds, light mode needs only 256 MB, and the thread count follows the processor's L3 cache.
+- **RandomX** with its own Argon2d, Blake2b, AES generators and SuperscalarHash, and the Wownero, ArQmA, Graft, Safex, Yada, Keva and Equilibria variants. Each program is compiled to x86-64 at run time. The 2 GB dataset builds in seconds, light mode needs only 256 MB, and the Memory slider keeps any slice in between, working the rest out from the cache. The thread count follows the processor's L3 cache.
 - **kHeavyHash** for Kaspa: cSHAKE256, the xoshiro-seeded 64 by 64 matrix with its rank check, and a compute shader that agrees with the processor hash for hash.
 
 **Coins**
@@ -76,6 +76,7 @@ Release build on a Ryzen 7 5800X and an RTX 4070:
 | Scrypt | the RTX 4070 | 1.51 MH/s |
 | RandomX | 12 threads, full dataset | 5.07 kH/s |
 | RandomX | 12 threads, light mode | 426 H/s |
+| RandomX | 12 threads, 1600 MB of the dataset | 1.54 kH/s |
 | kHeavyHash | 16 threads | 9.28 MH/s |
 | kHeavyHash | the RTX 4070 | 429 MH/s |
 
@@ -106,7 +107,7 @@ Alloy.exe --self-test                       check every kernel and card against 
 Alloy.exe --profile name --set key=value    open the window with a profile and changes
 Alloy.exe --allow-large-pages               let RandomX use large pages
 
-Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash  --dataset full|light
+Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash  --dataset full|light|<MB>
 Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n
 Limits    --cpu-limit percent  --gpu-limit percent  --intensity 16-26
 Kernel    --kernel auto|extensions|portable  --priority idle|low|normal

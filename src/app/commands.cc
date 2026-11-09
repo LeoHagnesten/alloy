@@ -145,7 +145,7 @@ namespace app {
 		base::print_line ( L"  Alloy.exe --allow-large-pages                let RandomX use large pages (run as administrator once)" );
 		base::print_line ( L"  Alloy.exe --self-test                        check every hash kernel and graphics card against known answers" );
 		base::print_line ( L"" );
-		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash  --dataset full|light" );
+		base::print_line ( L"  Algorithm --algorithm sha256d|scrypt|randomx|kheavyhash  --dataset full|light|<MB>" );
 		base::print_line ( L"  Devices   --threads n  --no-cpu  --gpu  --no-gpu  --adapter n" );
 		base::print_line ( L"  Limits    --cpu-limit percent  --gpu-limit percent  --intensity 16-26" );
 		base::print_line ( L"  Kernel    --kernel auto|extensions|portable  --priority idle|low|normal" );
@@ -251,8 +251,16 @@ namespace app {
 
 			if ( algorithm == chain::ALGORITHM_SHA256D )
 				note.add ( view.extensions ? L" with SHA extensions" : L" with the portable kernel" );
-			else if ( algorithm == chain::ALGORITHM_RANDOMX )
-				note.add ( line.settings.full_dataset ? L" with the full dataset" : L" in light mode" );
+			else if ( algorithm == chain::ALGORITHM_RANDOMX ) {
+
+				if ( line.settings.dataset_megabytes >= ui::dataset_full )
+					note.add ( L" with the full dataset" );
+				else if ( line.settings.dataset_megabytes )
+					note.add ( L" with " ).number ( line.settings.dataset_megabytes ).add ( L" MB of the dataset" );
+				else
+					note.add ( L" in light mode" );
+
+			}
 
 		}
 
@@ -705,7 +713,7 @@ namespace app {
 
 				}
 				else if ( base::same_text ( item, L"--dataset" ) )
-					line->settings.full_dataset = !base::same_folded ( value, L"light" );
+					line->settings.dataset_megabytes = base::same_folded ( value, L"light" ) ? 0u : base::same_folded ( value, L"full" ) ? ui::dataset_full : base::min ( static_cast < uint32_t > ( base::read_number ( value ) ), ui::dataset_full );
 				else if ( base::same_text ( item, L"--kernel" ) )
 					line->settings.kernel = base::same_text ( value, L"portable" ) ? 2 : ( base::same_text ( value, L"extensions" ) ? 1 : 0 );
 				else if ( base::same_text ( item, L"--priority" ) )

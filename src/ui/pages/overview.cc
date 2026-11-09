@@ -653,8 +653,12 @@ namespace ui {
 
 			if ( kind == chain::ALGORITHM_SCRYPT )
 				detail.add ( L"SSE2 scrypt" );
+			else if ( kind == chain::ALGORITHM_RANDOMX && settings.dataset_megabytes >= dataset_full )
+				detail.add ( L"RandomX full dataset" );
+			else if ( kind == chain::ALGORITHM_RANDOMX && settings.dataset_megabytes )
+				detail.add ( L"RandomX, " ).number ( settings.dataset_megabytes ).add ( L" MB of the dataset" );
 			else if ( kind == chain::ALGORITHM_RANDOMX )
-				detail.add ( settings.full_dataset ? L"RandomX full dataset" : L"RandomX light" );
+				detail.add ( L"RandomX light" );
 			else if ( kind == chain::ALGORITHM_KHEAVYHASH )
 				detail.add ( L"Keccak and a 64 by 64 matrix" );
 			else

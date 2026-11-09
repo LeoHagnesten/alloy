@@ -18,7 +18,7 @@ namespace app {
 
 				run.tick ( base::seconds ( ), settings );
 
-				if ( view.dataset == ui::DATASET_FULL || view.dataset == ui::DATASET_LIGHT || view.dataset == ui::DATASET_SHORT )
+				if ( view.dataset == ui::DATASET_FULL || view.dataset == ui::DATASET_LIGHT || view.dataset == ui::DATASET_SHORT || view.dataset == ui::DATASET_PART )
 					break;
 
 				base::sleep ( 20 );

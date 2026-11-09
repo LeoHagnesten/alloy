@@ -62,7 +62,8 @@ namespace randomx {
 	bool machine::open ( const cache* light, const dataset* fast, uint8_t kind ) {
 
 		light_source = light;
-		fast_source = fast;
+		fast_source = fast && fast->complete ( ) ? fast : nullptr;
+		part_source = fast && !fast->complete ( ) && fast->count ( ) ? fast : nullptr;
 		rules = &variant_of ( kind );
 
 		if ( !hash::aes_ready ( ) ) {
@@ -89,7 +90,7 @@ namespace randomx {
 		state.mantissa = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( ( 1ull << 56 ) - 1 ) ) );
 		state.sign = _mm_castsi128_pd ( _mm_set1_epi64x ( static_cast < int64_t > ( 0x80F0000000000000ull ) ) );
 
-		return scratchpad != nullptr && ( fast || ( light && light->ready ( ) ) );
+		return scratchpad != nullptr && ( fast_source || ( light && light->ready ( ) ) );
 
 	}
 
@@ -501,6 +502,17 @@ namespace randomx {
 
 		}
 
+		if ( part_source && address / 64 < part_source->count ( ) ) {
+
+			const uint8_t* item = part_source->data ( ) + address;
+
+			for ( int32_t i = 0; i < 8; i++ )
+				state.r [ i ] ^= base::load_little64 ( item + i * 8 );
+
+			return;
+
+		}
+
 		uint64_t item [ 8 ];
 
 		light_source->item ( address / 64, item );
@@ -598,8 +610,12 @@ namespace randomx {
 
 			moving ^= static_cast < uint32_t > ( r [ read_registers [ 2 ] ] ^ r [ read_registers [ 3 ] ] );
 
+			uint64_t next = dataset_offset + ( moving & line_mask );
+
 			if ( fast_source )
-				_mm_prefetch ( reinterpret_cast < const char* > ( fast_source->data ( ) + dataset_offset + ( moving & line_mask ) ), _MM_HINT_NTA );
+				_mm_prefetch ( reinterpret_cast < const char* > ( fast_source->data ( ) + next ), _MM_HINT_NTA );
+			else if ( part_source && next / 64 < part_source->count ( ) )
+				_mm_prefetch ( reinterpret_cast < const char* > ( part_source->data ( ) + next ), _MM_HINT_NTA );
 
 			read_dataset ( dataset_offset + read_at );
 

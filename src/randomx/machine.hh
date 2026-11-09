@@ -72,6 +72,7 @@ namespace randomx {
 		base::code_view code;
 		const cache* light_source = nullptr;
 		const dataset* fast_source = nullptr;
+		const dataset* part_source = nullptr;
 		const variant* rules = &variant_of ( VARIANT_RX0 );
 		alignas ( 16 ) uint8_t program [ 128 + 8 * program_room ];
 		step steps [ program_room ];

@@ -25,6 +25,16 @@ namespace base {
 
 	}
 
+	uint64_t available_memory ( ) {
+
+		MEMORYSTATUSEX status = { };
+
+		status.dwLength = sizeof ( status );
+
+		return GlobalMemoryStatusEx ( &status ) ? status.ullAvailPhys : 0;
+
+	}
+
 	void* allocate_pages ( size_t size ) {
 
 		return VirtualAlloc ( nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );

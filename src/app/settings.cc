@@ -13,7 +13,6 @@ namespace app {
 	static const char* const algorithm_names [ ] = { "sha256d", "scrypt", "randomx", "kheavyhash" };
 
 	static_assert ( base::count_of ( algorithm_names ) == chain::ALGORITHM_COUNT );
-	static const char* const dataset_names [ ] = { "light", "full" };
 	static const char* const theme_names [ ] = { "system", "dark", "light" };
 	static const char* const priority_names [ ] = { "idle", "low", "normal" };
 	static const char* const kernel_names [ ] = { "auto", "extensions", "portable" };
@@ -169,7 +168,7 @@ namespace app {
 				else if ( base::same_text ( key, "algorithm" ) )
 					out.algorithm = pick ( algorithm_names, value, out.algorithm );
 				else if ( base::same_text ( key, "dataset" ) )
-					out.full_dataset = pick ( dataset_names, value, 1 ) == 1;
+					out.dataset_megabytes = base::same_text ( value, "light" ) ? 0u : base::same_text ( value, "full" ) ? ui::dataset_full : number_in ( value, 0u, ui::dataset_full );
 				else if ( base::same_text ( key, "randomx_variant" ) ) {
 
 					out.variant = static_cast < uint8_t > ( base::max ( randomx::find_variant ( value ), 0 ) );
@@ -352,7 +351,12 @@ namespace app {
 		copy->stash ( );
 		out.add ( "mode=" ).add ( mode_names [ copy->mode % 3 ] ).add ( "\r\n" );
 		out.add ( "algorithm=" ).add ( algorithm_names [ copy->algorithm % chain::ALGORITHM_COUNT ] ).add ( "\r\n" );
-		out.add ( "dataset=" ).add ( dataset_names [ copy->full_dataset ? 1 : 0 ] ).add ( "\r\n" );
+		if ( copy->dataset_megabytes >= ui::dataset_full )
+			out.add ( "dataset=full\r\n" );
+		else if ( !copy->dataset_megabytes )
+			out.add ( "dataset=light\r\n" );
+		else
+			out.add ( "dataset=" ).number ( copy->dataset_megabytes ).add ( "\r\n" );
 		out.add ( "randomx_variant=" ).add ( randomx::variant_of ( copy->variant ).key ).add ( "\r\n" );
 
 		for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ ) {

@@ -142,7 +142,7 @@ namespace mine {
 		base::atomic_store ( gpu_power, base::clamp ( settings.gpu_intensity, 16u, 26u ) );
 		base::atomic_store ( gpu_heat_limit, settings.gpu_heat );
 		base::atomic_store ( gpu_wanted, settings.gpu ? 1u : 0u );
-		base::atomic_store ( rx_full, settings.full_dataset ? 1u : 0u );
+		base::atomic_store ( rx_megabytes, base::min ( settings.dataset_megabytes, randomx::dataset_megabytes ) );
 
 		for ( uint32_t i = 0; i < max_gpus; i++ ) {
 
@@ -302,7 +302,7 @@ namespace mine {
 
 		}
 
-		uint64_t chunk = gpu ? gpu_rooms [ current.algorithm % chain::ALGORITHM_COUNT ] : lane_chunk ( current.algorithm, base::atomic_load ( rx_full ) != 0 );
+		uint64_t chunk = gpu ? gpu_rooms [ current.algorithm % chain::ALGORITHM_COUNT ] : lane_chunk ( current.algorithm, base::atomic_load ( rx_megabytes ) >= randomx::dataset_megabytes );
 
 		if ( !chunk )
 			return false;
@@ -400,7 +400,7 @@ namespace mine {
 
 		base::atomic_add ( rx_users, 1u );
 
-		if ( base::atomic_load ( rx_ready ) && rx_built_for == base::atomic_load ( rx_full ) && base::atomic_load ( rx_kind ) == work.variant && base::same ( rx_seed, work.seed, 32 ) ) {
+		if ( base::atomic_load ( rx_ready ) && rx_built_for == base::atomic_load ( rx_megabytes ) && base::atomic_load ( rx_kind ) == work.variant && base::same ( rx_seed, work.seed, 32 ) ) {
 
 			uint32_t generation = base::atomic_load ( rx_generation );
 
@@ -410,7 +410,7 @@ namespace mine {
 			if ( !kit.machine )
 				kit.machine = new randomx::machine;
 
-			if ( kit.machine->open ( rx_cache, base::atomic_load ( rx_state ) == DATASET_FULL ? rx_dataset : nullptr, work.variant ) ) {
+			if ( kit.machine->open ( rx_cache, base::atomic_load ( rx_state ) == DATASET_FULL || base::atomic_load ( rx_state ) == DATASET_PART ? rx_dataset : nullptr, work.variant ) ) {
 
 				kit.generation = generation;
 
@@ -438,9 +438,9 @@ namespace mine {
 		if ( !base::atomic_replace ( rx_building, 0u, 1u ) )
 			return;
 
-		uint32_t full = base::atomic_load ( rx_full );
+		uint32_t wanted = base::atomic_load ( rx_megabytes );
 
-		if ( base::atomic_load ( rx_ready ) && rx_built_for == full && base::atomic_load ( rx_kind ) == kind && base::same ( rx_seed, seed, 32 ) ) {
+		if ( base::atomic_load ( rx_ready ) && rx_built_for == wanted && base::atomic_load ( rx_kind ) == kind && base::same ( rx_seed, seed, 32 ) ) {
 
 			base::atomic_store ( rx_building, 0u );
 
@@ -464,13 +464,13 @@ namespace mine {
 		bool built = rx_cache->build ( seed, 32, kind );
 		uint32_t state = DATASET_LIGHT;
 
-		if ( built && full ) {
+		if ( built && wanted ) {
 
 			if ( !rx_dataset )
 				rx_dataset = new randomx::dataset;
 
-			if ( rx_dataset->build ( *rx_cache, base::max ( base::atomic_load ( wanted_threads ), 1u ), &rx_progress, &quit ) )
-				state = DATASET_FULL;
+			if ( rx_dataset->build ( *rx_cache, randomx::items_for ( wanted ), base::max ( base::atomic_load ( wanted_threads ), 1u ), &rx_progress, &quit ) )
+				state = rx_dataset->complete ( ) ? DATASET_FULL : DATASET_PART;
 			else {
 
 				rx_dataset->release ( );
@@ -487,14 +487,14 @@ namespace mine {
 
 		bool cancelled = base::atomic_load ( quit ) != 0;
 
-		rx_large = state == DATASET_FULL && rx_dataset->large_pages ( );
+		rx_large = ( state == DATASET_FULL || state == DATASET_PART ) && rx_dataset->large_pages ( );
 
 		uint64_t fitting = level3 * ( rx_large ? 4 : 3 ) / 4 / randomx::variant_of ( kind ).level3;
 
 		base::atomic_store ( rx_lanes, level3 ? static_cast < uint32_t > ( base::clamp ( fitting, 1ull, static_cast < uint64_t > ( lane_count ) ) ) : lane_count );
 		base::copy ( rx_seed, seed, 32 );
 		base::atomic_store ( rx_kind, static_cast < uint32_t > ( kind ) );
-		rx_built_for = full;
+		rx_built_for = wanted;
 		rx_seconds = base::seconds ( ) - began;
 		base::atomic_add ( rx_generation, 1u );
 		base::atomic_store ( rx_progress, 1000u );

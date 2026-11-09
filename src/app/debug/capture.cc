@@ -301,6 +301,30 @@ namespace app {
 		self->settings.choose_algorithm ( chain::ALGORITHM_RANDOMX );
 		self->view->open_page ( ui::PAGE_SETTINGS, self->clock );
 		shoot ( *self, L"coins-randomx-dark.png" );
+		self->settings.dataset_megabytes = 1280;
+		self->view->wheel ( 700.0f, 500.0f, -480.0f, self->clock );
+		self->clock += 1.0;
+		render_into ( *self, self->sharp );
+
+		render::box memory;
+
+		if ( self->view->locate ( ui::CONTROL_SLIDER, ui::SETTING_DATASET, memory ) ) {
+
+			self->cursor = true;
+			self->cursor_x = 330.0f;
+			self->cursor_y = memory.middle_y ( );
+			self->view->mouse_move ( self->cursor_x, self->cursor_y, self->clock );
+			render_into ( *self, self->sharp );
+			self->clock += 1.0;
+			shoot ( *self, L"memory-randomx-dark.png" );
+			self->view->mouse_leave ( self->clock );
+			self->clock += 1.0;
+			self->cursor = false;
+
+		}
+
+		self->view->wheel ( 700.0f, 500.0f, 2400.0f, self->clock );
+		self->settings.dataset_megabytes = ui::dataset_full;
 		self->settings.choose_algorithm ( picked );
 		self->view->open_page ( ui::PAGE_OVERVIEW, self->clock );
 		self->view->open_setup ( self->clock );
