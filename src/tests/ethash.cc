@@ -34,6 +34,7 @@ namespace tests {
 			bool parsed = message->parse ( line, sizeof ( line ) - 1 ) && pool::parse_ethash_notify ( *message, message->member ( 0, "params" ), job );
 
 			check ( parsed && base::same_text ( job.id, "cc8d" ) && job.clean && base::same_text ( job.algo, "etchash" ) && job.header [ 0 ] == 0x01 && pool::ethash_dataset_epoch ( job.seed, true ) == 428 && pool::ethash_dataset_epoch ( job.seed, false ) == 856, L"a real 2Miners Ethereum Classic job reads back with its seed in Etchash epoch 428, which plain Ethash would call 856" );
+			check ( pool::etchash_by_height ( 856, 25730000 ) == 1 && pool::etchash_by_height ( 847, 25426829 ) == 0 && pool::etchash_by_height ( 856, 25700045 ) == -1, L"a job's height tells an Ethereum Classic seed from an EthereumPoW one where the two rules differ, and leaves the rest to the chosen coin" );
 			delete message;
 
 		}
