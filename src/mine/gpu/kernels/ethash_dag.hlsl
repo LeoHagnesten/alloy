@@ -6,7 +6,7 @@ cbuffer dag : register ( b0 ) {
 };
 
 ByteAddressBuffer cache : register ( t0 );
-RWByteAddressBuffer dataset : register ( u0 );
+RWBuffer < uint4 > dataset : register ( u0 );
 
 #include "keccak.hlsli"
 
@@ -77,11 +77,11 @@ void main ( uint3 id : SV_DispatchThreadID ) {
 
 	keccak_64 ( m0, m1, m2, m3 );
 
-	uint out_at = ( index - place.x ) * 64;
+	uint out_at = ( index - place.x ) * 4;
 
-	dataset.Store4 ( out_at, m0 );
-	dataset.Store4 ( out_at + 16, m1 );
-	dataset.Store4 ( out_at + 32, m2 );
-	dataset.Store4 ( out_at + 48, m3 );
+	dataset [ out_at ] = m0;
+	dataset [ out_at + 1 ] = m1;
+	dataset [ out_at + 2 ] = m2;
+	dataset [ out_at + 3 ] = m3;
 
 }

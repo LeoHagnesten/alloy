@@ -6,14 +6,14 @@ cbuffer search : register ( b0 ) {
 
 };
 
-ByteAddressBuffer dag0 : register ( t0 );
-ByteAddressBuffer dag1 : register ( t1 );
-ByteAddressBuffer dag2 : register ( t2 );
-ByteAddressBuffer dag3 : register ( t3 );
-ByteAddressBuffer dag4 : register ( t4 );
-ByteAddressBuffer dag5 : register ( t5 );
-ByteAddressBuffer dag6 : register ( t6 );
-ByteAddressBuffer dag7 : register ( t7 );
+Buffer < uint4 > dag0 : register ( t0 );
+Buffer < uint4 > dag1 : register ( t1 );
+Buffer < uint4 > dag2 : register ( t2 );
+Buffer < uint4 > dag3 : register ( t3 );
+Buffer < uint4 > dag4 : register ( t4 );
+Buffer < uint4 > dag5 : register ( t5 );
+Buffer < uint4 > dag6 : register ( t6 );
+Buffer < uint4 > dag7 : register ( t7 );
 RWByteAddressBuffer results : register ( u0 );
 
 #include "keccak.hlsli"
@@ -33,48 +33,48 @@ uint swap_bytes ( uint v ) {
 void fetch ( uint row, out uint4 r0, out uint4 r1, out uint4 r2, out uint4 r3, out uint4 r4, out uint4 r5, out uint4 r6, out uint4 r7 ) {
 
 	uint part = row / more.z;
-	uint at = ( row - part * more.z ) * 128;
+	uint at = ( row - part * more.z ) * 8;
 
 	[ branch ]
 	if ( part == 0 ) {
 
-		r0 = dag0.Load4 ( at ); r1 = dag0.Load4 ( at + 16 ); r2 = dag0.Load4 ( at + 32 ); r3 = dag0.Load4 ( at + 48 );
-		r4 = dag0.Load4 ( at + 64 ); r5 = dag0.Load4 ( at + 80 ); r6 = dag0.Load4 ( at + 96 ); r7 = dag0.Load4 ( at + 112 );
+		r0 = dag0 [ at ]; r1 = dag0 [ at + 1 ]; r2 = dag0 [ at + 2 ]; r3 = dag0 [ at + 3 ];
+		r4 = dag0 [ at + 4 ]; r5 = dag0 [ at + 5 ]; r6 = dag0 [ at + 6 ]; r7 = dag0 [ at + 7 ];
 
 	} else if ( part == 1 ) {
 
-		r0 = dag1.Load4 ( at ); r1 = dag1.Load4 ( at + 16 ); r2 = dag1.Load4 ( at + 32 ); r3 = dag1.Load4 ( at + 48 );
-		r4 = dag1.Load4 ( at + 64 ); r5 = dag1.Load4 ( at + 80 ); r6 = dag1.Load4 ( at + 96 ); r7 = dag1.Load4 ( at + 112 );
+		r0 = dag1 [ at ]; r1 = dag1 [ at + 1 ]; r2 = dag1 [ at + 2 ]; r3 = dag1 [ at + 3 ];
+		r4 = dag1 [ at + 4 ]; r5 = dag1 [ at + 5 ]; r6 = dag1 [ at + 6 ]; r7 = dag1 [ at + 7 ];
 
 	} else if ( part == 2 ) {
 
-		r0 = dag2.Load4 ( at ); r1 = dag2.Load4 ( at + 16 ); r2 = dag2.Load4 ( at + 32 ); r3 = dag2.Load4 ( at + 48 );
-		r4 = dag2.Load4 ( at + 64 ); r5 = dag2.Load4 ( at + 80 ); r6 = dag2.Load4 ( at + 96 ); r7 = dag2.Load4 ( at + 112 );
+		r0 = dag2 [ at ]; r1 = dag2 [ at + 1 ]; r2 = dag2 [ at + 2 ]; r3 = dag2 [ at + 3 ];
+		r4 = dag2 [ at + 4 ]; r5 = dag2 [ at + 5 ]; r6 = dag2 [ at + 6 ]; r7 = dag2 [ at + 7 ];
 
 	} else if ( part == 3 ) {
 
-		r0 = dag3.Load4 ( at ); r1 = dag3.Load4 ( at + 16 ); r2 = dag3.Load4 ( at + 32 ); r3 = dag3.Load4 ( at + 48 );
-		r4 = dag3.Load4 ( at + 64 ); r5 = dag3.Load4 ( at + 80 ); r6 = dag3.Load4 ( at + 96 ); r7 = dag3.Load4 ( at + 112 );
+		r0 = dag3 [ at ]; r1 = dag3 [ at + 1 ]; r2 = dag3 [ at + 2 ]; r3 = dag3 [ at + 3 ];
+		r4 = dag3 [ at + 4 ]; r5 = dag3 [ at + 5 ]; r6 = dag3 [ at + 6 ]; r7 = dag3 [ at + 7 ];
 
 	} else if ( part == 4 ) {
 
-		r0 = dag4.Load4 ( at ); r1 = dag4.Load4 ( at + 16 ); r2 = dag4.Load4 ( at + 32 ); r3 = dag4.Load4 ( at + 48 );
-		r4 = dag4.Load4 ( at + 64 ); r5 = dag4.Load4 ( at + 80 ); r6 = dag4.Load4 ( at + 96 ); r7 = dag4.Load4 ( at + 112 );
+		r0 = dag4 [ at ]; r1 = dag4 [ at + 1 ]; r2 = dag4 [ at + 2 ]; r3 = dag4 [ at + 3 ];
+		r4 = dag4 [ at + 4 ]; r5 = dag4 [ at + 5 ]; r6 = dag4 [ at + 6 ]; r7 = dag4 [ at + 7 ];
 
 	} else if ( part == 5 ) {
 
-		r0 = dag5.Load4 ( at ); r1 = dag5.Load4 ( at + 16 ); r2 = dag5.Load4 ( at + 32 ); r3 = dag5.Load4 ( at + 48 );
-		r4 = dag5.Load4 ( at + 64 ); r5 = dag5.Load4 ( at + 80 ); r6 = dag5.Load4 ( at + 96 ); r7 = dag5.Load4 ( at + 112 );
+		r0 = dag5 [ at ]; r1 = dag5 [ at + 1 ]; r2 = dag5 [ at + 2 ]; r3 = dag5 [ at + 3 ];
+		r4 = dag5 [ at + 4 ]; r5 = dag5 [ at + 5 ]; r6 = dag5 [ at + 6 ]; r7 = dag5 [ at + 7 ];
 
 	} else if ( part == 6 ) {
 
-		r0 = dag6.Load4 ( at ); r1 = dag6.Load4 ( at + 16 ); r2 = dag6.Load4 ( at + 32 ); r3 = dag6.Load4 ( at + 48 );
-		r4 = dag6.Load4 ( at + 64 ); r5 = dag6.Load4 ( at + 80 ); r6 = dag6.Load4 ( at + 96 ); r7 = dag6.Load4 ( at + 112 );
+		r0 = dag6 [ at ]; r1 = dag6 [ at + 1 ]; r2 = dag6 [ at + 2 ]; r3 = dag6 [ at + 3 ];
+		r4 = dag6 [ at + 4 ]; r5 = dag6 [ at + 5 ]; r6 = dag6 [ at + 6 ]; r7 = dag6 [ at + 7 ];
 
 	} else {
 
-		r0 = dag7.Load4 ( at ); r1 = dag7.Load4 ( at + 16 ); r2 = dag7.Load4 ( at + 32 ); r3 = dag7.Load4 ( at + 48 );
-		r4 = dag7.Load4 ( at + 64 ); r5 = dag7.Load4 ( at + 80 ); r6 = dag7.Load4 ( at + 96 ); r7 = dag7.Load4 ( at + 112 );
+		r0 = dag7 [ at ]; r1 = dag7 [ at + 1 ]; r2 = dag7 [ at + 2 ]; r3 = dag7 [ at + 3 ];
+		r4 = dag7 [ at + 4 ]; r5 = dag7 [ at + 5 ]; r6 = dag7 [ at + 6 ]; r7 = dag7 [ at + 7 ];
 
 	}
 

@@ -609,13 +609,16 @@ namespace mine {
 			layout.ByteWidth = static_cast < UINT > ( part_rows * 128 );
 			layout.Usage = D3D11_USAGE_DEFAULT;
 			layout.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-			layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-			shape.Format = DXGI_FORMAT_R32_TYPELESS;
+			shape.Format = DXGI_FORMAT_R32G32B32A32_UINT;
 			shape.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-			shape.Buffer.NumElements = static_cast < UINT > ( part_rows * 32 );
-			shape.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
-			reading.BufferEx.NumElements = static_cast < UINT > ( part_rows * 32 );
-			ok = SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &dag_parts [ part ] ) ) && SUCCEEDED ( device->CreateUnorderedAccessView ( dag_parts [ part ], &shape, &writing ) ) && SUCCEEDED ( device->CreateShaderResourceView ( dag_parts [ part ], &reading, &dag_views [ part ] ) );
+			shape.Buffer.NumElements = static_cast < UINT > ( part_rows * 8 );
+
+			D3D11_SHADER_RESOURCE_VIEW_DESC rows_view = { };
+
+			rows_view.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+			rows_view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+			rows_view.Buffer.NumElements = static_cast < UINT > ( part_rows * 8 );
+			ok = SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &dag_parts [ part ] ) ) && SUCCEEDED ( device->CreateUnorderedAccessView ( dag_parts [ part ], &shape, &writing ) ) && SUCCEEDED ( device->CreateShaderResourceView ( dag_parts [ part ], &rows_view, &dag_views [ part ] ) );
 
 			uint64_t first_item = first_row * 2;
 			uint64_t last_item = first_item + part_rows * 2;
