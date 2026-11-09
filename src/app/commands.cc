@@ -239,13 +239,17 @@ namespace app {
 		const ui::snapshot& view = run->view ( );
 		base::text note;
 		uint8_t algorithm = line.settings.algorithm;
+		if ( algorithm == chain::ALGORITHM_ETHASH )
+			line.settings.gpu = true;
+
 		bool gpu = line.settings.gpu && algorithm != chain::ALGORITHM_RANDOMX;
+		bool cpu = line.settings.cpu && algorithm != chain::ALGORITHM_ETHASH;
 
 		line.settings.mode = ui::MODE_BENCHMARK;
 		run->start ( line.settings );
 		note.add ( chain::algorithm_name ( algorithm ) );
 
-		if ( line.settings.cpu ) {
+		if ( cpu ) {
 
 			note.add ( L" on " ).number ( view.active_threads ).add ( view.active_threads == 1 ? L" thread" : L" threads" );
 
@@ -265,7 +269,7 @@ namespace app {
 		}
 
 		if ( gpu )
-			note.add ( line.settings.cpu ? L" plus the GPU" : L" on the GPU" );
+			note.add ( cpu ? L" plus the GPU" : L" on the GPU" );
 
 		note.add ( L", " ).number ( line.seconds ).add ( L" seconds" );
 		base::print_line ( note.get ( ) );
@@ -295,6 +299,26 @@ namespace app {
 
 		}
 
+		uint64_t base_hashes = 0;
+
+		if ( algorithm == chain::ALGORITHM_ETHASH && gpu ) {
+
+			double waited = base::seconds ( );
+
+			while ( base::seconds ( ) - waited < 180.0 && !view.gpu_hashes ) {
+
+				run->tick ( base::seconds ( ), line.settings );
+				base::sleep ( 20 );
+
+			}
+
+			base_hashes = view.gpu_hashes;
+			note.clear ( );
+			note.add ( L"  DAG ready in " ).decimal ( base::seconds ( ) - waited, 1 ).add ( L" s" );
+			base::print_line ( note.get ( ) );
+
+		}
+
 		double began = base::seconds ( );
 		uint64_t samples = view.history_serial;
 
@@ -308,7 +332,7 @@ namespace app {
 				note.clear ( );
 				note.add ( L"  " ).scaled ( view.history [ view.history_count - 1 ], L"H/s" );
 
-				if ( gpu && line.settings.cpu )
+				if ( gpu && cpu )
 					note.add ( L"   cpu " ).scaled ( view.cpu_rate, L"H/s" ).add ( L"   gpu " ).scaled ( view.gpu_rate, L"H/s" );
 
 				base::print_line ( note.get ( ) );
@@ -321,13 +345,13 @@ namespace app {
 
 		run->tick ( base::seconds ( ), line.settings );
 
-		double average = view.average;
+		double average = base_hashes ? static_cast < double > ( view.gpu_hashes - base_hashes ) / ( base::seconds ( ) - began ) : view.average;
 		double per_thread = view.uptime > 0.0 && view.active_threads ? static_cast < double > ( view.cpu_hashes ) / view.uptime / view.active_threads : 0.0;
 
 		note.clear ( );
 		note.add ( L"average " ).scaled ( average, L"H/s" );
 
-		if ( line.settings.cpu )
+		if ( cpu )
 			note.add ( L", " ).scaled ( per_thread, L"H/s" ).add ( L" per thread" );
 
 		base::print_line ( note.get ( ) );
@@ -339,7 +363,7 @@ namespace app {
 			if ( view.gpu_state == ui::GPU_BROKEN )
 				note.add ( L"gpu unavailable: " ).add ( view.gpu_name );
 			else
-				note.add ( L"gpu " ).add ( view.gpu_name ).add ( L", " ).scaled ( view.uptime > 0.0 ? view.gpu_hashes / view.uptime : 0.0, L"H/s" ).add ( L", " ).number ( view.faults ).add ( L" hardware errors" );
+				note.add ( L"gpu " ).add ( view.gpu_name ).add ( L", " ).scaled ( base_hashes ? average : ( view.uptime > 0.0 ? view.gpu_hashes / view.uptime : 0.0 ), L"H/s" ).add ( L", " ).number ( view.faults ).add ( L" hardware errors" );
 
 			base::print_line ( note.get ( ) );
 
