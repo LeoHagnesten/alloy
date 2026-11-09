@@ -2,6 +2,7 @@
 
 #include "tests/harness.hh"
 #include "app/session.hh"
+#include "app/lookup.hh"
 #include "hash/blake2b.hh"
 #include "base/system/clock.hh"
 #include "hash/heavyhash.hh"
@@ -292,6 +293,37 @@ namespace tests {
 
 	}
 
+	static void ethereum_network ( uint8_t coin, const wchar_t* what ) {
+
+		app::lookup* online = new app::lookup;
+		app::lookup_request wanted;
+		app::lookup_result found;
+		double began = base::seconds ( );
+		base::text note;
+
+		wanted.algorithm = chain::ALGORITHM_ETHASH;
+		wanted.coin = coin;
+		online->start ( );
+		online->ask ( wanted );
+
+		while ( base::seconds ( ) - began < 20.0 ) {
+
+			online->read ( found );
+
+			if ( found.serial )
+				break;
+
+			base::sleep ( 100 );
+
+		}
+
+		online->stop ( );
+		note.add ( what ).add ( L"'s network stats come back from a public node: height " ).number ( found.height ).add ( L", difficulty " ).compact ( found.difficulty ).add ( L", " ).decimal ( found.reward, 4 ).add ( L" coins a block" );
+		check ( found.network && found.coin == coin && found.difficulty > 1e12 && found.height > 15000000 && found.reward > 1.0 && found.reward <= 5.0, note.get ( ) );
+		delete online;
+
+	}
+
 	static int32_t lines_starting ( const ui::snapshot& view, const wchar_t* prefix ) {
 
 		int32_t found = 0;
@@ -368,6 +400,8 @@ namespace tests {
 
 		section ( L"etc" );
 		etc_live_block ( );
+		ethereum_network ( chain::COIN_ETHEREUM_CLASSIC, L"Ethereum Classic" );
+		ethereum_network ( chain::COIN_ETHEREUM_POW, L"EthereumPoW" );
 		live_pool ( chain::ALGORITHM_ETHASH, L"etc.2miners.com:1010", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"2Miners' Ethereum Classic pool", 60.0, true, chain::COIN_ETHEREUM_CLASSIC );
 		live_pool ( chain::ALGORITHM_ETHASH, L"etc.herominers.com:1150", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"HeroMiners' Ethereum Classic pool", 60.0, true, chain::COIN_ETHEREUM_CLASSIC );
 		live_pool ( chain::ALGORITHM_ETHASH, L"ethw.2miners.com:2020", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"2Miners' EthereumPoW pool", 75.0, true, chain::COIN_ETHEREUM_POW );
