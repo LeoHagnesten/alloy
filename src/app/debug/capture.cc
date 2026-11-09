@@ -550,17 +550,18 @@ namespace app {
 		self->run->stop ( );
 		self->settings.cpu_limit = 100;
 
-		pool::test_server* coins [ 2 ] = { new pool::test_server, new pool::test_server };
-		static const uint8_t coin_kinds [ 2 ] = { chain::ALGORITHM_SCRYPT, chain::ALGORITHM_RANDOMX };
+		pool::test_server* coins [ 3 ] = { new pool::test_server, new pool::test_server, new pool::test_server };
+		static const uint8_t coin_kinds [ 3 ] = { chain::ALGORITHM_SCRYPT, chain::ALGORITHM_RANDOMX, chain::ALGORITHM_ETHASH };
+		static const double coin_difficulty [ 3 ] = { 4.0, 400.0, 0.01 };
 
-		for ( int32_t i = 0; i < 2; i++ ) {
+		for ( int32_t i = 0; i < 3; i++ ) {
 
 			pool::server_settings coin;
 			ui::pool_profile& profile = self->settings.pools [ coin_kinds [ i ] ];
 
 			coin.algorithm = coin_kinds [ i ];
 			coin.port = 0;
-			coin.difficulty = coin_kinds [ i ] == chain::ALGORITHM_RANDOMX ? 400.0 : 4.0;
+			coin.difficulty = coin_difficulty [ i ];
 			coin.job_seconds = 30;
 
 			if ( !coins [ i ]->start ( coin ) )
@@ -637,6 +638,13 @@ namespace app {
 		self->run->start ( self->settings );
 		settle ( *self, 8.0 );
 		shoot ( *self, L"scrypt-dark.png" );
+		self->run->stop ( );
+		self->settings.algorithm = chain::ALGORITHM_ETHASH;
+		self->run->start ( self->settings );
+		settle ( *self, 0.6 );
+		shoot ( *self, L"ethash-dag-dark.png" );
+		settle ( *self, 8.0 );
+		shoot ( *self, L"ethash-dark.png" );
 		self->run->stop ( );
 		self->settings.algorithm = chain::ALGORITHM_SHA256D;
 
