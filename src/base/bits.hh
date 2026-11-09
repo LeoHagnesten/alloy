@@ -37,6 +37,12 @@ namespace base {
 
 	}
 
+	inline uint64_t load_big64 ( const uint8_t* at ) {
+
+		return static_cast < uint64_t > ( load_big ( at ) ) << 32 | load_big ( at + 4 );
+
+	}
+
 	inline uint32_t load_little ( const uint8_t* at ) {
 
 		return static_cast < uint32_t > ( at [ 0 ] ) | static_cast < uint32_t > ( at [ 1 ] ) << 8 | static_cast < uint32_t > ( at [ 2 ] ) << 16 | static_cast < uint32_t > ( at [ 3 ] ) << 24;

@@ -2,6 +2,8 @@
 
 #include "tests/harness.hh"
 #include "hash/ethash.hh"
+#include "mine/gpu/device.hh"
+#include "base/bits.hh"
 #include "base/system/clock.hh"
 #include "base/memory.hh"
 #include "base/strings.hh"
@@ -41,6 +43,80 @@ namespace tests {
 
 		note.add ( L"light Ethash of block 22 gives its mix digest and a result under its difficulty, the 16 MB cache built in " ).decimal ( seconds, 2 ).add ( L" s" );
 		check ( built && hex_is ( mix, 32, "2f74cdeb198af0b9abe65d22d372e22fb2d474371774a9583c1cc427a07939f5" ) && result [ 0 ] == 0 && result [ 1 ] == 0, note.get ( ) );
+
+		mine::adapter_info adapters [ mine::adapter_room ];
+
+		if ( !built || !mine::list_adapters ( adapters, mine::adapter_room ) ) {
+
+			check ( true, L"no graphics adapter, so the Ethash shaders aren't tested" );
+			delete cache;
+
+			return;
+
+		}
+
+		mine::gpu_device* device = new mine::gpu_device;
+		volatile uint32_t progress = 0;
+
+		began = base::seconds ( );
+
+		bool dag = device->open ( 0 ) && device->build_dag ( *cache, &progress, nullptr ) && device->dag_ready ( 0 );
+
+		seconds = base::seconds ( ) - began;
+
+		static const uint32_t probes [ ] = { 0, 1, 2, 63, 4096, 1000001, 8388607, 8388608, 16777185 };
+		int32_t matching = 0;
+
+		for ( uint32_t index : probes ) {
+
+			uint32_t from_card [ 16 ] = { };
+			uint32_t from_cpu [ 16 ] = { };
+
+			cache->item ( index, from_cpu );
+
+			if ( dag && device->dag_item ( index, from_card ) && base::same ( from_card, from_cpu, 64 ) )
+				matching++;
+
+		}
+
+		note.clear ( );
+		note.add ( L"the graphics card builds the 1 GB epoch 0 DAG in " ).decimal ( seconds, 2 ).add ( L" s and every probed item matches the CPU (" ).number ( static_cast < uint64_t > ( matching ) ).add ( L" of " ).number ( static_cast < uint64_t > ( base::count_of ( probes ) ) ).put ( L')' );
+		check ( dag && progress == 1000 && matching == base::count_of ( probes ), note.get ( ) );
+
+		uint64_t nonce = 0x495732e0ed7a801cull;
+		uint64_t threshold = base::load_big64 ( result );
+		int32_t slot = 0;
+		uint32_t found [ 32 ] = { };
+		uint32_t found_count = 0;
+		bool hit = false;
+
+		if ( dag && device->submit_ethash ( header, static_cast < uint32_t > ( nonce >> 32 ), static_cast < uint32_t > ( nonce ) - 2000, 4096, threshold, slot ) && device->collect ( slot, found, 32, found_count ) ) {
+
+			for ( uint32_t i = 0; i < found_count; i++ )
+				hit = hit || found [ i ] == static_cast < uint32_t > ( nonce );
+
+		}
+
+		check ( hit, L"the graphics card's Ethash search finds block 22's nonce among 4096 tries" );
+
+		uint32_t tops [ 256 ] = { };
+		int32_t agreeing = 0;
+
+		if ( dag && device->sample_ethash ( header, 0x12345678, 1000, 256, tops ) ) {
+
+			for ( uint32_t i = 0; i < 256; i++ ) {
+
+				cache->light ( header, 0x1234567800000000ull + 1000 + i, mix, result );
+				agreeing += base::load_big ( result ) == tops [ i ] ? 1 : 0;
+
+			}
+
+		}
+
+		note.clear ( );
+		note.add ( L"the graphics card's Ethash matches CPU light hashing on every sampled nonce (" ).number ( static_cast < uint64_t > ( agreeing ) ).add ( L" of 256)" );
+		check ( agreeing == 256, note.get ( ) );
+		delete device;
 		delete cache;
 
 	}
