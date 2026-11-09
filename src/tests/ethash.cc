@@ -3,6 +3,8 @@
 #include "tests/harness.hh"
 #include "hash/ethash.hh"
 #include "mine/gpu/device.hh"
+#include "pool/job.hh"
+#include "base/formats/json.hh"
 #include "base/bits.hh"
 #include "base/system/clock.hh"
 #include "base/memory.hh"
@@ -24,6 +26,17 @@ namespace tests {
 		hash::ethash_seed ( 428, later );
 		check ( hex_is ( seed, 32, "290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563" ) && hash::ethash_seed_epoch ( later ) == 428, L"the epoch 1 seed is Keccak-256 of 32 zero bytes, and a seed maps back to its epoch" );
 
+		{
+
+			static const char line [ ] = "{\"id\":null,\"method\":\"mining.notify\",\"params\":[\"cc8d\",\"1680f1719a535586a494458ee42fdfd99b5e6c883e9b82aa86e84ca7dd7322af\",\"0192b1fda6fa0177614c3ef9cbee2f1a8116ccf16e9b8c18c9812bd46a3e4089\",true],\"height\":25700045,\"algo\":\"etchash\"}";
+			base::json* message = new base::json;
+			pool::ethash_job job;
+			bool parsed = message->parse ( line, sizeof ( line ) - 1 ) && pool::parse_ethash_notify ( *message, message->member ( 0, "params" ), job );
+
+			check ( parsed && base::same_text ( job.id, "cc8d" ) && job.clean && base::same_text ( job.algo, "etchash" ) && job.header [ 0 ] == 0x01 && pool::ethash_dataset_epoch ( job.seed, true ) == 428 && pool::ethash_dataset_epoch ( job.seed, false ) == 856, L"a real 2Miners Ethereum Classic job reads back with its seed in Etchash epoch 428, which plain Ethash would call 856" );
+			delete message;
+
+		}
 		hash::ethash_cache* cache = new hash::ethash_cache;
 		uint8_t header [ 32 ];
 		uint8_t mix [ 32 ];
