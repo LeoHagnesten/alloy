@@ -319,7 +319,7 @@ namespace ui {
 
 		{
 
-			render::box tuned = row ( L"Find the fastest settings", L"Benchmarks a few thread counts and, for SHA-256d, graphics card batch sizes, then keeps the fastest. Mining stops while it runs, which takes about a minute.", 200.0f, 30.0f );
+			render::box tuned = row ( L"Find the fastest settings", kind == chain::ALGORITHM_ETHASH ? L"Ethash runs as fast as the card's memory allows, and each try would rebuild the DAG, so there's nothing worth measuring. Intensity below is the one setting that matters." : L"Benchmarks a few thread counts and, for SHA-256d, graphics card batch sizes, then keeps the fastest. Mining stops while it runs, which takes about a minute.", 200.0f, 30.0f );
 
 			if ( view.tuning ) {
 
@@ -329,7 +329,7 @@ namespace ui {
 				button ( surface, render::box { tuned.right ( ) - 96.0f, tuned.y, 96.0f, tuned.h }, L"Stop", ICON_STOP, CONTROL_ACTION, COMMAND_TUNE * 256, false, true, now );
 
 			} else
-				button ( surface, render::box { tuned.right ( ) - 96.0f, tuned.y, 96.0f, tuned.h }, L"Tune", ICON_ARROW, CONTROL_ACTION, COMMAND_TUNE * 256, false, true, now );
+				button ( surface, render::box { tuned.right ( ) - 96.0f, tuned.y, 96.0f, tuned.h }, L"Tune", ICON_ARROW, CONTROL_ACTION, COMMAND_TUNE * 256, false, kind != chain::ALGORITHM_ETHASH, now );
 
 		}
 

@@ -188,7 +188,7 @@ namespace app {
 
 	bool tuner::begin ( uint8_t algorithm, const ui::preferences& start ) {
 
-		if ( thread )
+		if ( thread || algorithm == chain::ALGORITHM_ETHASH )
 			return false;
 
 		kind = algorithm;
