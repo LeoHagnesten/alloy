@@ -817,6 +817,28 @@ namespace ui {
 
 			}
 
+			if ( view.algorithm == chain::ALGORITHM_ETHASH ) {
+
+				hash_property ( surface, x, y, wide, L"Header hash", view.previous );
+				hash_property ( surface, x, y, wide, L"Seed hash", view.seed );
+				value.clear ( );
+
+				if ( view.dag_bytes ) {
+
+					value.add ( L"epoch " ).number ( view.dag_epoch ).add ( L", " ).decimal ( static_cast < double > ( view.dag_bytes ) / 1073741824.0, 2 ).add ( L" GB" );
+
+					if ( view.gpu_state == GPU_BUILDING )
+						value.add ( L", building " ).number ( view.dag_progress / 10 ).put ( L'%' );
+
+				} else
+					value.add ( L"\x2014" );
+
+				property ( surface, x, y, wide, L"DAG", value.get ( ) );
+				surface.pop_clip ( );
+
+				return;
+
+			}
 			uint8_t previous [ 32 ];
 
 			base::copy ( previous, view.previous, 32 );
@@ -848,6 +870,12 @@ namespace ui {
 				property ( surface, x, y, wide, L"Work", L"Fixed pre-PoW hash, nonce counts up" );
 				property ( surface, x, y, wide, L"Processor kernel", L"cSHAKE256 and a 64 by 64 matrix" );
 				property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 256 per group" );
+
+			} else if ( kind == chain::ALGORITHM_ETHASH ) {
+
+				property ( surface, x, y, wide, L"Work", L"Fixed header hash, Ethereum Classic sized DAG" );
+				property ( surface, x, y, wide, L"Processor kernel", L"Not used" );
+				property ( surface, x, y, wide, L"Graphics kernel", L"HLSL compute, 128 per group" );
 
 			} else if ( kind == chain::ALGORITHM_RANDOMX ) {
 
