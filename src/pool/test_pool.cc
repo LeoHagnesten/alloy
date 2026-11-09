@@ -2,6 +2,7 @@
 #include "randomx/machine.hh"
 #include "hash/scrypt.hh"
 #include "hash/heavyhash.hh"
+#include "hash/ethash.hh"
 #include "chain/target.hh"
 #include "net/socket.hh"
 #include "base/bits.hh"
@@ -38,6 +39,7 @@ namespace pool {
 		job jobs [ kept_jobs ];
 		blob_job blobs [ kept_jobs ];
 		kaspa_job kaspas [ kept_jobs ];
+		ethash_job ethashes [ kept_jobs ];
 		uint32_t made = 0;
 
 		uint32_t newest_slot ( ) const {
@@ -50,7 +52,9 @@ namespace pool {
 
 			for ( uint32_t i = 0; i < kept_jobs && i < made; i++ ) {
 
-				if ( base::same_text ( kind == chain::ALGORITHM_RANDOMX ? blobs [ i ].id : ( kind == chain::ALGORITHM_KHEAVYHASH ? kaspas [ i ].id : jobs [ i ].id ), id ) )
+				const char* named = kind == chain::ALGORITHM_RANDOMX ? blobs [ i ].id : ( kind == chain::ALGORITHM_KHEAVYHASH ? kaspas [ i ].id : ( kind == chain::ALGORITHM_ETHASH ? ethashes [ i ].id : jobs [ i ].id ) );
+
+				if ( base::same_text ( named, id ) )
 					return static_cast < int32_t > ( i );
 
 			}
@@ -72,6 +76,7 @@ namespace pool {
 		randomx::cache* cache = nullptr;
 		randomx::machine* machine = nullptr;
 		hash::heavy_hasher* heavy = nullptr;
+		hash::ethash_cache* eth = nullptr;
 		void* scratch = nullptr;
 		volatile uint32_t* good = nullptr;
 		volatile uint32_t* bad = nullptr;
@@ -213,12 +218,31 @@ namespace pool {
 
 	}
 
+	static void make_ethash_job ( pool_state& state ) {
+
+		job_book& book = state.book;
+		ethash_job& work = book.ethashes [ book.made % kept_jobs ];
+		uint8_t seed [ 16 ];
+
+		work = ethash_job { };
+		name_job ( work.id, sizeof ( work.id ), book.made + 1 );
+		base::store_little ( seed, book.made + 1 );
+		base::store_little ( seed + 4, base::unix_time ( ) );
+		base::copy ( seed + 8, "alloyeth", 8 );
+		hash::sha256_twice ( seed, 16, work.header );
+		base::copy_text ( work.algo, sizeof ( work.algo ), "ethash" );
+		work.clean = true;
+
+	}
+
 	static void make_job ( pool_state& state ) {
 
 		if ( state.config.algorithm == chain::ALGORITHM_RANDOMX )
 			make_blob_job ( state );
 		else if ( state.config.algorithm == chain::ALGORITHM_KHEAVYHASH )
 			make_kaspa_job ( state );
+		else if ( state.config.algorithm == chain::ALGORITHM_ETHASH )
+			make_ethash_job ( state );
 		else
 			make_stratum_job ( state );
 
@@ -300,7 +324,9 @@ namespace pool {
 		client.link.send_line ( out.get ( ) );
 		out.clear ( );
 
-		if ( state.config.algorithm == chain::ALGORITHM_KHEAVYHASH )
+		if ( state.config.algorithm == chain::ALGORITHM_ETHASH )
+			write_ethash_notify ( out, book.ethashes [ book.newest_slot ( ) ] );
+		else if ( state.config.algorithm == chain::ALGORITHM_KHEAVYHASH )
 			write_kaspa_notify ( out, book.kaspas [ book.newest_slot ( ) ], book.made % 2 == 0 );
 		else
 			write_notify ( out, book.jobs [ book.newest_slot ( ) ] );
@@ -776,6 +802,124 @@ namespace pool {
 
 	}
 
+	static void handle_ethash ( pool_state& state, peer& client, const base::json& message ) {
+
+		int32_t id = message.member ( 0, "id" );
+		int32_t method = message.member ( 0, "method" );
+		int32_t params = message.member ( 0, "params" );
+
+		if ( message.text_is ( method, "mining.subscribe" ) ) {
+
+			base::line result;
+
+			result.add ( "[[\"mining.notify\",\"" ).add ( client.session ).add ( "\",\"EthereumStratum/1.0.0\"],\"" ).hex ( client.nonce.first, 2, false ).add ( "\"]" );
+			reply ( client, message, id, result.get ( ), 0, nullptr );
+
+			return;
+
+		}
+
+		if ( message.text_is ( method, "mining.authorize" ) ) {
+
+			char worker [ 64 ];
+
+			message.text ( message.item ( params, 0 ), worker, sizeof ( worker ) );
+			base::widen ( client.worker, base::count_of ( client.worker ), worker );
+			client.authorized = true;
+			reply ( client, message, id, "true", 0, nullptr );
+			send_work ( client, state );
+
+			return;
+
+		}
+
+		if ( !message.text_is ( method, "mining.submit" ) ) {
+
+			reply ( client, message, id, nullptr, 20, "Unknown method" );
+
+			return;
+
+		}
+
+		char job_id [ 64 ];
+		int32_t nonce_node = message.item ( params, 2 );
+		uint8_t bytes [ 8 ];
+
+		message.text ( message.item ( params, 1 ), job_id, sizeof ( job_id ) );
+
+		int32_t slot = state.book.find ( job_id, chain::ALGORITHM_ETHASH );
+
+		if ( !client.authorized ) {
+
+			reply ( client, message, id, nullptr, 24, "Unauthorized worker" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		if ( slot < 0 ) {
+
+			reply ( client, message, id, nullptr, 21, "Job not found" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		base::copy ( bytes, client.nonce.first, 2 );
+
+		if ( message.raw_size ( nonce_node ) != 12 || !base::read_hex ( message.raw ( nonce_node ), 12, bytes + 2, 6 ) ) {
+
+			reply ( client, message, id, nullptr, 20, "Malformed share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		uint8_t parts [ 12 ];
+
+		base::copy ( parts, bytes, 8 );
+		base::store_little ( parts + 8, static_cast < uint32_t > ( slot ) );
+
+		if ( !remember ( client, share_key ( parts, sizeof ( parts ) ) ) ) {
+
+			reply ( client, message, id, nullptr, 22, "Duplicate share" );
+			tally ( state, false );
+
+			return;
+
+		}
+
+		const ethash_job& work = state.book.ethashes [ slot ];
+		uint8_t mix [ 32 ];
+		uint8_t result [ 32 ];
+		uint8_t digest [ 32 ];
+
+		state.eth->light ( work.header, base::load_big64 ( bytes ), mix, result );
+
+		for ( int32_t i = 0; i < 32; i++ )
+			digest [ i ] = result [ 31 - i ];
+
+		if ( !chain::meets ( digest, client.difficulty > 0.0 ? client.target : state.target ) ) {
+
+			reply ( client, message, id, nullptr, 23, "Low difficulty share" );
+			tally ( state, false );
+
+			if ( state.config.verbose )
+				base::print_line ( L"  rejected a share below the target" );
+
+			return;
+
+		}
+
+		reply ( client, message, id, "true", 0, nullptr );
+		tally ( state, true );
+		announce ( state, client, digest );
+
+	}
+
 	bool test_server::start ( const server_settings& value ) {
 
 		stop ( );
@@ -865,6 +1009,15 @@ namespace pool {
 		if ( config.algorithm == chain::ALGORITHM_KHEAVYHASH )
 			state->heavy = new hash::heavy_hasher;
 
+		if ( config.algorithm == chain::ALGORITHM_ETHASH ) {
+
+			uint8_t seed [ 32 ] = { };
+
+			state->eth = new hash::ethash_cache;
+			state->eth->build ( 0, seed );
+
+		}
+
 		make_job ( *state );
 
 		if ( blob ) {
@@ -900,7 +1053,7 @@ namespace pool {
 				client.difficulty = 0.0;
 				client.nonce = session_nonce { };
 				client.nonce.first_size = 4;
-				base::store_big ( client.nonce.first, ( config.algorithm == chain::ALGORITHM_KHEAVYHASH ? 0xA7000000 : 0xA1100000 ) + ( sessions << ( config.algorithm == chain::ALGORITHM_KHEAVYHASH ? 16 : 0 ) ) );
+				base::store_big ( client.nonce.first, ( config.algorithm == chain::ALGORITHM_KHEAVYHASH || config.algorithm == chain::ALGORITHM_ETHASH ? 0xA7000000 : 0xA1100000 ) + ( sessions << ( config.algorithm == chain::ALGORITHM_KHEAVYHASH || config.algorithm == chain::ALGORITHM_ETHASH ? 16 : 0 ) ) );
 				name.add ( "alloy-" ).number ( sessions );
 				base::copy_text ( client.session, sizeof ( client.session ), name.get ( ) );
 				base::atomic_add ( connected, 1u );
@@ -930,6 +1083,8 @@ namespace pool {
 						handle_blob ( *state, client, *message );
 					else if ( config.algorithm == chain::ALGORITHM_KHEAVYHASH )
 						handle_kaspa ( *state, client, *message );
+					else if ( config.algorithm == chain::ALGORITHM_ETHASH )
+						handle_ethash ( *state, client, *message );
 					else
 						handle_stratum ( *state, client, *message );
 
@@ -981,6 +1136,7 @@ namespace pool {
 
 		base::release ( state->scratch );
 		delete state->heavy;
+		delete state->eth;
 		delete state->machine;
 		delete state->cache;
 		delete [ ] text;
