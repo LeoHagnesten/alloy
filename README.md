@@ -90,6 +90,8 @@ Large pages usually make RandomX faster still, because the dataset reads stop mi
 
 ![RandomX](docs/media/randomx.png)
 
+![Ethash](docs/media/ethash.png)
+
 ![Tour](docs/media/tour.gif)
 
 ![Setup](docs/media/setup.png)
