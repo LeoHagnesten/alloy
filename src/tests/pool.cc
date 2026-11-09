@@ -200,6 +200,71 @@ namespace tests {
 
 	}
 
+	static void stop_while_reseeding ( ) {
+
+		pool::test_server* server = new pool::test_server;
+		pool::server_settings config;
+		int32_t rounds = 0;
+
+		config.algorithm = chain::ALGORITHM_RANDOMX;
+		config.port = 0;
+		config.difficulty = 1000.0;
+		config.job_seconds = 2;
+		config.reseed_jobs = 3;
+
+		if ( !server->start ( config ) ) {
+
+			check ( false, L"the test pool starts" );
+			delete server;
+
+			return;
+
+		}
+
+		base::writer < wchar_t, 64 > address;
+
+		address.add ( L"127.0.0.1:" ).number ( server->port ( ) );
+
+		for ( int32_t round = 0; round < 4; round++ ) {
+
+			app::session* run = new app::session;
+			ui::preferences settings;
+			int32_t seen = 0;
+
+			settings.algorithm = chain::ALGORITHM_RANDOMX;
+			base::copy_text ( settings.pool ( ).address, base::count_of ( settings.pool ( ).address ), address.get ( ) );
+			settings.mode = ui::MODE_POOL;
+			settings.threads = run->processor ( ).threads;
+			settings.gpu = false;
+			settings.dataset_megabytes = ui::dataset_full;
+			run->start ( settings );
+
+			bool ready = wait_until ( *run, settings, 30.0, [ & ] ( const ui::snapshot& view ) {
+
+				seen = count_logs ( view, L"The RandomX seed changed" );
+
+				return view.dataset == ui::DATASET_FULL && view.hashes > 0;
+
+			} );
+
+			bool reseeded = ready && wait_until ( *run, settings, 10.0, [ & ] ( const ui::snapshot& view ) {
+
+				return count_logs ( view, L"The RandomX seed changed" ) > seen;
+
+			} );
+
+			run->stop ( );
+			delete run;
+			rounds += reseeded ? 1 : 0;
+
+		}
+
+		server->stop ( );
+		delete server;
+		check ( rounds == 4, L"stopping just as a new RandomX seed arrives waits for every thread to leave the dataset before it is rebuilt or freed" );
+
+	}
+
 	static void follow_switches ( ) {
 
 		pool::test_server* server = new pool::test_server;
@@ -717,6 +782,7 @@ namespace tests {
 		solo_on ( chain::ALGORITHM_RANDOMX, L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A", L"", 3, 40.0 );
 		solo_refused ( );
 		follow_switches ( );
+		stop_while_reseeding ( );
 
 	}
 
