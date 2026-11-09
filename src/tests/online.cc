@@ -5,6 +5,9 @@
 #include "hash/blake2b.hh"
 #include "base/system/clock.hh"
 #include "hash/heavyhash.hh"
+#include "hash/ethash.hh"
+#include "hash/keccak.hh"
+#include "chain/rlp.hh"
 #include "chain/target.hh"
 #include "net/http.hh"
 #include "base/formats/json.hh"
@@ -188,6 +191,107 @@ namespace tests {
 
 	}
 
+	static void etc_live_block ( ) {
+
+		static const char request [ ] = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBlockByNumber\",\"params\":[\"latest\",false]}";
+		static const char* const sealed [ ] = { "parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot", "receiptsRoot", "logsBloom", "difficulty", "number", "gasLimit", "gasUsed", "timestamp", "extraData" };
+		static const bool quantities [ ] = { false, false, false, false, false, false, false, true, true, true, true, true, false };
+		net::http_reply* reply = new net::http_reply;
+		base::json* parsed = new base::json;
+		hash::ethash_cache* cache = new hash::ethash_cache;
+		base::text note;
+		bool fetched = net::http_request ( "POST", "https://etc.etcdesktop.com", "Content-Type: application/json\r\n", request, sizeof ( request ) - 1, *reply, 15000 ) && reply->status == 200;
+		int32_t size = reply->body.size ( );
+
+		while ( size && !reply->body.data ( ) [ size - 1 ] )
+			size--;
+
+		fetched = fetched && parsed->parse ( reply->body.data ( ), size );
+
+		int32_t block = fetched ? parsed->member ( 0, "result" ) : -1;
+		chain::rlp_list fields;
+		base::list < uint8_t > encoded;
+		bool packed = block >= 0;
+
+		for ( int32_t i = 0; i < 13 && packed; i++ ) {
+
+			int32_t node = parsed->member ( block, sealed [ i ] );
+
+			packed = node >= 0 && fields.hex ( parsed->raw ( node ), parsed->raw_size ( node ), quantities [ i ] );
+
+		}
+
+		uint8_t seal [ 32 ] = { };
+		uint8_t wanted_mix [ 32 ] = { };
+		uint8_t nonce_bytes [ 8 ] = { };
+		uint8_t mix [ 32 ] = { };
+		uint8_t result [ 32 ] = { };
+		uint8_t flipped [ 32 ];
+		uint8_t target [ 32 ];
+		uint64_t number = 0;
+		double difficulty = 0.0;
+		bool same_mix = false;
+		bool under = false;
+		double built = 0.0;
+
+		if ( packed && fields.finish ( encoded ) ) {
+
+			int32_t mix_node = parsed->member ( block, "mixHash" );
+			int32_t nonce_node = parsed->member ( block, "nonce" );
+			char digits [ 40 ] = { };
+
+			hash::keccak_256 ( encoded.data ( ), static_cast < size_t > ( encoded.size ( ) ), seal );
+			parsed->text ( parsed->member ( block, "number" ), digits, sizeof ( digits ) );
+			number = base::read_hex_number ( digits );
+			parsed->text ( parsed->member ( block, "difficulty" ), digits, sizeof ( digits ) );
+			difficulty = static_cast < double > ( base::read_hex_number ( digits ) );
+
+			bool read = parsed->raw_size ( mix_node ) == 66 && base::read_hex ( parsed->raw ( mix_node ) + 2, 64, wanted_mix, 32 ) && parsed->raw_size ( nonce_node ) == 18 && base::read_hex ( parsed->raw ( nonce_node ) + 2, 16, nonce_bytes, 8 );
+			uint32_t epoch = static_cast < uint32_t > ( number / 60000 );
+			uint8_t seed [ 32 ];
+			uint64_t nonce = 0;
+
+			for ( int32_t i = 0; i < 8; i++ )
+				nonce = nonce << 8 | nonce_bytes [ i ];
+
+			hash::ethash_seed ( epoch * 2, seed );
+
+			double began = base::seconds ( );
+
+			if ( read && cache->build ( epoch, seed ) ) {
+
+				built = base::seconds ( ) - began;
+				cache->light ( seal, nonce, mix, result );
+				same_mix = base::same ( mix, wanted_mix, 32 );
+
+				for ( int32_t i = 0; i < 32; i++ )
+					flipped [ i ] = result [ 31 - i ];
+
+				chain::target_for ( difficulty, target, chain::ALGORITHM_RANDOMX );
+				under = chain::meets ( flipped, target );
+
+			}
+
+		}
+
+		note.add ( L"a live Ethereum Classic block from etc.etcdesktop.com has the mix digest Etchash computes from its header, and the result is under its difficulty" );
+
+		if ( !packed )
+			note.add ( L" (the node answered " ).number ( static_cast < uint64_t > ( reply->status ) ).add ( L" with " ).number ( static_cast < uint64_t > ( reply->body.size ( ) ) ).add ( L" bytes)" );
+		else if ( !same_mix )
+			note.add ( L" (block " ).number ( number ).add ( L": the mix digest didn't match)" );
+		else if ( !under )
+			note.add ( L" (block " ).number ( number ).add ( L": the result missed the difficulty)" );
+		else
+			note.add ( L", block " ).number ( number ).add ( L", epoch " ).number ( number / 60000 ).add ( L", cache built in " ).decimal ( built, 1 ).add ( L" s" );
+
+		check ( same_mix && under, note.get ( ) );
+		delete cache;
+		delete parsed;
+		delete reply;
+
+	}
+
 	static int32_t lines_starting ( const ui::snapshot& view, const wchar_t* prefix ) {
 
 		int32_t found = 0;
@@ -254,9 +358,17 @@ namespace tests {
 
 	}
 
+	void etc_live_tests ( ) {
+
+		section ( L"etc" );
+		etc_live_block ( );
+
+	}
+
 	void online_tests ( ) {
 
 		section ( L"online" );
+		etc_live_block ( );
 		kaspa_live_block ( );
 		live_pool ( chain::ALGORITHM_KHEAVYHASH, L"kas.2miners.com:2020", L"kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98.alloy", L"2Miners' Kaspa pool", 30.0, true );
 		live_pool ( chain::ALGORITHM_KHEAVYHASH, L"kaspa.herominers.com:1206", L"kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98.alloy", L"HeroMiners' Kaspa pool", 120.0, true );

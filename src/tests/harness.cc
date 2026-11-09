@@ -65,9 +65,11 @@ namespace tests {
 		{ L"control", control_tests },
 		{ L"records", records_tests },
 		{ L"kaspa", kaspa_tests },
+		{ L"ethash", ethash_tests },
 		{ L"sv2", sv2_tests },
 		{ L"xmrig", benchmark_tests, true },
 		{ L"online", online_tests, true },
+		{ L"etc", etc_live_tests, true },
 
 	};
 

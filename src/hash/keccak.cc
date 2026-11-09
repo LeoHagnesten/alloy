@@ -70,12 +70,11 @@ namespace hash {
 
 	}
 
-	void keccak_256 ( const void* data, size_t size, uint8_t* out ) {
+	static void keccak_sponge ( const void* data, size_t size, uint8_t* out, size_t rate, size_t out_size ) {
 
-		static constexpr size_t rate = 136;
 		const uint8_t* bytes = static_cast < const uint8_t* > ( data );
 		uint64_t state [ 25 ] = { };
-		uint8_t last [ rate ] = { };
+		uint8_t last [ 136 ] = { };
 
 		for ( ; size >= rate; size -= rate, bytes += rate ) {
 
@@ -95,9 +94,20 @@ namespace hash {
 
 		keccak_permute ( state );
 
-		for ( int32_t i = 0; i < 4; i++ )
+		for ( size_t i = 0; i < out_size / 8; i++ )
 			base::store_little64 ( out + i * 8, state [ i ] );
 
 	}
 
+	void keccak_256 ( const void* data, size_t size, uint8_t* out ) {
+
+		keccak_sponge ( data, size, out, 136, 32 );
+
+	}
+
+	void keccak_512 ( const void* data, size_t size, uint8_t* out ) {
+
+		keccak_sponge ( data, size, out, 72, 64 );
+
+	}
 }

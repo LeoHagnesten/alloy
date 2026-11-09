@@ -359,6 +359,33 @@ namespace base {
 
 	}
 
+	uint64_t read_hex_number ( const char* text ) {
+
+		uint64_t value = 0;
+		int32_t at = text && text [ 0 ] == '0' && ( text [ 1 ] == 'x' || text [ 1 ] == 'X' ) ? 2 : 0;
+
+		for ( ; text && text [ at ]; at++ ) {
+
+			char c = text [ at ];
+			uint64_t digit = 0;
+
+			if ( c >= '0' && c <= '9' )
+				digit = static_cast < uint64_t > ( c - '0' );
+			else if ( c >= 'a' && c <= 'f' )
+				digit = static_cast < uint64_t > ( c - 'a' + 10 );
+			else if ( c >= 'A' && c <= 'F' )
+				digit = static_cast < uint64_t > ( c - 'A' + 10 );
+			else
+				break;
+
+			value = value << 4 | digit;
+
+		}
+
+		return value;
+
+	}
+
 	uint64_t read_number ( const wchar_t* text ) {
 
 		uint64_t value = 0;

@@ -42,6 +42,10 @@ namespace tests {
 
 	void kaspa_tests ( );
 
+	void ethash_tests ( );
+
+	void etc_live_tests ( );
+
 	void sv2_tests ( );
 
 	void online_tests ( );

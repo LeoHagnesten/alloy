@@ -44,6 +44,8 @@ namespace base {
 
 	bool read_hex32 ( const char* text, int32_t size, uint32_t& out );
 
+	uint64_t read_hex_number ( const char* text );
+
 	int32_t write_base64 ( char* out, int32_t room, const uint8_t* bytes, size_t count );
 
 	uint64_t read_number ( const wchar_t* text );
