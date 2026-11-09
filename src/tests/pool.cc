@@ -350,16 +350,19 @@ namespace tests {
 		base::copy_text ( settings.coinbase_tag, base::count_of ( settings.coinbase_tag ), L"/mined with alloy, solo/" );
 		run->start ( settings );
 
+		bool known_seen = false;
 		bool found = wait_until ( *run, settings, limit, [ & ] ( const ui::snapshot& view ) {
 
-			return view.accepted >= wanted && view.link == ui::PHASE_READY;
+			known_seen = known_seen || view.network_known;
+
+			return view.accepted >= wanted && view.link == ui::PHASE_READY && ( known_seen || algorithm == chain::ALGORITHM_RANDOMX );
 
 		} );
 
 		const ui::snapshot& view = run->view ( );
 		uint32_t accepted = view.accepted;
 		uint32_t rejected = view.rejected;
-		bool known = view.network_known || algorithm == chain::ALGORITHM_RANDOMX;
+		bool known = known_seen || view.network_known || algorithm == chain::ALGORITHM_RANDOMX;
 
 		run->stop ( );
 		note.add ( chain::algorithm_name ( algorithm ) ).add ( L" mines solo against a local node that checks every block in full: " ).number ( accepted ).add ( L" blocks accepted, " ).number ( rejected ).add ( L" turned down" );
@@ -371,6 +374,15 @@ namespace tests {
 
 		if ( algorithm != chain::ALGORITHM_RANDOMX )
 			note.add ( L", each carrying the chosen coinbase message" );
+
+		if ( !known || !signed_off || server->accepted ( ) < accepted ) {
+
+			wchar_t said [ 48 ];
+
+			base::widen ( said, base::count_of ( said ), server->coinbase_message ( ) );
+			note.add ( L" (network known " ).number ( known ? 1u : 0u ).add ( L", node accepted " ).number ( server->accepted ( ) ).add ( L", message " ).add ( said ).put ( L')' );
+
+		}
 
 		check ( found && rejected == 0 && server->rejected ( ) == 0 && server->accepted ( ) >= accepted && known && signed_off, note.get ( ) );
 		delete run;
