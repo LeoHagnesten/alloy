@@ -533,6 +533,14 @@ namespace mine {
 		while ( base::atomic_load ( rx_users ) && !base::atomic_load ( quit ) )
 			base::sleep ( 1 );
 
+		if ( base::atomic_load ( rx_users ) ) {
+
+			base::atomic_store ( rx_building, 0u );
+
+			return;
+
+		}
+
 		base::atomic_store ( rx_progress, 0u );
 		base::atomic_store ( rx_state, static_cast < uint32_t > ( DATASET_BUILDING ) );
 
