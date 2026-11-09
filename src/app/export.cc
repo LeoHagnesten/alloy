@@ -93,7 +93,12 @@ namespace app {
 		base::list < char >* text = new base::list < char >;
 		base::line* row = new base::line;
 
-		row->add ( "date,seconds_mined,hashes,accepted,rejected,btc,ltc,xmr,kas\r\n" );
+		row->add ( "date,seconds_mined,hashes,accepted,rejected" );
+
+		for ( int32_t k = 0; k < chain::COIN_COUNT; k++ )
+			row->put ( ',' ).add ( chain::coin_of ( static_cast < uint8_t > ( k ) ).key );
+
+		row->add ( "\r\n" );
 		text->append ( row->get ( ), row->size ( ) );
 
 		for ( int32_t i = view.day_count - 1; i >= 0; i-- ) {
@@ -105,7 +110,7 @@ namespace app {
 			row->number ( date.year ).put ( '-' ).padded ( date.month, 2 ).put ( '-' ).padded ( date.day, 2 );
 			row->put ( ',' ).number ( item.seconds ).put ( ',' ).number ( item.hashes ).put ( ',' ).number ( item.accepted ).put ( ',' ).number ( item.rejected );
 
-			for ( int32_t k = 0; k < chain::ALGORITHM_COUNT; k++ )
+			for ( int32_t k = 0; k < chain::COIN_COUNT; k++ )
 				row->put ( ',' ).decimal ( item.earned [ k ], 12 );
 
 			row->add ( "\r\n" );

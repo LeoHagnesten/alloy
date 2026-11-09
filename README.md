@@ -17,6 +17,14 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt, Monero's RandomX and 
 - **RandomX** with its own Argon2d, Blake2b, AES generators and SuperscalarHash, and the Wownero, ArQmA, Graft, Safex, Yada, Keva and Equilibria variants. Each program is compiled to x86-64 at run time. The 2 GB dataset builds in seconds, light mode needs only 256 MB, and the thread count follows the processor's L3 cache.
 - **kHeavyHash** for Kaspa: cSHAKE256, the xoshiro-seeded 64 by 64 matrix with its rank check, and a compute shader that agrees with the processor hash for hash.
 
+**Coins**
+
+- **SHA-256d:** Bitcoin, Bitcoin Cash, eCash, Bitcoin SV and DigiByte.
+- **Scrypt:** Litecoin, Dogecoin and DigiByte.
+- **RandomX:** Monero (and its RandomX v2 fork), Wownero, Zephyr, ArQmA, Graft, Safex Cash, YadaCoin, Kevacoin and Equilibria.
+- **kHeavyHash:** Kaspa.
+ coin brings its own address checks (Base58, Bech32, CashAddr for Bitcoin Cash and eCash, Monero and Kaspa formats), its price, block time and earnings history, and the pools that are known to work with it.
+
 **Pools and nodes**
 
 - **Stratum** for SHA-256d and scrypt, with `stratum+ssl://` over Schannel (certificate pinning for pools Windows doesn't trust), extranonce changes, a backup pool after three failed tries and NiceHash support.

@@ -11,22 +11,13 @@ namespace ui {
 
 	void shell::paint_setup ( render::surface& surface, const snapshot& view, render::box area, double now ) {
 
-		static const wchar_t* const coins [ chain::ALGORITHM_COUNT ] = { L"Bitcoin", L"Litecoin", L"Monero", L"Kaspa" };
-		static const wchar_t* const coin_notes [ chain::ALGORITHM_COUNT ] = {
+		static const wchar_t* const families [ chain::ALGORITHM_COUNT ] = { L"SHA-256d", L"Scrypt", L"RandomX", L"kHeavyHash" };
+		static const wchar_t* const family_notes [ chain::ALGORITHM_COUNT ] = {
 
-			L"Bitcoin on a PC is a lottery ticket. The solo pools below pay the whole block reward if this computer ever finds a block, which is very unlikely next to dedicated machines.",
-			L"Litecoin's scrypt suits the graphics card. litecoinpool.org needs a free account and pays Dogecoin on top of Litecoin.",
-			L"Monero was made for processors, so this is where a PC earns the most. Pools pay out once your balance passes their minimum.",
-			L"Kaspa runs on the graphics card here. Dedicated machines took over its network, so a PC earns very little; Kaspa pools need your kaspa: address.",
-
-		};
-		static const wchar_t* const wallet_labels [ chain::ALGORITHM_COUNT ] = { L"Bitcoin address", L"Username and worker", L"Monero address", L"Kaspa address" };
-		static const wchar_t* const wallet_tips [ chain::ALGORITHM_COUNT ] = {
-
-			L"The Bitcoin address that gets the reward. A dot and a name for this PC can follow it.",
-			L"Your litecoinpool.org username, a dot, then any name for this PC, like leo.desktop.",
-			L"The Monero address that gets paid. It starts with 4 or 8 and is 95 characters long.",
-			L"The Kaspa address that gets paid, starting with kaspa: and then about 61 letters and digits.",
+			L" uses SHA-256d, where dedicated machines do nearly all the work. On a PC it's a lottery ticket: a solo pool pays the whole block if this computer ever finds one, which is very unlikely.",
+			L" uses scrypt, which suits the graphics card. Dedicated machines mine most of it, so a PC earns little.",
+			L" uses RandomX, which was made for processors, so this is where a PC earns the most. Pools pay out once your balance passes their minimum.",
+			L" runs on the graphics card here. Dedicated machines took over its network, so a PC earns very little.",
 
 		};
 
@@ -35,7 +26,12 @@ namespace ui {
 		float wide = base::min ( area.w - 56.0f, 720.0f );
 		float y = area.y + 6.0f;
 		uint8_t kind = settings.algorithm % chain::ALGORITHM_COUNT;
+		uint8_t chosen = settings.coins [ kind ];
+		const wchar_t* coin_name = chain::coin_of ( chosen ).name;
 		base::text tip;
+		base::text about;
+		base::text wallet;
+		base::text wallet_tip;
 
 		scroll_area [ SCROLL_SETUP ] = area;
 		surface.push_shift ( 0.0f, -offset );
@@ -77,24 +73,48 @@ namespace ui {
 		note ( L"Three things and Alloy is ready: what to mine, where the money goes and which pool to mine for. All of it can be changed later in Settings.", colors.muted );
 
 		section ( L"WHAT TO MINE" );
-		segmented ( surface, row ( L"Coin", coin_notes [ kind ], 400.0f, 30.0f ), coins, chain::ALGORITHM_COUNT, kind, CONTROL_ALGORITHM, 0, !view.running, now );
+		about.add ( coin_name ).add ( family_notes [ kind ] );
+		segmented ( surface, row ( L"Algorithm", L"Each algorithm mines a family of coins. Pick the family, then the coin.", 400.0f, 30.0f ), families, chain::ALGORITHM_COUNT, kind, CONTROL_ALGORITHM, 0, !view.running, now );
+
+		{
+
+			uint8_t list [ chain::coin_room ];
+			const wchar_t* labels [ chain::coin_room ];
+			int32_t count = chain::coins_for ( kind, list, chain::coin_room );
+			int32_t selected = 0;
+
+			for ( int32_t i = 0; i < count; i++ ) {
+
+				labels [ i ] = chain::coin_of ( list [ i ] ).label;
+
+				if ( list [ i ] == chosen )
+					selected = i;
+
+			}
+
+			segmented ( surface, row ( L"Coin", about.get ( ), base::min ( 68.0f * static_cast < float > ( count ), wide - 90.0f ), 30.0f ), labels, count, selected, CONTROL_CHOICE, SETTING_COIN * 16, !view.running, now );
+
+		}
+
 		y += 10.0f;
-		note ( coin_notes [ kind ], colors.muted );
+		note ( about.get ( ), colors.muted );
 
 		section ( L"WHERE THE MONEY GOES" );
 
-		chain::address_check check = chain::check_worker ( kind, fields [ SETTING_WORKER ].text );
+		chain::address_check check = chain::check_worker ( chosen, fields [ SETTING_WORKER ].text );
 		bool flagged = check.verdict == chain::ADDRESS_BROKEN || check.verdict == chain::ADDRESS_OTHER_COIN;
 		bool typed = fields [ SETTING_WORKER ].length > 0 && !base::same_text ( fields [ SETTING_WORKER ].text, L"alloy.worker" );
 
-		field ( surface, row ( wallet_labels [ kind ], wallet_tips [ kind ], 420.0f, 30.0f ), SETTING_WORKER, false, now, flagged );
+		wallet.add ( coin_name ).add ( L" address" );
+		wallet_tip.add ( L"The " ).add ( coin_name ).add ( L" address that gets paid. Pools that use accounts want your username here instead, then a dot and a name for this PC." );
+		field ( surface, row ( wallet.get ( ), wallet_tip.get ( ), 420.0f, 30.0f ), SETTING_WORKER, false, now, flagged );
 		y += 10.0f;
 
 		if ( check.verdict == chain::ADDRESS_BROKEN )
 			note ( L"That looks like an address, but its checksum is wrong. Check it for a typo.", colors.bad );
 		else if ( check.verdict == chain::ADDRESS_OTHER_COIN ) {
 
-			tip.add ( L"That's a " ).add ( check.coin ).add ( L" address, which " ).add ( coins [ kind ] ).add ( L" pools can't pay." );
+			tip.add ( L"That's a " ).add ( check.coin ).add ( L" address, which " ).add ( coin_name ).add ( L" pools can't pay." );
 			note ( tip.get ( ), colors.bad );
 
 		} else if ( check.verdict == chain::ADDRESS_VALID ) {
@@ -103,7 +123,7 @@ namespace ui {
 			note ( tip.get ( ), colors.good );
 
 		} else
-			note ( wallet_tips [ kind ], colors.muted );
+			note ( wallet_tip.get ( ), colors.muted );
 
 		section ( L"POOL" );
 
@@ -115,7 +135,7 @@ namespace ui {
 
 		for ( int32_t i = 0; i < pool::preset_count ( ) && known < 4; i++ ) {
 
-			if ( pool::preset_at ( i ).algorithm != kind )
+			if ( pool::preset_at ( i ).coin != chosen )
 				continue;
 
 			if ( base::same_text ( pool::preset_at ( i ).address, settings.pools [ kind ].address ) )

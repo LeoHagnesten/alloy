@@ -377,7 +377,7 @@ namespace tests {
 
 		}
 
-		picked = picked && fresh->algorithm == chain::ALGORITHM_RANDOMX && welcome->locate ( ui::CONTROL_PRESET, pool::preset_for ( chain::ALGORITHM_RANDOMX ), start_button );
+		picked = picked && fresh->algorithm == chain::ALGORITHM_RANDOMX && welcome->locate ( ui::CONTROL_PRESET, pool::preset_for ( chain::COIN_MONERO ), start_button );
 
 		if ( picked ) {
 

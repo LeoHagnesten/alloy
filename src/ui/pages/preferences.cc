@@ -113,20 +113,54 @@ namespace ui {
 		}
 
 		section ( L"POOL", true );
+
+		uint8_t chosen = settings.coins [ kind ];
+		const wchar_t* coin_name = chain::coin_of ( chosen ).name;
+
+		{
+
+			uint8_t list [ chain::coin_room ];
+			const wchar_t* labels [ chain::coin_room ];
+			int32_t count = chain::coins_for ( kind, list, chain::coin_room );
+			int32_t selected = 0;
+
+			for ( int32_t i = 0; i < count; i++ ) {
+
+				labels [ i ] = chain::coin_of ( list [ i ] ).label;
+
+				if ( list [ i ] == chosen )
+					selected = i;
+
+			}
+
+			tip.clear ( );
+
+			if ( kind == chain::ALGORITHM_RANDOMX )
+				tip.add ( coin_name ).add ( L" mines " ).add ( randomx::variant_of ( settings.variant ).name ).add ( L". Pools that switch coins override this, and Alloy follows them without restarting." );
+			else
+				tip.add ( L"Every " ).add ( algorithm_label ).add ( L" coin mines the same way and the pool decides which chain the hashes go to. This picks the coin Alloy checks addresses, prices and earnings for." );
+
+			if ( count > 1 )
+				segmented ( surface, row ( L"Coin", tip.get ( ), base::min ( 68.0f * static_cast < float > ( count ), wide - 90.0f ), 30.0f ), labels, count, selected, CONTROL_CHOICE, SETTING_COIN * 16, true, now );
+
+			tip.clear ( );
+
+		}
+
 		field ( surface, row ( L"Pool address", address_tips [ kind ], 300.0f, 30.0f ), SETTING_ADDRESS, false, now );
 		field ( surface, row ( L"Backup pool", L"Alloy moves here after three failed tries on the main pool, and goes back after ten minutes. Leave it empty to keep retrying.", 300.0f, 30.0f ), SETTING_BACKUP, false, now );
 
-		chain::address_check check = chain::check_worker ( kind, fields [ SETTING_WORKER ].text );
+		chain::address_check check = chain::check_worker ( chosen, fields [ SETTING_WORKER ].text );
 		bool flagged = check.verdict == chain::ADDRESS_BROKEN || check.verdict == chain::ADDRESS_OTHER_COIN;
 
 		if ( check.verdict == chain::ADDRESS_BROKEN )
 			tip.add ( L"That looks like an address, but its checksum is wrong. Check it for a typo." );
 		else if ( check.verdict == chain::ADDRESS_OTHER_COIN )
-			tip.add ( L"That's a " ).add ( check.coin ).add ( L" address, which " ).add ( algorithm_label ).add ( L" pools can't pay." );
+			tip.add ( L"That's a " ).add ( check.coin ).add ( L" address, which " ).add ( coin_name ).add ( L" pools can't pay." );
 		else if ( check.verdict == chain::ADDRESS_VALID )
 			tip.add ( L"A valid " ).add ( check.coin ).add ( L" address. A dot and a name for this PC can follow it." );
 		else
-			tip.add ( kind == chain::ALGORITHM_RANDOMX ? L"Monero pools want your wallet address here. Some take a dot and a name for this PC after it." : L"Who the pool credits for your shares: a wallet address or a username, then a dot and a name for this PC." );
+			tip.add ( L"Who the pool credits for your shares: your " ).add ( coin_name ).add ( L" address or a username, then a dot and a name for this PC." );
 
 		field ( surface, row ( L"Worker", tip.get ( ), 300.0f, 30.0f ), SETTING_WORKER, false, now, flagged );
 		field ( surface, row ( L"Password", L"Most pools ignore this. Leave it as x unless yours says otherwise.", 300.0f, 30.0f ), SETTING_PASSWORD, true, now );
@@ -138,7 +172,7 @@ namespace ui {
 
 		for ( int32_t i = 0; i < pool::preset_count ( ) && known < 4; i++ ) {
 
-			if ( pool::preset_at ( i ).algorithm != kind )
+			if ( pool::preset_at ( i ).coin != chosen )
 				continue;
 
 			widths [ known ] = surface.measure ( pool::preset_at ( i ).name, render::FONT_STRONG ) + 54.0f;
@@ -184,17 +218,6 @@ namespace ui {
 
 		if ( kind == chain::ALGORITHM_SHA256D )
 			segmented ( surface, row ( L"Hash kernel", view.sha ? L"Auto uses the CPU's SHA instructions, about three times faster than the portable code." : L"This CPU has no SHA instructions, so Auto runs the portable code.", 324.0f, 30.0f ), kernels, 3, settings.kernel, CONTROL_CHOICE, SETTING_KERNEL * 16, true, now );
-
-		if ( kind == chain::ALGORITHM_RANDOMX ) {
-
-			static const wchar_t* const coins [ randomx::VARIANT_COUNT ] = { L"Monero", L"RX v2", L"Wownero", L"ArQmA", L"Graft", L"Safex", L"Yada", L"Keva", L"Equilibria" };
-			const randomx::variant& rules = randomx::variant_of ( settings.variant );
-
-			tip.clear ( );
-			tip.add ( rules.name ).add ( L" for " ).add ( rules.coin ).add ( L". Pools that switch coins override this, and Alloy follows them without restarting." );
-			segmented ( surface, row ( L"Coin", tip.get ( ), 612.0f, 30.0f ), coins, randomx::VARIANT_COUNT, settings.variant, CONTROL_CHOICE, SETTING_VARIANT * 16, true, now );
-
-		}
 
 		if ( kind == chain::ALGORITHM_RANDOMX ) {
 

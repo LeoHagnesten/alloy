@@ -18,8 +18,6 @@ namespace chain {
 
 	const wchar_t* algorithm_key ( uint8_t value );
 
-	const wchar_t* algorithm_coins ( uint8_t value );
-
 	bool read_algorithm ( const wchar_t* text, uint8_t& out );
 
 	double unit_top ( uint8_t value );

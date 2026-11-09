@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chain/algorithm.hh"
+#include "chain/coins.hh"
 
 namespace chain {
 
@@ -20,11 +20,13 @@ namespace chain {
 
 	};
 
-	address_check check_address ( uint8_t algorithm, const char* text );
+	address_check check_address ( uint8_t coin, const char* text );
 
-	address_check check_worker ( uint8_t algorithm, const wchar_t* worker );
+	address_check check_worker ( uint8_t coin, const wchar_t* worker );
 
-	bool payout_script ( uint8_t algorithm, const wchar_t* worker, uint8_t* out, int32_t room, int32_t& size );
+	bool payout_script ( uint8_t coin, const wchar_t* worker, uint8_t* out, int32_t room, int32_t& size );
+
+	bool cash_encode ( uint8_t coin, bool script, const uint8_t* hash, char* out, int32_t room );
 
 	bool base58_decode ( const char* text, uint8_t* out, int32_t room, int32_t& size );
 

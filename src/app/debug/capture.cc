@@ -295,6 +295,14 @@ namespace app {
 		base::copy_text ( self->settings.pool ( ).address, base::count_of ( self->settings.pool ( ).address ), address.get ( ) );
 		base::copy_text ( self->settings.pool ( ).worker, base::count_of ( self->settings.pool ( ).worker ), L"alloy.studio" );
 		shoot ( *self, L"idle-dark.png" );
+
+		uint8_t picked = self->settings.algorithm;
+
+		self->settings.choose_algorithm ( chain::ALGORITHM_RANDOMX );
+		self->view->open_page ( ui::PAGE_SETTINGS, self->clock );
+		shoot ( *self, L"coins-randomx-dark.png" );
+		self->settings.choose_algorithm ( picked );
+		self->view->open_page ( ui::PAGE_OVERVIEW, self->clock );
 		self->view->open_setup ( self->clock );
 		self->view->reload ( );
 		shoot ( *self, L"setup-dark.png" );

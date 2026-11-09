@@ -163,6 +163,7 @@ namespace app {
 		double last_sample = 0.0;
 		double last_tick = 0.0;
 		uint64_t last_total = 0;
+		uint8_t coin = 0;
 		double live_times [ 64 ] = { };
 		uint64_t live_totals [ 64 ] = { };
 		int32_t live_count = 0;

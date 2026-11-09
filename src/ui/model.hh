@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chain/algorithm.hh"
+#include "chain/coins.hh"
 #include "base/system/clock.hh"
 
 namespace ui {
@@ -149,6 +149,7 @@ namespace ui {
 		};
 		bool full_dataset = true;
 		uint8_t variant = 0;
+		uint8_t coins [ chain::ALGORITHM_COUNT ] = { chain::COIN_BITCOIN, chain::COIN_LITECOIN, chain::COIN_MONERO, chain::COIN_KASPA };
 		bool cpu = true;
 		uint32_t threads = 0;
 		uint32_t cpu_limit = 100;
@@ -190,6 +191,24 @@ namespace ui {
 		uint8_t chart_smoothing = 0;
 		uint8_t chart_clock = 0;
 		algorithm_tuning tunings [ chain::ALGORITHM_COUNT ];
+
+		uint8_t coin ( ) const {
+
+			return coins [ algorithm % chain::ALGORITHM_COUNT ];
+
+		}
+
+		void choose_coin ( uint8_t which ) {
+
+			if ( !chain::coin_mines ( which, algorithm ) )
+				return;
+
+			coins [ algorithm % chain::ALGORITHM_COUNT ] = which;
+
+			if ( algorithm == chain::ALGORITHM_RANDOMX )
+				variant = chain::coin_of ( which ).variant;
+
+		}
 
 		pool_profile& pool ( ) {
 
@@ -272,7 +291,7 @@ namespace ui {
 		uint32_t accepted = 0;
 		uint32_t rejected = 0;
 		uint32_t seconds = 0;
-		double earned [ chain::ALGORITHM_COUNT ] = { };
+		double earned [ chain::COIN_COUNT ] = { };
 
 	};
 
@@ -308,6 +327,7 @@ namespace ui {
 		uint64_t height = 0;
 		int32_t blob_size = 0;
 		uint8_t seed [ 32 ] = { };
+		uint8_t coin = 0;
 		uint8_t variant = 0;
 		bool aes = false;
 		wchar_t status [ 160 ] = { };
@@ -407,7 +427,6 @@ namespace ui {
 		int32_t rig_count = 0;
 		wchar_t profiles [ 12 ] [ 48 ] = { };
 		int32_t profile_count = 0;
-		double prices [ chain::ALGORITHM_COUNT ] = { };
 
 	};
 

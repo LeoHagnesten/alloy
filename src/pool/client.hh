@@ -60,6 +60,7 @@ namespace pool {
 
 		uint8_t algorithm = chain::ALGORITHM_SHA256D;
 		uint8_t variant = 0;
+		uint8_t coin = 0;
 		wchar_t address [ 256 ] = { };
 		wchar_t backup [ 256 ] = { };
 		wchar_t worker [ 128 ] = { };

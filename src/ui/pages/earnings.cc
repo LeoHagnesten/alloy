@@ -74,8 +74,9 @@ namespace ui {
 		float wide = area.w - 56.0f;
 		float y = area.y;
 		uint8_t kind = view.running ? view.algorithm : settings.algorithm;
-		uint8_t flavour = view.running ? view.variant : settings.variant;
-		const wchar_t* symbol = chain::coin_symbol ( kind, flavour );
+		uint8_t coin = view.running ? view.coin : settings.coin ( );
+		bool monero = coin == chain::COIN_MONERO || coin == chain::COIN_MONERO_V2;
+		const wchar_t* symbol = chain::coin_of ( coin ).symbol;
 		bool priced = view.price_known && view.price > 0.0;
 		const day_row* today = nullptr;
 
@@ -116,7 +117,7 @@ namespace ui {
 		cells [ 3 ].tip = L"What the current hashrate earns in a day at today's difficulty and block reward.";
 		cells [ 4 ].tip = L"What the pool owes you and hasn't paid out yet, read from its public API.";
 
-		double amounts [ 4 ] = { view.run_earned, today ? today->earned [ kind % chain::ALGORITHM_COUNT ] : 0.0, view.lifetime.earned [ kind % chain::ALGORITHM_COUNT ], view.per_day };
+		double amounts [ 4 ] = { view.run_earned, today ? today->earned [ coin % chain::COIN_COUNT ] : 0.0, view.lifetime.earned [ coin % chain::COIN_COUNT ], view.per_day };
 
 		for ( int32_t i = 0; i < 4; i++ ) {
 
@@ -205,7 +206,7 @@ namespace ui {
 
 		caption ( surface, render::box { left_x, left_y, left_w, 16.0f }, L"NETWORK" );
 		left_y += 24.0f;
-		value.add ( chain::algorithm_name ( kind ) ).add ( L", " ).add ( symbol );
+		value.add ( chain::coin_of ( coin ).name ).add ( L" (" ).add ( symbol ).put ( L')' );
 		property ( surface, left_x, left_y, left_w, L"Coin", value.get ( ) );
 
 		if ( view.network_known ) {
@@ -249,7 +250,7 @@ namespace ui {
 
 		} else {
 
-			const wchar_t* why = kind == chain::ALGORITHM_RANDOMX ? ( flavour <= 1 ? ( settings.lookups ? L"Waiting for Monero's network stats" : L"Turn on online lookups in Settings" ) : L"Only Monero's network is looked up" ) : ( kind == chain::ALGORITHM_KHEAVYHASH ? L"Kaspa pools don't send the block reward, so only shares are counted" : L"Known once the pool sends a job" );
+			const wchar_t* why = kind == chain::ALGORITHM_RANDOMX ? ( monero ? ( settings.lookups ? L"Waiting for Monero's network stats" : L"Turn on online lookups in Settings" ) : L"Only Monero's network is looked up" ) : ( kind == chain::ALGORITHM_KHEAVYHASH ? L"Kaspa pools don't send the block reward, so only shares are counted" : L"Known once the pool sends a job" );
 
 			surface.text ( why, render::FONT_BODY, render::box { left_x, left_y, left_w, 26.0f }, colors.faint );
 			left_y += 26.0f;
@@ -363,7 +364,7 @@ namespace ui {
 
 			surface.text ( cell.get ( ), render::FONT_BODY, render::box { columns [ 3 ], y, 160.0f, 30.0f }, colors.muted );
 
-			double earned = row.earned [ kind % chain::ALGORITHM_COUNT ];
+			double earned = row.earned [ coin % chain::COIN_COUNT ];
 
 			cell.clear ( );
 			coin_amount ( cell, earned, symbol );

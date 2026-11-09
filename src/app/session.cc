@@ -24,6 +24,15 @@ namespace app {
 
 	}
 
+	static uint8_t coin_in_use ( uint8_t chosen, uint8_t kind, uint8_t flavour ) {
+
+		if ( kind == chain::ALGORITHM_RANDOMX && ( !chain::coin_mines ( chosen, kind ) || chain::coin_of ( chosen ).variant != flavour ) )
+			return chain::coin_of_variant ( flavour );
+
+		return chain::coin_mines ( chosen, kind ) ? chosen : chain::first_coin ( kind );
+
+	}
+
 	static void real_genesis ( uint8_t algorithm, chain::header& out ) {
 
 		if ( algorithm == chain::ALGORITHM_SCRYPT )
@@ -307,6 +316,8 @@ namespace app {
 		kernel = settings.kernel;
 		variant = settings.variant;
 		algorithm = algorithm_of ( settings );
+		coin = coin_in_use ( settings.coin ( ), algorithm, variant );
+		view.coin = coin;
 		view.mode = mode;
 		view.algorithm = algorithm;
 		view.height = 0;
@@ -366,6 +377,7 @@ namespace app {
 
 			link.algorithm = algorithm;
 			link.variant = settings.variant;
+			link.coin = coin;
 			base::copy_text ( link.address, base::count_of ( link.address ), profile.address );
 			base::copy_text ( link.backup, base::count_of ( link.backup ), profile.backup );
 			base::copy_text ( link.pin, sizeof ( link.pin ), profile.pin );
@@ -565,7 +577,7 @@ namespace app {
 
 				view.share_serial++;
 
-				book.add_share ( today_number ( ), row.accepted, algorithm, view.share_value );
+				book.add_share ( today_number ( ), row.accepted, view.coin, view.share_value );
 
 				if ( row.accepted ) {
 
@@ -1130,6 +1142,7 @@ namespace app {
 		ui::snapshot& view = *shown;
 		uint8_t kind = active ? algorithm : algorithm_of ( settings );
 		uint8_t flavour = active ? view.variant : settings.variant;
+		uint8_t current_coin = coin_in_use ( active ? coin : settings.coin ( ), kind, flavour );
 		lookup_result found;
 		lookup_request wanted;
 		const ui::pool_profile& profile = settings.pool ( );
@@ -1170,10 +1183,11 @@ namespace app {
 		}
 
 		double block = chain::block_hashes ( kind, difficulty );
-		double spacing = kind == chain::ALGORITHM_SHA256D ? 600.0 : ( kind == chain::ALGORITHM_SCRYPT ? 150.0 : 120.0 );
+		double spacing = chain::coin_of ( current_coin ).block_seconds;
 		double rate = view.running ? view.rate : 0.0;
 		double share = view.difficulty > 0.0 ? chain::share_hashes ( kind, view.difficulty ) : 0.0;
 
+		view.coin = current_coin;
 		view.network_known = known;
 		view.network_difficulty = difficulty;
 		view.network_height = height;
@@ -1220,13 +1234,8 @@ namespace app {
 		base::copy_text ( view.balance_source, base::count_of ( view.balance_source ), found.source );
 		base::copy_text ( view.lookup_note, base::count_of ( view.lookup_note ), found.note );
 
-		int32_t coin = kind == chain::ALGORITHM_KHEAVYHASH ? 3 : ( kind == chain::ALGORITHM_SHA256D ? 0 : ( kind == chain::ALGORITHM_SCRYPT ? 1 : ( flavour <= 1 ? 2 : -1 ) ) );
-
-		view.price_known = settings.show_fiat && found.priced && coin >= 0 && found.prices [ coin ] [ settings.currency % CURRENCY_COUNT ] > 0.0;
-		view.price = view.price_known ? found.prices [ coin ] [ settings.currency % CURRENCY_COUNT ] : 0.0;
-
-		for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ )
-			view.prices [ i ] = found.priced ? found.prices [ i ] [ settings.currency % CURRENCY_COUNT ] : 0.0;
+		view.price_known = settings.show_fiat && found.priced && found.prices [ current_coin ] [ settings.currency % CURRENCY_COUNT ] > 0.0;
+		view.price = view.price_known ? found.prices [ current_coin ] [ settings.currency % CURRENCY_COUNT ] : 0.0;
 
 		watched.configure ( settings.rigs, ui::rig_room );
 		watched.read ( view.rigs, view.rig_count );
@@ -1325,6 +1334,9 @@ namespace app {
 			out->put ( '"' ).add ( randomx::variant_of ( view.variant ).key ).put ( '"' );
 		else
 			quoted ( chain::algorithm_key ( kind ) );
+
+		out->add ( ",\"coin\":" );
+		quoted ( chain::coin_of ( view.running ? view.coin : settings.coin ( ) ).symbol );
 
 		out->add ( ",\"control\":" ).add ( settings.api_control ? "true" : "false" ).add ( ",\"pause_reason\":" );
 		quoted ( view.paused ? view.pause_reason : L"" );

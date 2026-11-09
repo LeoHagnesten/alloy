@@ -1,4 +1,5 @@
 #include "chain/address.hh"
+#include "chain/coins.hh"
 #include "hash/keccak.hh"
 #include "hash/sha256.hh"
 #include "base/memory.hh"
@@ -11,39 +12,84 @@ namespace chain {
 
 	struct base58_coin {
 
-		uint8_t algorithm;
 		uint8_t version;
-		const wchar_t* coin;
+		uint8_t coin;
+		bool script;
+		const wchar_t* label;
 
 	};
 
 	static const base58_coin base58_coins [ ] = {
 
-		{ ALGORITHM_SHA256D, 0x00, L"Bitcoin" },
-		{ ALGORITHM_SHA256D, 0x05, L"Bitcoin" },
-		{ ALGORITHM_SHA256D, 0x6F, L"Bitcoin testnet" },
-		{ ALGORITHM_SHA256D, 0xC4, L"Bitcoin testnet" },
-		{ ALGORITHM_SCRYPT, 0x30, L"Litecoin" },
-		{ ALGORITHM_SCRYPT, 0x32, L"Litecoin" },
-		{ ALGORITHM_SCRYPT, 0x05, L"Litecoin" },
-		{ ALGORITHM_SCRYPT, 0x1E, L"Dogecoin" },
-		{ ALGORITHM_SCRYPT, 0x16, L"Dogecoin" },
+		{ 0x00, COIN_BITCOIN, false, L"Bitcoin" },
+		{ 0x05, COIN_BITCOIN, true, L"Bitcoin" },
+		{ 0x6F, COIN_BITCOIN, false, L"Bitcoin testnet" },
+		{ 0xC4, COIN_BITCOIN, true, L"Bitcoin testnet" },
+		{ 0x00, COIN_BITCOIN_CASH, false, L"Bitcoin Cash" },
+		{ 0x05, COIN_BITCOIN_CASH, true, L"Bitcoin Cash" },
+		{ 0x00, COIN_BITCOIN_SV, false, L"Bitcoin SV" },
+		{ 0x05, COIN_BITCOIN_SV, true, L"Bitcoin SV" },
+		{ 0x30, COIN_LITECOIN, false, L"Litecoin" },
+		{ 0x32, COIN_LITECOIN, true, L"Litecoin" },
+		{ 0x05, COIN_LITECOIN, true, L"Litecoin" },
+		{ 0x1E, COIN_DOGECOIN, false, L"Dogecoin" },
+		{ 0x16, COIN_DOGECOIN, true, L"Dogecoin" },
+		{ 0x1E, COIN_DIGIBYTE, false, L"DigiByte" },
+		{ 0x3F, COIN_DIGIBYTE, true, L"DigiByte" },
+		{ 0x05, COIN_DIGIBYTE, true, L"DigiByte" },
 
 	};
 
 	struct segwit_coin {
 
-		uint8_t algorithm;
 		const char* prefix;
-		const wchar_t* coin;
+		uint8_t coin;
+		const wchar_t* label;
 
 	};
 
 	static const segwit_coin segwit_coins [ ] = {
 
-		{ ALGORITHM_SHA256D, "bc", L"Bitcoin" },
-		{ ALGORITHM_SHA256D, "tb", L"Bitcoin testnet" },
-		{ ALGORITHM_SCRYPT, "ltc", L"Litecoin" },
+		{ "bc", COIN_BITCOIN, L"Bitcoin" },
+		{ "tb", COIN_BITCOIN, L"Bitcoin testnet" },
+		{ "ltc", COIN_LITECOIN, L"Litecoin" },
+		{ "dgb", COIN_DIGIBYTE, L"DigiByte" },
+
+	};
+
+	struct cash_coin {
+
+		const char* prefix;
+		uint8_t coin;
+		const wchar_t* label;
+
+	};
+
+	static const cash_coin cash_coins [ ] = {
+
+		{ "bitcoincash", COIN_BITCOIN_CASH, L"Bitcoin Cash" },
+		{ "ecash", COIN_ECASH, L"eCash" },
+
+	};
+
+	struct candidates {
+
+		uint8_t coins [ 12 ] = { };
+		const wchar_t* labels [ 12 ] = { };
+		bool scripts [ 12 ] = { };
+		int32_t count = 0;
+		bool attempted = false;
+
+		void add ( uint8_t coin, const wchar_t* label, bool script ) {
+
+			if ( count >= 12 )
+				return;
+
+			coins [ count ] = coin;
+			labels [ count ] = label;
+			scripts [ count++ ] = script;
+
+		}
 
 	};
 
@@ -248,37 +294,28 @@ namespace chain {
 
 	}
 
-	static const base58_coin* base58_match ( const char* text, uint8_t algorithm, bool& decoded ) {
+	static void base58_candidates ( const char* text, candidates& out ) {
 
 		uint8_t bytes [ 64 ];
 		uint8_t digest [ 32 ];
 		int32_t size = 0;
+		int32_t length = base::length ( text );
 
-		decoded = base58_decode ( text, bytes, sizeof ( bytes ), size ) && size == 25;
+		if ( !base58_decode ( text, bytes, sizeof ( bytes ), size ) || size != 25 )
+			return;
 
-		if ( !decoded )
-			return nullptr;
-
+		out.attempted = out.attempted || ( length >= 26 && length <= 35 );
 		hash::sha256_twice ( bytes, 21, digest );
 
 		if ( !base::same ( digest, bytes + 21, 4 ) )
-			return nullptr;
-
-		const base58_coin* other = nullptr;
+			return;
 
 		for ( const base58_coin& coin : base58_coins ) {
 
-			if ( coin.version != bytes [ 0 ] )
-				continue;
-
-			if ( coin.algorithm == algorithm )
-				return &coin;
-
-			other = other ? other : &coin;
+			if ( coin.version == bytes [ 0 ] )
+				out.add ( coin.coin, coin.label, coin.script );
 
 		}
-
-		return other;
 
 	}
 
@@ -300,12 +337,10 @@ namespace chain {
 
 	}
 
-	static const segwit_coin* segwit_match ( const char* text, uint8_t algorithm, bool& attempted ) {
+	static void segwit_candidates ( const char* text, candidates& out ) {
 
 		int32_t length = base::length ( text );
 		int32_t split = -1;
-
-		attempted = false;
 
 		for ( int32_t i = 0; i < length; i++ ) {
 
@@ -315,7 +350,7 @@ namespace chain {
 		}
 
 		if ( split < 1 || length - split - 1 < 7 || length > 90 )
-			return nullptr;
+			return;
 
 		const segwit_coin* found = nullptr;
 
@@ -327,15 +362,15 @@ namespace chain {
 			for ( int32_t i = 0; i < size && same; i++ )
 				same = lower ( text [ i ] ) == coin.prefix [ i ];
 
-			if ( same && ( !found || coin.algorithm == algorithm ) )
+			if ( same )
 				found = &coin;
 
 		}
 
 		if ( !found )
-			return nullptr;
+			return;
 
-		attempted = true;
+		out.attempted = true;
 
 		uint32_t check = 1;
 		int32_t witness = -1;
@@ -353,7 +388,7 @@ namespace chain {
 			int32_t value = find_char ( bech32_alphabet, lower ( text [ i ] ) );
 
 			if ( value < 0 )
-				return nullptr;
+				return;
 
 			if ( witness < 0 )
 				witness = value;
@@ -362,9 +397,8 @@ namespace chain {
 
 		}
 
-		uint32_t wanted = witness == 0 ? 1u : 0x2BC830A3u;
-
-		return check == wanted ? found : nullptr;
+		if ( check == ( witness == 0 ? 1u : 0x2BC830A3u ) )
+			out.add ( found->coin, found->label, false );
 
 	}
 
@@ -408,37 +442,46 @@ namespace chain {
 
 	}
 
-	static bool cash_match ( const char* text, bool& attempted ) {
+	static const char* cash_body ( const char* text, const char* prefix, bool& prefixed ) {
 
-		static const char prefix [ ] = "bitcoincash";
-		const char* body = text;
-		bool prefixed = true;
+		int32_t size = base::length ( prefix );
 
-		attempted = false;
+		prefixed = text [ size ] == ':';
 
-		for ( int32_t i = 0; prefix [ i ]; i++ )
-			prefixed = prefixed && lower ( text [ i ] ) == prefix [ i ];
+		for ( int32_t i = 0; i < size && prefixed; i++ )
+			prefixed = lower ( text [ i ] ) == prefix [ i ];
 
-		if ( prefixed && text [ 11 ] == ':' )
-			body = text + 12;
-		else if ( lower ( text [ 0 ] ) != 'q' && lower ( text [ 0 ] ) != 'p' )
-			return false;
+		if ( prefixed )
+			return text + size + 1;
 
-		int32_t length = base::length ( body );
+		return lower ( text [ 0 ] ) == 'q' || lower ( text [ 0 ] ) == 'p' ? text : nullptr;
 
-		if ( length != 42 )
-			return false;
+	}
 
-		for ( int32_t i = 0; i < length; i++ ) {
+	static void cash_candidates ( const char* text, candidates& out ) {
 
-			if ( find_char ( bech32_alphabet, lower ( body [ i ] ) ) < 0 )
-				return false;
+		for ( const cash_coin& coin : cash_coins ) {
+
+			bool prefixed = false;
+			const char* body = cash_body ( text, coin.prefix, prefixed );
+
+			if ( !body || base::length ( body ) != 42 )
+				continue;
+
+			bool letters = true;
+
+			for ( int32_t i = 0; i < 42 && letters; i++ )
+				letters = find_char ( bech32_alphabet, lower ( body [ i ] ) ) >= 0;
+
+			if ( !letters )
+				continue;
+
+			out.attempted = out.attempted || prefixed || coin.coin == COIN_BITCOIN_CASH;
+
+			if ( cash_checksum ( coin.prefix, body, 42 ) )
+				out.add ( coin.coin, coin.label, lower ( body [ 0 ] ) == 'p' );
 
 		}
-
-		attempted = true;
-
-		return cash_checksum ( prefix, body, length );
 
 	}
 
@@ -496,84 +539,66 @@ namespace chain {
 
 	}
 
-	address_check check_address ( uint8_t algorithm, const char* text ) {
+	address_check check_address ( uint8_t coin, const char* text ) {
 
 		address_check out;
+		candidates found;
 		bool attempted = false;
-		bool decoded = false;
-		int32_t length = base::length ( text );
 
-		if ( length < 20 )
+		if ( base::length ( text ) < 20 )
 			return out;
 
-		if ( kaspa_match ( text, attempted ) ) {
+		if ( kaspa_match ( text, attempted ) )
+			found.add ( COIN_KASPA, L"Kaspa", false );
 
-			out.coin = L"Kaspa";
-			out.verdict = algorithm == ALGORITHM_KHEAVYHASH ? ADDRESS_VALID : ADDRESS_OTHER_COIN;
-
-			return out;
-
-		}
-
-		bool kaspa_like = attempted;
+		found.attempted = attempted;
 
 		if ( monero_match ( text, attempted ) ) {
 
-			out.coin = L"Monero";
-			out.verdict = algorithm == ALGORITHM_RANDOMX ? ADDRESS_VALID : ADDRESS_OTHER_COIN;
+			found.add ( COIN_MONERO, L"Monero", false );
+			found.add ( COIN_MONERO_V2, L"Monero", false );
+
+		}
+
+		found.attempted = found.attempted || attempted;
+		cash_candidates ( text, found );
+		segwit_candidates ( text, found );
+		base58_candidates ( text, found );
+
+		for ( int32_t i = 0; i < found.count; i++ ) {
+
+			if ( found.coins [ i ] == coin ) {
+
+				out.verdict = ADDRESS_VALID;
+				out.coin = found.labels [ i ];
+
+				return out;
+
+			}
+
+		}
+
+		if ( found.count ) {
+
+			out.verdict = ADDRESS_OTHER_COIN;
+			out.coin = found.labels [ 0 ];
 
 			return out;
 
 		}
 
-		bool monero_like = attempted;
-
-		if ( cash_match ( text, attempted ) ) {
-
-			out.coin = L"Bitcoin Cash";
-			out.verdict = algorithm == ALGORITHM_SHA256D ? ADDRESS_VALID : ADDRESS_OTHER_COIN;
-
-			return out;
-
-		}
-
-		bool cash_like = attempted;
-
-		if ( const segwit_coin* coin = segwit_match ( text, algorithm, attempted ) ) {
-
-			out.coin = coin->coin;
-			out.verdict = coin->algorithm == algorithm ? ADDRESS_VALID : ADDRESS_OTHER_COIN;
-
-			return out;
-
-		}
-
-		bool segwit_like = attempted;
-
-		if ( const base58_coin* coin = base58_match ( text, algorithm, decoded ) ) {
-
-			out.coin = coin->coin;
-			out.verdict = coin->algorithm == algorithm ? ADDRESS_VALID : ADDRESS_OTHER_COIN;
-
-			return out;
-
-		}
-
-		bool base58_like = decoded && length >= 26 && length <= 35;
-
-		if ( kaspa_like || monero_like || cash_like || segwit_like || base58_like )
+		if ( found.attempted )
 			out.verdict = ADDRESS_BROKEN;
 
 		return out;
 
 	}
 
-	address_check check_worker ( uint8_t algorithm, const wchar_t* worker ) {
+	static int32_t address_part ( const wchar_t* worker, char* text, int32_t room ) {
 
-		char text [ 160 ];
 		int32_t used = 0;
 
-		for ( int32_t i = 0; worker [ i ] && used < 159; i++ ) {
+		for ( int32_t i = 0; worker [ i ] && used < room - 1; i++ ) {
 
 			wchar_t value = worker [ i ];
 
@@ -581,7 +606,7 @@ namespace chain {
 				break;
 
 			if ( value > 127 )
-				return address_check { };
+				return -1;
 
 			text [ used++ ] = static_cast < char > ( value );
 
@@ -589,32 +614,125 @@ namespace chain {
 
 		text [ used ] = 0;
 
-		return check_address ( algorithm, text );
+		return used;
 
 	}
 
-	bool payout_script ( uint8_t algorithm, const wchar_t* worker, uint8_t* out, int32_t room, int32_t& size ) {
+	address_check check_worker ( uint8_t coin, const wchar_t* worker ) {
 
 		char text [ 160 ];
-		int32_t used = 0;
 
-		size = 0;
+		if ( address_part ( worker, text, sizeof ( text ) ) < 0 )
+			return address_check { };
 
-		for ( int32_t i = 0; worker [ i ] && used < 159; i++ ) {
+		return check_address ( coin, text );
 
-			if ( worker [ i ] == L'.' || worker [ i ] == L'+' || worker [ i ] > 127 )
-				break;
+	}
 
-			text [ used++ ] = static_cast < char > ( worker [ i ] );
+	static void hash_script ( bool script, const uint8_t* hash, uint8_t* out, int32_t& size ) {
+
+		if ( script ) {
+
+			out [ size++ ] = 0xA9;
+			out [ size++ ] = 0x14;
+			base::copy ( out + size, hash, 20 );
+			size += 20;
+			out [ size++ ] = 0x87;
+
+			return;
 
 		}
 
-		text [ used ] = 0;
+		out [ size++ ] = 0x76;
+		out [ size++ ] = 0xA9;
+		out [ size++ ] = 0x14;
+		base::copy ( out + size, hash, 20 );
+		size += 20;
+		out [ size++ ] = 0x88;
+		out [ size++ ] = 0xAC;
 
-		address_check check = check_address ( algorithm, text );
+	}
 
-		if ( check.verdict != ADDRESS_VALID || room < 42 )
+	static int32_t five_to_eight ( const char* body, int32_t count, uint8_t* out, int32_t room ) {
+
+		uint32_t gathered = 0;
+		int32_t bits = 0;
+		int32_t size = 0;
+
+		for ( int32_t i = 0; i < count; i++ ) {
+
+			int32_t value = find_char ( bech32_alphabet, lower ( body [ i ] ) );
+
+			if ( value < 0 )
+				return -1;
+
+			gathered = gathered << 5 | static_cast < uint32_t > ( value );
+			bits += 5;
+
+			if ( bits >= 8 ) {
+
+				bits -= 8;
+
+				if ( size >= room )
+					return -1;
+
+				out [ size++ ] = static_cast < uint8_t > ( gathered >> bits );
+
+			}
+
+		}
+
+		return size;
+
+	}
+
+	bool payout_script ( uint8_t coin, const wchar_t* worker, uint8_t* out, int32_t room, int32_t& size ) {
+
+		char text [ 160 ];
+
+		size = 0;
+
+		if ( address_part ( worker, text, sizeof ( text ) ) <= 0 || check_address ( coin, text ).verdict != ADDRESS_VALID || room < 42 )
 			return false;
+
+		for ( const cash_coin& cash : cash_coins ) {
+
+			bool prefixed = false;
+			const char* body = cash.coin == coin ? cash_body ( text, cash.prefix, prefixed ) : nullptr;
+			uint8_t payload [ 40 ];
+
+			if ( !body || base::length ( body ) != 42 || !cash_checksum ( cash.prefix, body, 42 ) )
+				continue;
+
+			if ( five_to_eight ( body, 34, payload, sizeof ( payload ) ) < 21 || ( payload [ 0 ] & 0x07 ) != 0 )
+				return false;
+
+			hash_script ( ( payload [ 0 ] >> 3 ) == 1, payload + 1, out, size );
+
+			return true;
+
+		}
+
+		uint8_t decoded [ 80 ];
+		int32_t length = 0;
+
+		if ( base58_decode ( text, decoded, sizeof ( decoded ), length ) && length == 25 ) {
+
+			for ( const base58_coin& known : base58_coins ) {
+
+				if ( known.coin == coin && known.version == decoded [ 0 ] ) {
+
+					hash_script ( known.script, decoded + 1, out, size );
+
+					return true;
+
+				}
+
+			}
+
+			return false;
+
+		}
 
 		int32_t split = -1;
 
@@ -625,81 +743,13 @@ namespace chain {
 
 		}
 
-		uint8_t decoded [ 80 ];
-		int32_t length = 0;
-
-		if ( base58_decode ( text, decoded, sizeof ( decoded ), length ) && length == 25 ) {
-
-			static const uint8_t script_hash [ ] = { 0x05, 0xC4, 0x32, 0x16 };
-			bool hashed = false;
-
-			for ( uint8_t prefix : script_hash )
-				hashed = hashed || decoded [ 0 ] == prefix;
-
-			if ( hashed ) {
-
-				out [ size++ ] = 0xA9;
-				out [ size++ ] = 0x14;
-				base::copy ( out + size, decoded + 1, 20 );
-				size += 20;
-				out [ size++ ] = 0x87;
-
-			} else {
-
-				out [ size++ ] = 0x76;
-				out [ size++ ] = 0xA9;
-				out [ size++ ] = 0x14;
-				base::copy ( out + size, decoded + 1, 20 );
-				size += 20;
-				out [ size++ ] = 0x88;
-				out [ size++ ] = 0xAC;
-
-			}
-
-			return true;
-
-		}
-
 		if ( split < 1 )
 			return false;
 
-		uint32_t gathered = 0;
-		int32_t bits = 0;
-		int32_t version = -1;
-		uint8_t program [ 40 ];
-		int32_t program_size = 0;
 		int32_t end = base::length ( text ) - 6;
-
-		for ( int32_t i = split + 1; i < end; i++ ) {
-
-			int32_t value = find_char ( bech32_alphabet, lower ( text [ i ] ) );
-
-			if ( value < 0 )
-				return false;
-
-			if ( version < 0 ) {
-
-				version = value;
-
-				continue;
-
-			}
-
-			gathered = gathered << 5 | static_cast < uint32_t > ( value );
-			bits += 5;
-
-			if ( bits >= 8 ) {
-
-				bits -= 8;
-
-				if ( program_size >= static_cast < int32_t > ( sizeof ( program ) ) )
-					return false;
-
-				program [ program_size++ ] = static_cast < uint8_t > ( gathered >> bits );
-
-			}
-
-		}
+		int32_t version = find_char ( bech32_alphabet, lower ( text [ split + 1 ] ) );
+		uint8_t program [ 48 ];
+		int32_t program_size = five_to_eight ( text + split + 2, end - split - 2, program, sizeof ( program ) );
 
 		if ( version < 0 || version > 16 || program_size < 2 || program_size > 40 )
 			return false;
@@ -712,4 +762,91 @@ namespace chain {
 		return true;
 
 	}
+
+	bool cash_encode ( uint8_t coin, bool script, const uint8_t* hash, char* out, int32_t room ) {
+
+		static const uint64_t generator [ 5 ] = { 0x98F2BC8E61ull, 0x79B76D99E2ull, 0xF33E5FB3C4ull, 0xAE2EABE2A8ull, 0x1E4F43E470ull };
+		const char* prefix = nullptr;
+
+		for ( const cash_coin& cash : cash_coins ) {
+
+			if ( cash.coin == coin )
+				prefix = cash.prefix;
+
+		}
+
+		int32_t size = prefix ? base::length ( prefix ) : 0;
+
+		if ( !prefix || room < size + 1 + 42 + 1 )
+			return false;
+
+		uint8_t payload [ 21 ];
+		uint8_t values [ 42 ];
+		uint32_t gathered = 0;
+		int32_t bits = 0;
+		int32_t count = 0;
+		uint64_t check = 1;
+
+		payload [ 0 ] = script ? 8 : 0;
+		base::copy ( payload + 1, hash, 20 );
+
+		for ( uint8_t byte : payload ) {
+
+			gathered = gathered << 8 | byte;
+			bits += 8;
+
+			while ( bits >= 5 ) {
+
+				bits -= 5;
+				values [ count++ ] = static_cast < uint8_t > ( gathered >> bits & 31 );
+
+			}
+
+		}
+
+		values [ count++ ] = static_cast < uint8_t > ( gathered << ( 5 - bits ) & 31 );
+
+		auto step = [ & ] ( uint64_t value ) {
+
+			uint64_t top = check >> 35;
+
+			check = ( check & 0x07FFFFFFFFull ) << 5 ^ value;
+
+			for ( int32_t i = 0; i < 5; i++ ) {
+
+				if ( top >> i & 1 )
+					check ^= generator [ i ];
+
+			}
+
+		};
+
+		for ( int32_t i = 0; i < size; i++ )
+			step ( static_cast < uint64_t > ( prefix [ i ] ) & 31 );
+
+		step ( 0 );
+
+		for ( int32_t i = 0; i < count; i++ )
+			step ( values [ i ] );
+
+		for ( int32_t i = 0; i < 8; i++ )
+			step ( 0 );
+
+		check ^= 1;
+
+		for ( int32_t i = 0; i < 8; i++ )
+			values [ count++ ] = static_cast < uint8_t > ( check >> ( 5 * ( 7 - i ) ) & 31 );
+
+		base::copy_text ( out, room, prefix );
+		out [ size++ ] = ':';
+
+		for ( int32_t i = 0; i < count; i++ )
+			out [ size++ ] = bech32_alphabet [ values [ i ] ];
+
+		out [ size ] = 0;
+
+		return true;
+
+	}
+
 }

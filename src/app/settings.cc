@@ -144,6 +144,7 @@ namespace app {
 				ui::pool_profile* profile = &out.pools [ out.algorithm % chain::ALGORITHM_COUNT ];
 				ui::algorithm_tuning* tuning = &out.tunings [ out.algorithm % chain::ALGORITHM_COUNT ];
 				const char* key = whole;
+				uint8_t which = static_cast < uint8_t > ( out.algorithm % chain::ALGORITHM_COUNT );
 
 				for ( int32_t i = 0; whole [ i ]; i++ ) {
 
@@ -156,6 +157,7 @@ namespace app {
 
 					profile = &out.pools [ kind ];
 					tuning = &out.tunings [ kind ];
+					which = kind;
 					key = whole + i + 1;
 
 					break;
@@ -168,8 +170,25 @@ namespace app {
 					out.algorithm = pick ( algorithm_names, value, out.algorithm );
 				else if ( base::same_text ( key, "dataset" ) )
 					out.full_dataset = pick ( dataset_names, value, 1 ) == 1;
-				else if ( base::same_text ( key, "randomx_variant" ) )
+				else if ( base::same_text ( key, "randomx_variant" ) ) {
+
 					out.variant = static_cast < uint8_t > ( base::max ( randomx::find_variant ( value ), 0 ) );
+					out.coins [ chain::ALGORITHM_RANDOMX ] = chain::coin_of_variant ( out.variant );
+
+				} else if ( base::same_text ( key, "coin" ) ) {
+
+					uint8_t found = 0;
+
+					if ( chain::read_coin ( value, which, found ) ) {
+
+						out.coins [ which ] = found;
+
+						if ( which == chain::ALGORITHM_RANDOMX )
+							out.variant = chain::coin_of ( found ).variant;
+
+					}
+
+				}
 				else if ( base::same_text ( key, "address" ) )
 					base::widen ( profile->address, base::count_of ( profile->address ), value );
 				else if ( base::same_text ( key, "backup" ) )
@@ -343,6 +362,7 @@ namespace app {
 			const char* name = algorithm_names [ i ];
 
 			base::narrow ( text, sizeof ( text ), profile.address );
+			out.add ( name ).add ( ".coin=" ).add ( chain::coin_of ( copy->coins [ i ] ).key ).add ( "\r\n" );
 			out.add ( name ).add ( ".address=" ).add ( text ).add ( "\r\n" );
 			base::narrow ( text, sizeof ( text ), profile.backup );
 			out.add ( name ).add ( ".backup=" ).add ( text ).add ( "\r\n" );

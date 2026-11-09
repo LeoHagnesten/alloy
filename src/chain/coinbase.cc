@@ -119,30 +119,4 @@ namespace chain {
 
 	}
 
-	const wchar_t* coin_symbol ( uint8_t algorithm, uint8_t variant ) {
-
-		static const wchar_t* const randomx [ ] = { L"XMR", L"XMR", L"WOW", L"ARQ", L"GRFT", L"SFX", L"YDA", L"KVA", L"XEQ" };
-
-		if ( algorithm == ALGORITHM_SCRYPT )
-			return L"LTC";
-
-		if ( algorithm == ALGORITHM_RANDOMX )
-			return randomx [ variant < 9 ? variant : 0 ];
-
-		if ( algorithm == ALGORITHM_KHEAVYHASH )
-			return L"KAS";
-
-		return L"BTC";
-
-	}
-
-	double coin_units ( uint8_t algorithm, uint8_t variant ) {
-
-		if ( algorithm == ALGORITHM_RANDOMX )
-			return variant <= 1 ? 1e12 : 1e11;
-
-		return 1e8;
-
-	}
-
 }

@@ -887,8 +887,15 @@ namespace ui {
 					settings.theme = option;
 				else if ( which == SETTING_DATASET )
 					settings.full_dataset = option == 0;
-				else if ( which == SETTING_VARIANT )
-					settings.variant = option;
+				else if ( which == SETTING_COIN ) {
+
+					uint8_t list [ chain::coin_room ];
+					int32_t count = chain::coins_for ( settings.algorithm, list, chain::coin_room );
+
+					if ( option < count )
+						settings.choose_coin ( list [ option ] );
+
+				}
 				else if ( which == SETTING_CURRENCY )
 					settings.currency = option;
 				else if ( which == SETTING_CARD ) {
@@ -1966,7 +1973,7 @@ namespace ui {
 				surface.ring ( item.x + 18.0f, item.y + 14.0f, 4.5f, render::blend ( colors.faint, colors.muted, level ), 1.25f );
 
 			surface.text ( chain::algorithm_name ( static_cast < uint8_t > ( i ) ), selected ? render::FONT_STRONG : render::FONT_BODY, render::box { item.x + 32.0f, item.y + 4.0f, item.w - 40.0f, 20.0f }, tint );
-			surface.text ( chain::algorithm_coins ( static_cast < uint8_t > ( i ) ), render::FONT_SMALL, render::box { item.x + 32.0f, item.y + 21.0f, item.w - 40.0f, 16.0f }, colors.faint );
+			surface.text ( chain::coin_of ( settings.coins [ i ] ).name, render::FONT_SMALL, render::box { item.x + 32.0f, item.y + 21.0f, item.w - 40.0f, 16.0f }, colors.faint );
 
 			if ( locked && !selected )
 				surface.pop_fade ( );
@@ -2117,6 +2124,28 @@ namespace ui {
 	void shell::segmented ( render::surface& surface, render::box area, const wchar_t* const* labels, int32_t count, int32_t selected, control id, int32_t base, bool enabled, double now ) {
 
 		float part = area.w / static_cast < float > ( count );
+		float lefts [ 17 ] = { };
+		float natural = 0.0f;
+		bool even = true;
+
+		count = base::min ( count, 16 );
+
+		for ( int32_t i = 0; i < count; i++ ) {
+
+			float wanted = surface.measure ( labels [ i ], render::FONT_SMALL_STRONG ) + 16.0f;
+
+			lefts [ i + 1 ] = wanted;
+			natural += wanted;
+			even = even && wanted <= part;
+
+		}
+
+		float spare = ( area.w - natural ) / static_cast < float > ( count );
+
+		lefts [ 0 ] = area.x;
+
+		for ( int32_t i = 0; i < count; i++ )
+			lefts [ i + 1 ] = even ? area.x + part * static_cast < float > ( i + 1 ) : lefts [ i ] + lefts [ i + 1 ] + spare;
 
 		if ( !enabled )
 			surface.push_fade ( 0.5f );
@@ -2126,7 +2155,7 @@ namespace ui {
 
 		for ( int32_t i = 0; i < count; i++ ) {
 
-			render::box piece = { area.x + part * static_cast < float > ( i ), area.y, part, area.h };
+			render::box piece = even ? render::box { area.x + part * static_cast < float > ( i ), area.y, part, area.h } : render::box { lefts [ i ], area.y, lefts [ i + 1 ] - lefts [ i ], area.h };
 			render::box inner = piece.inset ( 3.0f );
 			float level = enabled && i != selected ? glow ( id, base + i, now ) : 0.0f;
 			render::color tint = render::blend ( colors.muted, colors.text, level );

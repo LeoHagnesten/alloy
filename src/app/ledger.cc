@@ -74,6 +74,42 @@ namespace app {
 			return false;
 
 		const char* at = reinterpret_cast < const char* > ( bytes.data ( ) );
+		uint8_t columns [ 64 ] = { chain::COIN_BITCOIN, chain::COIN_LITECOIN, chain::COIN_MONERO, chain::COIN_KASPA };
+		int32_t column_count = 4;
+
+		if ( base::starts_with ( at, "day," ) ) {
+
+			char name [ 40 ];
+
+			column_count = 0;
+
+			for ( int32_t i = 0; i < 5; i++ )
+				at = field ( at, name, sizeof ( name ) );
+
+			while ( *at && *at != '\r' && *at != '\n' && column_count < 64 ) {
+
+				uint8_t found = 0xFF;
+
+				at = field ( at, name, sizeof ( name ) );
+
+				for ( uint8_t k = 0; k < chain::COIN_COUNT; k++ ) {
+
+					if ( base::same_folded ( name, chain::coin_of ( k ).key ) )
+						found = k;
+
+				}
+
+				columns [ column_count++ ] = found;
+
+			}
+
+			while ( *at && *at != '\n' )
+				at++;
+
+			if ( *at )
+				at++;
+
+		}
 
 		while ( *at ) {
 
@@ -91,10 +127,12 @@ namespace app {
 			at = field ( at, cell, sizeof ( cell ) );
 			row.seconds = static_cast < uint32_t > ( base::read_number ( cell ) );
 
-			for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ ) {
+			for ( int32_t i = 0; i < column_count; i++ ) {
 
 				at = field ( at, cell, sizeof ( cell ) );
-				row.earned [ i ] = base::read_decimal ( cell, base::length ( cell ) );
+
+				if ( columns [ i ] < chain::COIN_COUNT )
+					row.earned [ columns [ i ] ] += base::read_decimal ( cell, base::length ( cell ) );
 
 			}
 
@@ -115,7 +153,7 @@ namespace app {
 			total.rejected += row.rejected;
 			total.seconds += row.seconds;
 
-			for ( int32_t i = 0; i < chain::ALGORITHM_COUNT; i++ )
+			for ( int32_t i = 0; i < chain::COIN_COUNT; i++ )
 				total.earned [ i ] += row.earned [ i ];
 
 		}
@@ -136,6 +174,14 @@ namespace app {
 		base::line* out = new base::line;
 		base::list < char >* text = new base::list < char >;
 
+		out->add ( "day,hashes,accepted,rejected,seconds" );
+
+		for ( int32_t k = 0; k < chain::COIN_COUNT; k++ )
+			out->put ( ',' ).add ( chain::coin_of ( static_cast < uint8_t > ( k ) ).key );
+
+		out->add ( "\r\n" );
+		text->append ( out->get ( ), out->size ( ) );
+
 		for ( int32_t i = 0; i < used; i++ ) {
 
 			const day_record& row = days [ i ];
@@ -145,7 +191,7 @@ namespace app {
 			out->number ( date.year ).put ( '-' ).padded ( date.month, 2 ).put ( '-' ).padded ( date.day, 2 );
 			out->put ( ',' ).number ( row.hashes ).put ( ',' ).number ( row.accepted ).put ( ',' ).number ( row.rejected ).put ( ',' ).number ( row.seconds );
 
-			for ( int32_t k = 0; k < chain::ALGORITHM_COUNT; k++ )
+			for ( int32_t k = 0; k < chain::COIN_COUNT; k++ )
 				out->put ( ',' ).decimal ( row.earned [ k ], 12 );
 
 			out->add ( "\r\n" );
@@ -208,7 +254,7 @@ namespace app {
 
 	}
 
-	void ledger::add_share ( uint32_t day, bool accepted, uint8_t algorithm, double value ) {
+	void ledger::add_share ( uint32_t day, bool accepted, uint8_t coin, double value ) {
 
 		day_record& slot = on ( day );
 
@@ -216,8 +262,8 @@ namespace app {
 
 			slot.accepted++;
 			total.accepted++;
-			slot.earned [ algorithm % chain::ALGORITHM_COUNT ] += value;
-			total.earned [ algorithm % chain::ALGORITHM_COUNT ] += value;
+			slot.earned [ coin % chain::COIN_COUNT ] += value;
+			total.earned [ coin % chain::COIN_COUNT ] += value;
 
 		} else {
 

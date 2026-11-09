@@ -6,6 +6,7 @@
 #include "app/rigs.hh"
 #include "app/settings.hh"
 #include "chain/coinbase.hh"
+#include "randomx/variant.hh"
 #include "base/system/clock.hh"
 #include "base/system/files.hh"
 #include "base/memory.hh"
@@ -76,16 +77,52 @@ namespace tests {
 
 		book->add_time ( today - 1, 3600, 1000000 );
 		book->add_time ( today, 60, 5000 );
-		book->add_share ( today, true, chain::ALGORITHM_RANDOMX, 0.000125 );
-		book->add_share ( today, false, chain::ALGORITHM_RANDOMX, 0.0 );
+		book->add_share ( today, true, chain::COIN_MONERO, 0.000125 );
+		book->add_share ( today, false, chain::COIN_MONERO, 0.0 );
 		base::join_path ( path, base::path_room, folder, L"history.csv" );
 
 		bool kept = book->save ( path ) && again->load ( path );
 		const app::day_record& last = again->at ( again->count ( ) - 1 );
 
-		check ( kept && again->count ( ) == 2 && again->at ( 0 ).day == today - 1 && last.accepted == 1 && last.rejected == 1 && last.seconds == 60 && again->lifetime ( ).hashes == 1005000 && last.earned [ chain::ALGORITHM_RANDOMX ] > 0.000124 && last.earned [ chain::ALGORITHM_RANDOMX ] < 0.000126, L"the history file keeps every day's time, hashes, shares and estimated earnings across a restart" );
+		check ( kept && again->count ( ) == 2 && again->at ( 0 ).day == today - 1 && last.accepted == 1 && last.rejected == 1 && last.seconds == 60 && again->lifetime ( ).hashes == 1005000 && last.earned [ chain::COIN_MONERO ] > 0.000124 && last.earned [ chain::COIN_MONERO ] < 0.000126, L"the history file keeps every day's time, hashes, shares and estimated earnings across a restart" );
 		delete again;
 		delete book;
+
+		{
+
+			static const char legacy [ ] = "2026-11-07,1000,3,0,60,0.5,0.25,0.125,4\r\n";
+			app::ledger* old = new app::ledger;
+			wchar_t old_path [ base::path_room ];
+
+			base::join_path ( old_path, base::path_room, folder, L"old-history.csv" );
+
+			bool loaded = base::write_file ( old_path, legacy, sizeof ( legacy ) - 1 ) && old->load ( old_path ) && old->count ( ) == 1;
+			const app::day_record& day = old->at ( 0 );
+
+			check ( loaded && day.earned [ chain::COIN_BITCOIN ] == 0.5 && day.earned [ chain::COIN_LITECOIN ] == 0.25 && day.earned [ chain::COIN_MONERO ] == 0.125 && day.earned [ chain::COIN_KASPA ] == 4.0 && day.earned [ chain::COIN_BITCOIN_CASH ] == 0.0, L"a history file from before coins had their own columns loads into Bitcoin, Litecoin, Monero and Kaspa" );
+			delete old;
+
+		}
+
+		{
+
+			ui::preferences* chosen = new ui::preferences;
+			ui::preferences* back = new ui::preferences;
+
+			app::apply_setting ( *chosen, "sha256d.coin=bch", 16 );
+			app::apply_setting ( *chosen, "scrypt.coin=doge", 16 );
+			app::apply_setting ( *chosen, "randomx.coin=zeph", 16 );
+
+			bool read = chosen->coins [ chain::ALGORITHM_SHA256D ] == chain::COIN_BITCOIN_CASH && chosen->coins [ chain::ALGORITHM_SCRYPT ] == chain::COIN_DOGECOIN && chosen->coins [ chain::ALGORITHM_RANDOMX ] == chain::COIN_ZEPHYR && chosen->variant == randomx::VARIANT_RX0;
+			bool refused = !app::apply_setting ( *chosen, "sha256d.coin=doge", 16 ) || chosen->coins [ chain::ALGORITHM_SHA256D ] == chain::COIN_BITCOIN_CASH;
+
+			bool kept = app::save_profile ( L"coins", *chosen, folder ) && app::load_profile ( L"coins", *back, 16, folder ) && back->coins [ chain::ALGORITHM_SHA256D ] == chain::COIN_BITCOIN_CASH && back->coins [ chain::ALGORITHM_RANDOMX ] == chain::COIN_ZEPHYR;
+
+			check ( read && refused && kept, L"each algorithm remembers its coin across a save and load, Zephyr included even though it shares Monero's RandomX, and a coin from another algorithm is ignored" );
+			delete back;
+			delete chosen;
+
+		}
 
 		ui::snapshot* view = new ui::snapshot;
 

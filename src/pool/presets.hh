@@ -1,12 +1,13 @@
 #pragma once
 
-#include "chain/algorithm.hh"
+#include "chain/coins.hh"
 
 namespace pool {
 
 	struct preset {
 
 		uint8_t algorithm;
+		uint8_t coin;
 		const wchar_t* name;
 		const wchar_t* address;
 		const wchar_t* backup;
@@ -18,6 +19,6 @@ namespace pool {
 
 	const preset& preset_at ( int32_t index );
 
-	int32_t preset_for ( uint8_t algorithm );
+	int32_t preset_for ( uint8_t coin );
 
 }

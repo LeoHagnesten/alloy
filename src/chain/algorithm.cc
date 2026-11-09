@@ -7,17 +7,16 @@ namespace chain {
 
 		const wchar_t* name;
 		const wchar_t* key;
-		const wchar_t* coins;
 		double top;
 
 	};
 
 	static const algorithm_facts facts [ ALGORITHM_COUNT ] = {
 
-		{ L"SHA-256d", L"sha256d", L"Bitcoin, Bitcoin Cash", 4294901760.0 },
-		{ L"Scrypt", L"scrypt", L"Litecoin, Dogecoin", 281470681743360.0 },
-		{ L"RandomX", L"randomx", L"Monero, Wownero", 18446744073709551616.0 },
-		{ L"kHeavyHash", L"kheavyhash", L"Kaspa", 4294901760.0 },
+		{ L"SHA-256d", L"sha256d", 4294901760.0 },
+		{ L"Scrypt", L"scrypt", 281470681743360.0 },
+		{ L"RandomX", L"randomx", 18446744073709551616.0 },
+		{ L"kHeavyHash", L"kheavyhash", 4294901760.0 },
 
 	};
 
@@ -36,12 +35,6 @@ namespace chain {
 	const wchar_t* algorithm_key ( uint8_t value ) {
 
 		return facts_of ( value ).key;
-
-	}
-
-	const wchar_t* algorithm_coins ( uint8_t value ) {
-
-		return facts_of ( value ).coins;
 
 	}
 

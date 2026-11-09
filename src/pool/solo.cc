@@ -1,5 +1,6 @@
 #include "pool/client.hh"
 #include "chain/address.hh"
+#include "chain/coins.hh"
 #include "chain/target.hh"
 #include "hash/sha256.hh"
 #include "net/http.hh"
@@ -222,7 +223,8 @@ namespace pool {
 
 		}
 
-		const char* ask = config.algorithm == chain::ALGORITHM_SCRYPT ? "{\"jsonrpc\":\"1.0\",\"id\":\"alloy\",\"method\":\"getblocktemplate\",\"params\":[{\"rules\":[\"mweb\",\"segwit\"]}]}" : "{\"jsonrpc\":\"1.0\",\"id\":\"alloy\",\"method\":\"getblocktemplate\",\"params\":[{\"rules\":[\"segwit\"]}]}";
+		const chain::coin_info& mined = chain::coin_of ( config.coin );
+		const char* ask = config.coin == chain::COIN_LITECOIN ? "{\"jsonrpc\":\"1.0\",\"id\":\"alloy\",\"method\":\"getblocktemplate\",\"params\":[{\"rules\":[\"mweb\",\"segwit\"]}]}" : ( mined.segwit ? "{\"jsonrpc\":\"1.0\",\"id\":\"alloy\",\"method\":\"getblocktemplate\",\"params\":[{\"rules\":[\"segwit\"]}]}" : "{\"jsonrpc\":\"1.0\",\"id\":\"alloy\",\"method\":\"getblocktemplate\",\"params\":[{}]}" );
 
 		solo->fetched = now;
 		solo->checked = now;
@@ -251,9 +253,12 @@ namespace pool {
 		uint8_t script [ 64 ];
 		int32_t script_size = 0;
 
-		if ( !chain::payout_script ( config.algorithm, config.worker, script, sizeof ( script ), script_size ) ) {
+		if ( !chain::payout_script ( config.coin, config.worker, script, sizeof ( script ), script_size ) ) {
 
-			note ( EVENT_ERROR, L"Solo mining pays the block reward to the address in Worker, and that isn't a valid address for this coin" );
+			base::text problem;
+
+			problem.add ( L"Solo mining pays the block reward to the address in Worker, and that isn't a valid " ).add ( mined.name ).add ( L" address" );
+			note ( EVENT_ERROR, problem.get ( ) );
 			refused = true;
 			set_state ( LINK_REFUSED );
 
@@ -738,7 +743,12 @@ namespace pool {
 
 			secret [ 0 ] = 0;
 
-			if ( base::roaming_path ( path, base::path_room, config.algorithm == chain::ALGORITHM_SCRYPT ? L"Litecoin\\.cookie" : L"Bitcoin\\.cookie" ) && base::read_file ( path, bytes ) && bytes.size ( ) < 200 ) {
+			wchar_t cookie [ 64 ];
+
+			base::copy_text ( cookie, base::count_of ( cookie ), chain::coin_of ( config.coin ).data_folder );
+			base::copy_text ( cookie + base::length ( cookie ), base::count_of ( cookie ) - base::length ( cookie ), L"\\.cookie" );
+
+			if ( base::roaming_path ( path, base::path_room, cookie ) && base::read_file ( path, bytes ) && bytes.size ( ) < 200 ) {
 
 				int32_t size = bytes.size ( );
 

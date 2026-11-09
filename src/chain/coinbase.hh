@@ -14,8 +14,5 @@ namespace chain {
 
 	double block_hashes ( uint8_t algorithm, double difficulty );
 
-	const wchar_t* coin_symbol ( uint8_t algorithm, uint8_t variant );
-
-	double coin_units ( uint8_t algorithm, uint8_t variant );
 
 }

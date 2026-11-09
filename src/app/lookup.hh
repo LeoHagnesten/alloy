@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chain/algorithm.hh"
+#include "chain/coins.hh"
 #include "base/system/threads.hh"
 
 namespace app {
@@ -40,7 +40,7 @@ namespace app {
 		uint64_t pool_shares = 0;
 		wchar_t source [ 48 ] = { };
 		bool priced = false;
-		double prices [ chain::ALGORITHM_COUNT ] [ CURRENCY_COUNT ] = { };
+		double prices [ chain::COIN_COUNT ] [ CURRENCY_COUNT ] = { };
 		wchar_t note [ 120 ] = { };
 		uint32_t serial = 0;
 

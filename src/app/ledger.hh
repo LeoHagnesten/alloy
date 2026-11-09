@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chain/algorithm.hh"
+#include "chain/coins.hh"
 
 namespace app {
 
@@ -13,7 +13,7 @@ namespace app {
 		uint32_t accepted = 0;
 		uint32_t rejected = 0;
 		uint32_t seconds = 0;
-		double earned [ chain::ALGORITHM_COUNT ] = { };
+		double earned [ chain::COIN_COUNT ] = { };
 
 	};
 
@@ -27,7 +27,7 @@ namespace app {
 
 		void add_time ( uint32_t day, uint32_t seconds, uint64_t hashes );
 
-		void add_share ( uint32_t day, bool accepted, uint8_t algorithm, double value );
+		void add_share ( uint32_t day, bool accepted, uint8_t coin, double value );
 
 		day_record& on ( uint32_t day );
 

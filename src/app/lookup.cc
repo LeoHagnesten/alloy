@@ -14,7 +14,6 @@ namespace app {
 
 	static const char* const currency_keys [ CURRENCY_COUNT ] = { "usd", "eur", "gbp", "sek" };
 	static const wchar_t* const currency_codes [ CURRENCY_COUNT ] = { L"USD", L"EUR", L"GBP", L"SEK" };
-	static const char* const coin_ids [ chain::ALGORITHM_COUNT ] = { "bitcoin", "litecoin", "monero", "kaspa" };
 
 	const wchar_t* currency_code ( uint8_t which ) {
 
@@ -193,15 +192,24 @@ namespace app {
 		if ( prices_due && wanted.prices ) {
 
 			url.clear ( );
-			url.add ( "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,litecoin,monero,kaspa&vs_currencies=usd,eur,gbp,sek" );
+			url.add ( "https://api.coingecko.com/api/v3/simple/price?ids=" );
+
+			for ( uint8_t k = 0; k < chain::COIN_COUNT; k++ ) {
+
+				if ( chain::coin_of ( k ).gecko [ 0 ] )
+					url.add ( k ? "," : "" ).add ( chain::coin_of ( k ).gecko );
+
+			}
+
+			url.add ( "&vs_currencies=usd,eur,gbp,sek" );
 
 			if ( fetch ( url.get ( ), *parsed, *reply ) ) {
 
 				out.priced = true;
 
-				for ( int32_t coin = 0; coin < chain::ALGORITHM_COUNT; coin++ ) {
+				for ( uint8_t coin = 0; coin < chain::COIN_COUNT; coin++ ) {
 
-					int32_t node = parsed->member ( 0, coin_ids [ coin ] );
+					int32_t node = chain::coin_of ( coin ).gecko [ 0 ] ? parsed->member ( 0, chain::coin_of ( coin ).gecko ) : -1;
 
 					for ( int32_t c = 0; c < CURRENCY_COUNT; c++ )
 						out.prices [ coin ] [ c ] = parsed->number ( parsed->member ( node, currency_keys [ c ] ) );
