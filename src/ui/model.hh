@@ -148,11 +148,12 @@ namespace ui {
 			{ L"127.0.0.1:3334", L"alloy.worker", L"x" },
 			{ L"127.0.0.1:3335", L"alloy.worker", L"x" },
 			{ L"127.0.0.1:3336", L"alloy.worker", L"x" },
+			{ L"127.0.0.1:3337", L"alloy.worker", L"x" },
 
 		};
 		uint32_t dataset_megabytes = dataset_full;
 		uint8_t variant = 0;
-		uint8_t coins [ chain::ALGORITHM_COUNT ] = { chain::COIN_BITCOIN, chain::COIN_LITECOIN, chain::COIN_MONERO, chain::COIN_KASPA };
+		uint8_t coins [ chain::ALGORITHM_COUNT ] = { chain::COIN_BITCOIN, chain::COIN_LITECOIN, chain::COIN_MONERO, chain::COIN_KASPA, chain::COIN_ETHEREUM_CLASSIC };
 		bool cpu = true;
 		uint32_t threads = 0;
 		uint32_t cpu_limit = 100;

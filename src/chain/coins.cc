@@ -8,6 +8,7 @@ namespace chain {
 	static constexpr uint32_t scrypt = 1u << ALGORITHM_SCRYPT;
 	static constexpr uint32_t randomx = 1u << ALGORITHM_RANDOMX;
 	static constexpr uint32_t heavy = 1u << ALGORITHM_KHEAVYHASH;
+	static constexpr uint32_t ethash = 1u << ALGORITHM_ETHASH;
 
 	static const coin_info coins [ COIN_COUNT ] = {
 
@@ -29,6 +30,8 @@ namespace chain {
 		{ L"Equilibria", L"Equilibria", L"XEQ", "xeq", randomx, randomx::VARIANT_XEQ, "", 120.0, 1e11, false, L"" },
 		{ L"Zephyr", L"Zephyr", L"ZEPH", "zeph", randomx, randomx::VARIANT_RX0, "zephyr-protocol", 120.0, 1e12, false, L"" },
 		{ L"Kaspa", L"Kaspa", L"KAS", "kas", heavy, 0, "kaspa", 0.1, 1e8, false, L"" },
+		{ L"Ethereum Classic", L"Ethereum Classic", L"ETC", "etc", ethash, 0, "ethereum-classic", 13.0, 1e18, false, L"" },
+		{ L"EthereumPoW", L"EthereumPoW", L"ETHW", "ethw", ethash, 0, "ethereum-pow-iou", 13.0, 1e18, false, L"" },
 
 	};
 

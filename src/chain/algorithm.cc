@@ -17,6 +17,7 @@ namespace chain {
 		{ L"Scrypt", L"scrypt", 281470681743360.0 },
 		{ L"RandomX", L"randomx", 18446744073709551616.0 },
 		{ L"kHeavyHash", L"kheavyhash", 4294901760.0 },
+		{ L"Ethash", L"ethash", 4294901760.0 },
 
 	};
 
@@ -46,6 +47,7 @@ namespace chain {
 			{ L"ltc", L"litecoin" },
 			{ L"rx/0", L"monero" },
 			{ L"kas", L"kaspa" },
+			{ L"etchash", L"etc" },
 
 		};
 

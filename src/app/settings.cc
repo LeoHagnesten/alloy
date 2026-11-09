@@ -10,7 +10,7 @@ namespace app {
 	static bool frozen = false;
 
 	static const char* const mode_names [ ] = { "pool", "benchmark", "genesis" };
-	static const char* const algorithm_names [ ] = { "sha256d", "scrypt", "randomx", "kheavyhash" };
+	static const char* const algorithm_names [ ] = { "sha256d", "scrypt", "randomx", "kheavyhash", "ethash" };
 
 	static_assert ( base::count_of ( algorithm_names ) == chain::ALGORITHM_COUNT );
 	static const char* const theme_names [ ] = { "system", "dark", "light" };

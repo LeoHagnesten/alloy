@@ -2005,6 +2005,7 @@ namespace ui {
 			L"Litecoin and Dogecoin. Every hash needs 128 KB of scratch memory, which suits the graphics card.",
 			L"Monero. It was built for processors, so only the CPU mines it. Full mode keeps a 2 GB dataset in memory.",
 			L"Kaspa. Two Keccak hashes around a 64 by 64 matrix product, which the graphics card does best. Dedicated machines mine most of it now.",
+			L"Ethereum Classic and EthereumPoW. Every hash reads 64 random rows of a DAG of several gigabytes, so only the graphics card mines it, and its memory speed sets the pace.",
 
 		};
 

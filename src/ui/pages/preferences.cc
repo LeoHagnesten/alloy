@@ -22,6 +22,7 @@ namespace ui {
 			L"The scrypt pool's address as host:port, with stratum+ssl:// in front for an encrypted link.",
 			L"The Monero pool's address as host:port, with stratum+ssl:// in front for an encrypted link. To mine solo, put your monerod's address, like http://127.0.0.1:18081.",
 			L"The Kaspa pool's address as host:port. Kaspa pools speak the Stratum bridge dialect, which Alloy follows.",
+			L"The pool's address as host:port, with stratum+ssl:// in front for an encrypted link. Alloy speaks EthereumStratum, which Ethereum Classic and EthereumPoW pools offer.",
 
 		};
 

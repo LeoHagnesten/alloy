@@ -11,13 +11,14 @@ namespace ui {
 
 	void shell::paint_setup ( render::surface& surface, const snapshot& view, render::box area, double now ) {
 
-		static const wchar_t* const families [ chain::ALGORITHM_COUNT ] = { L"SHA-256d", L"Scrypt", L"RandomX", L"kHeavyHash" };
+		static const wchar_t* const families [ chain::ALGORITHM_COUNT ] = { L"SHA-256d", L"Scrypt", L"RandomX", L"kHeavyHash", L"Ethash" };
 		static const wchar_t* const family_notes [ chain::ALGORITHM_COUNT ] = {
 
 			L" uses SHA-256d, where dedicated machines do nearly all the work. On a PC it's a lottery ticket: a solo pool pays the whole block if this computer ever finds one, which is very unlikely.",
 			L" uses scrypt, which suits the graphics card. Dedicated machines mine most of it, so a PC earns little.",
 			L" uses RandomX, which was made for processors, so this is where a PC earns the most. Pools pay out once your balance passes their minimum.",
 			L" runs on the graphics card here. Dedicated machines took over its network, so a PC earns very little.",
+			L" uses Ethash, which needs the graphics card and a few gigabytes of its memory for the DAG. Graphics cards still mine most of it, so a PC earns a real if small share.",
 
 		};
 
