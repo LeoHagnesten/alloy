@@ -261,7 +261,7 @@ namespace ui {
 
 		} else {
 
-			const wchar_t* why = kind == chain::ALGORITHM_RANDOMX ? ( monero ? ( settings.lookups ? L"Waiting for Monero's network stats" : L"Turn on online lookups in Settings" ) : L"Only Monero's network is looked up" ) : ( kind == chain::ALGORITHM_KHEAVYHASH ? L"Kaspa pools don't send the block reward, so only shares are counted" : ( kind == chain::ALGORITHM_ETHASH ? L"Ethash pools don't send the network difficulty, so only shares are counted" : L"Known once the pool sends a job" ) );
+			const wchar_t* why = kind == chain::ALGORITHM_RANDOMX ? ( monero ? ( settings.lookups ? L"Waiting for Monero's network stats" : L"Turn on online lookups in Settings" ) : L"Only Monero's network is looked up" ) : ( kind == chain::ALGORITHM_KHEAVYHASH ? L"Kaspa pools don't send the block reward, so only shares are counted" : ( kind == chain::ALGORITHM_ETHASH ? ( settings.lookups ? L"Waiting for the network stats from a public node" : L"Turn on online lookups in Settings" ) : L"Known once the pool sends a job" ) );
 
 			surface.text ( why, render::FONT_BODY, render::box { left_x, left_y, left_w, 26.0f }, colors.faint );
 			left_y += 26.0f;
@@ -310,7 +310,7 @@ namespace ui {
 
 		} else {
 
-			surface.paragraph ( view.lookup_note [ 0 ] ? view.lookup_note : L"Alloy reads balances from SupportXMR and CKPool. Other pools show their balance on their own website.", render::FONT_BODY, render::box { right_x, right_y, right_w, 46.0f }, colors.faint );
+			surface.paragraph ( view.lookup_note [ 0 ] ? view.lookup_note : L"Alloy reads balances from SupportXMR, CKPool, HeroMiners and 2Miners. Other pools show their balance on their own website.", render::FONT_BODY, render::box { right_x, right_y, right_w, 46.0f }, colors.faint );
 			right_y += 52.0f;
 
 		}

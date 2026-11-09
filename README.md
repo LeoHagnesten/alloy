@@ -40,7 +40,7 @@ Each coin brings its own address checks (Base58, Bech32, CashAddr for Bitcoin Ca
 
 **Earnings and records**
 
-- An Earnings page with the session's and each day's estimated earnings, the odds of finding a block alone, the pool balance where SupportXMR or CKPool publish it, and the value in USD, EUR, GBP or SEK.
+- An Earnings page with the session's and each day's estimated earnings, the odds of finding a block alone, the pool balance where SupportXMR, CKPool, HeroMiners or 2Miners publish it, and the value in USD, EUR, GBP or SEK.
 - A history of every day mined, kept across restarts, and CSV export of shares, the log and the daily totals.
 
 **When and how hard to mine**

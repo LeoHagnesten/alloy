@@ -499,7 +499,7 @@ namespace ui {
 		toggle ( surface, row ( L"Notifications", L"A Windows notification when Alloy falls back to the backup pool, a card hits its temperature limit, shares keep getting rejected or a block is found.", 36.0f, 20.0f ), SETTING_NOTIFY, settings.notify, true, now );
 		toggle ( surface, row ( L"Pause shortcut, Ctrl+Alt+M", L"Pauses and resumes mining from anywhere, even with the window closed to the tray.", 36.0f, 20.0f ), SETTING_HOTKEY, settings.hotkey, true, now );
 		section ( L"EARNINGS", false );
-		toggle ( surface, row ( L"Look up balance and network stats", L"Reads your pending balance from SupportXMR or CKPool and Monero's difficulty from SupportXMR's public stats. Only your wallet address is sent, to the pool you already mine on.", 36.0f, 20.0f ), SETTING_LOOKUPS, settings.lookups, true, now );
+		toggle ( surface, row ( L"Look up balance and network stats", L"Reads your pending balance from SupportXMR, CKPool, HeroMiners or 2Miners, Monero's difficulty from SupportXMR's public stats, and Ethereum Classic's or EthereumPoW's from a public node. Only your wallet address is sent, to the pool you already mine on.", 36.0f, 20.0f ), SETTING_LOOKUPS, settings.lookups, true, now );
 		toggle ( surface, row ( L"Show the value in money", L"Fetches prices from CoinGecko every ten minutes. Nothing about you is sent.", 36.0f, 20.0f ), SETTING_FIAT, settings.show_fiat, settings.lookups, now );
 
 		{
