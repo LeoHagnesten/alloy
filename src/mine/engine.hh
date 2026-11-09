@@ -38,6 +38,7 @@ namespace mine {
 		uint8_t variant = 0;
 		uint64_t timestamp = 0;
 		uint32_t nonce_high = 0;
+		uint32_t epoch = 0;
 		uint8_t target [ 32 ] = { };
 		uint64_t index = 0;
 		uint32_t job = 0;

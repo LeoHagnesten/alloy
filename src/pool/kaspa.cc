@@ -151,7 +151,7 @@ namespace pool {
 
 		if ( message.kind ( node ) != base::JSON_STRING || length % 2 || length / 2 > 4 || !base::read_hex ( message.raw ( node ), length, bytes, static_cast < size_t > ( length / 2 ) ) ) {
 
-			note ( EVENT_WARNING, L"The pool sent an extranonce longer than Alloy can fit in Kaspa's nonce" );
+			note ( EVENT_WARNING, L"The pool sent an extranonce longer than Alloy can fit in the nonce" );
 
 			return;
 

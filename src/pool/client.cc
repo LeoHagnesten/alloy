@@ -139,6 +139,21 @@ namespace pool {
 
 		}
 
+		if ( ethash_mode ( ) ) {
+
+			if ( !kaspa_nonce_high ( nonce.first, nonce.first_size, index, out.nonce_high ) )
+				return false;
+
+			base::copy ( out.blob, ethash_current.header, 32 );
+			out.blob_size = 32;
+			base::copy ( out.seed, ethash_current.seed, 32 );
+			out.epoch = ethash_epoch;
+			chain::target_for ( difficulty, out.target, config.algorithm );
+
+			return true;
+
+		}
+
 		if ( sv2_on ) {
 
 			if ( index > 0xFFFF )
@@ -223,7 +238,7 @@ namespace pool {
 		known_job& slot = recent [ recent_next++ % base::count_of ( recent ) ];
 
 		slot.serial = serial;
-		base::copy_text ( slot.id, sizeof ( slot.id ), blob_mode ( ) ? blob_current.id : ( kaspa_mode ( ) ? kaspa_current.id : current.id ) );
+		base::copy_text ( slot.id, sizeof ( slot.id ), blob_mode ( ) ? blob_current.id : ( kaspa_mode ( ) ? kaspa_current.id : ( ethash_mode ( ) ? ethash_current.id : current.id ) ) );
 		slot.time = current.time;
 		slot.difficulty = difficulty;
 
@@ -508,7 +523,7 @@ namespace pool {
 
 		base::line request;
 
-		request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( agent ).add ( kaspa_mode ( ) ? "\",\"EthereumStratum/1.0.0\"]}" : "\"]}" );
+		request.add ( "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"" ).add ( agent ).add ( kaspa_mode ( ) || ethash_mode ( ) ? "\",\"EthereumStratum/1.0.0\"]}" : "\"]}" );
 		link->send_line ( request.get ( ) );
 
 	}
@@ -568,7 +583,15 @@ namespace pool {
 
 			}
 
-			if ( kaspa_mode ( ) && ( message.text_is ( method, "set_extranonce" ) || message.text_is ( method, "mining.set_extranonce" ) ) ) {
+			if ( ethash_mode ( ) && message.text_is ( method, "mining.notify" ) ) {
+
+				take_ethash_job ( message, params );
+
+				return true;
+
+			}
+
+			if ( ( kaspa_mode ( ) || ethash_mode ( ) ) && ( message.text_is ( method, "set_extranonce" ) || message.text_is ( method, "mining.set_extranonce" ) ) ) {
 
 				take_kaspa_extranonce ( message, params );
 
@@ -754,6 +777,23 @@ namespace pool {
 
 		}
 
+		if ( number == 1 && ethash_mode ( ) ) {
+
+			if ( message.kind ( error ) == base::JSON_ARRAY || message.kind ( error ) == base::JSON_OBJECT || !take_ethash_subscription ( message, result ) ) {
+
+				note ( EVENT_ERROR, L"The pool rejected the subscription" );
+				link->close ( );
+
+				return false;
+
+			}
+
+			authorize ( );
+
+			return true;
+
+		}
+
 		if ( number == 1 && kaspa_mode ( ) ) {
 
 			if ( message.kind ( error ) == base::JSON_ARRAY || message.kind ( error ) == base::JSON_OBJECT || ( message.kind ( result ) != base::JSON_ARRAY && !message.truth ( result ) ) ) {
@@ -912,6 +952,7 @@ namespace pool {
 			char second_hex [ extranonce_room * 2 + 1 ];
 			uint8_t second [ extranonce_room ];
 			int32_t second_size = 0;
+			int32_t fixed = 0;
 			bool known = false;
 
 			{
@@ -930,6 +971,7 @@ namespace pool {
 				}
 
 				second_size = nonce.second_size;
+				fixed = nonce.first_size;
 
 				if ( !known )
 					shown.stale++;
@@ -955,6 +997,8 @@ namespace pool {
 
 			} else if ( kaspa_mode ( ) )
 				write_kaspa_submit ( request, request_id, id, item.high, item.nonce );
+			else if ( ethash_mode ( ) )
+				write_ethash_submit ( request, request_id, id, item.high, item.nonce, fixed );
 			else {
 
 				char worker [ 256 ];

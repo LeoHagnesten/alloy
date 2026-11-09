@@ -59,6 +59,22 @@ namespace pool {
 
 	};
 
+	struct ethash_job {
+
+		char id [ 64 ] = { };
+		uint8_t seed [ 32 ] = { };
+		uint8_t header [ 32 ] = { };
+		bool clean = true;
+		char algo [ 16 ] = { };
+
+	};
+
+	bool parse_ethash_notify ( const base::json& message, int32_t params, ethash_job& out );
+
+	void write_ethash_notify ( base::line& out, const ethash_job& work );
+
+	int32_t ethash_dataset_epoch ( const uint8_t* seed, bool etchash );
+
 	bool parse_kaspa_notify ( const base::json& message, int32_t params, kaspa_job& out );
 
 	void write_kaspa_notify ( base::line& out, const kaspa_job& work, bool hex_form );

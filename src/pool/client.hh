@@ -199,6 +199,12 @@ namespace pool {
 
 		void write_kaspa_submit ( base::line& request, uint32_t request_id, const char* job_id, uint32_t high, uint32_t low );
 
+		void take_ethash_job ( const base::json& message, int32_t params );
+
+		bool take_ethash_subscription ( const base::json& message, int32_t result );
+
+		void write_ethash_submit ( base::line& request, uint32_t request_id, const char* job_id, uint32_t high, uint32_t low, int32_t fixed );
+
 		void login ( );
 
 		bool handle_blob ( const base::json& message );
@@ -223,6 +229,12 @@ namespace pool {
 
 		}
 
+		bool ethash_mode ( ) const {
+
+			return config.algorithm == chain::ALGORITHM_ETHASH;
+
+		}
+
 		void note ( event_kind kind, const wchar_t* text, double difficulty = 0.0, double latency = 0.0, uint32_t nonce = 0 );
 
 		void advance ( );
@@ -242,6 +254,10 @@ namespace pool {
 		pool::job current;
 		blob_job blob_current;
 		kaspa_job kaspa_current;
+		ethash_job ethash_current;
+		uint8_t ethash_seed_seen [ 32 ] = { };
+		bool ethash_etchash = false;
+		uint32_t ethash_epoch = 0;
 		char login_id [ 128 ] = { };
 		double last_keepalive = 0.0;
 		bool nicehash = false;
