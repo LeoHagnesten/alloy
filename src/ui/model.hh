@@ -176,6 +176,9 @@ namespace ui {
 		uint32_t retry_seconds = 60;
 		wchar_t coinbase_tag [ 41 ] = L"/alloy/";
 		uint8_t rate_window = 0;
+		uint32_t pool_fee = 0;
+		wchar_t power_watts [ 8 ] = { };
+		wchar_t power_price [ 16 ] = { };
 		bool pause_active = false;
 		uint32_t idle_minutes = 2;
 		bool pause_battery = true;

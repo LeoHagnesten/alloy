@@ -1,6 +1,7 @@
 #include "ui/shell.hh"
 #include "chain/coinbase.hh"
 #include "base/math.hh"
+#include "base/strings.hh"
 #include "base/text.hh"
 
 namespace ui {
@@ -111,13 +112,23 @@ namespace ui {
 		cells [ 2 ].caption = L"ALL TIME";
 		cells [ 3 ].caption = L"PER DAY";
 		cells [ 4 ].caption = L"POOL BALANCE";
-		cells [ 0 ].tip = L"Every accepted share counted as its slice of the block reward at the network difficulty when it was found. Before the pool's fee.";
+		base::text fee_note;
+		double keep = 1.0 - static_cast < double > ( settings.pool_fee ) / 1000.0;
+
+		fee_note.add ( L"Every accepted share counted as its slice of the block reward at the network difficulty when it was found. " );
+
+		if ( settings.pool_fee )
+			fee_note.add ( L"After the pool's " ).number ( settings.pool_fee / 10 ).put ( L'.' ).number ( settings.pool_fee % 10 ).add ( L"% fee." );
+		else
+			fee_note.add ( L"Before the pool's fee." );
+
+		cells [ 0 ].tip = fee_note.get ( );
 		cells [ 1 ].tip = L"The same estimate for everything mined today. Alloy keeps a record of every day in its data folder.";
 		cells [ 2 ].tip = L"Every share Alloy has had accepted on this computer, added up.";
 		cells [ 3 ].tip = L"What the current hashrate earns in a day at today's difficulty and block reward.";
 		cells [ 4 ].tip = L"What the pool owes you and hasn't paid out yet, read from its public API.";
 
-		double amounts [ 4 ] = { view.run_earned, today ? today->earned [ coin % chain::COIN_COUNT ] : 0.0, view.lifetime.earned [ coin % chain::COIN_COUNT ], view.per_day };
+		double amounts [ 4 ] = { view.run_earned * keep, today ? today->earned [ coin % chain::COIN_COUNT ] * keep : 0.0, view.lifetime.earned [ coin % chain::COIN_COUNT ] * keep, view.per_day * keep };
 
 		for ( int32_t i = 0; i < 4; i++ ) {
 
@@ -313,6 +324,33 @@ namespace ui {
 
 		}
 
+		double watts = base::read_decimal ( settings.power_watts );
+		double power_rate = base::read_decimal ( settings.power_price );
+
+		if ( watts > 0.0 && power_rate > 0.0 ) {
+
+			double cost = watts * 24.0 / 1000.0 * power_rate;
+
+			value.clear ( );
+			money ( value, cost, settings.currency );
+			property ( surface, right_x, right_y, right_w, L"Power per day", value.get ( ) );
+
+			if ( priced && view.network_known ) {
+
+				double profit = view.per_day * keep * view.price - cost;
+
+				value.clear ( );
+
+				if ( profit < 0.0 )
+					value.put ( L'-' );
+
+				money ( value, base::abs ( profit ), settings.currency );
+				property ( surface, right_x, right_y, right_w, L"Profit per day", value.get ( ) );
+
+			}
+
+		}
+
 		y = base::max ( left_y, right_y ) + 22.0f;
 		surface.rule ( area.x, area.right ( ), y - 10.0f, colors.divider );
 		caption ( surface, render::box { x, y, wide, 16.0f }, L"BY DAY" );
@@ -364,7 +402,7 @@ namespace ui {
 
 			surface.text ( cell.get ( ), render::FONT_BODY, render::box { columns [ 3 ], y, 160.0f, 30.0f }, colors.muted );
 
-			double earned = row.earned [ coin % chain::COIN_COUNT ];
+			double earned = row.earned [ coin % chain::COIN_COUNT ] * keep;
 
 			cell.clear ( );
 			coin_amount ( cell, earned, symbol );
@@ -384,7 +422,7 @@ namespace ui {
 		}
 
 		y += 16.0f;
-		surface.paragraph ( L"Earnings are estimates: each accepted share counts as its slice of the block reward at the network difficulty when it was found, before the pool's fee. Pool balances are what the pool itself reports.", render::FONT_SMALL, render::box { x, y, base::min ( wide, 720.0f ), 40.0f }, colors.faint );
+		surface.paragraph ( L"Earnings are estimates: each accepted share counts as its slice of the block reward at the network difficulty when it was found, less the pool fee set in Settings. Pool balances are what the pool itself reports.", render::FONT_SMALL, render::box { x, y, base::min ( wide, 720.0f ), 40.0f }, colors.faint );
 		y += 56.0f;
 
 		scroll_limit [ SCROLL_EARNINGS ] = base::max ( 0.0f, y - area.bottom ( ) );

@@ -509,6 +509,16 @@ namespace ui {
 
 		}
 
+		if ( settings.advanced ) {
+
+			value.clear ( );
+			value.number ( settings.pool_fee / 10 ).put ( L'.' ).number ( settings.pool_fee % 10 ).put ( L'%' );
+			slider ( surface, row ( L"Pool fee", L"Taken off every estimate on Earnings, so they match what the pool pays. Most pools charge between 0 and 2 percent.", 300.0f, 30.0f ), SETTING_POOL_FEE, static_cast < float > ( settings.pool_fee ) / 50.0f, value.get ( ), true, now );
+			field ( surface, row ( L"Power draw in watts", L"What this computer pulls from the wall while mining, from a plug meter or the card's own reading. With a price below, Earnings shows the power cost and the profit per day.", 120.0f, 30.0f ), SETTING_WATTS, false, now );
+			field ( surface, row ( L"Power price per kWh", L"What a kilowatt hour costs you, in the currency above, like 0.25.", 120.0f, 30.0f ), SETTING_POWER_PRICE, false, now );
+
+		}
+
 		section ( L"REMOTE", false );
 		toggle ( surface, row ( L"Stats API and web dashboard", L"Serves the hashrate and shares as JSON on port 4067, like XMRig's API, plus a dashboard page for any browser. Nothing can change settings through it.", 36.0f, 20.0f ), SETTING_API, settings.api_port != 0, true, now );
 		toggle ( surface, row ( L"Let other computers connect", L"Listens on the network as well, so other rigs and phones can watch this one. They need the access token below.", 36.0f, 20.0f ), SETTING_API_LAN, settings.api_lan, settings.api_port != 0, now );

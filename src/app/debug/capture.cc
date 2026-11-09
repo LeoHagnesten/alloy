@@ -372,6 +372,13 @@ namespace app {
 
 		self->view->open_page ( ui::PAGE_EARNINGS, self->clock );
 		shoot ( *self, L"earnings-dark.png" );
+		self->settings.pool_fee = 10;
+		base::copy_text ( self->settings.power_watts, base::count_of ( self->settings.power_watts ), L"180" );
+		base::copy_text ( self->settings.power_price, base::count_of ( self->settings.power_price ), L"0.25" );
+		shoot ( *self, L"earnings-power-dark.png" );
+		self->settings.pool_fee = 0;
+		self->settings.power_watts [ 0 ] = 0;
+		self->settings.power_price [ 0 ] = 0;
 		self->view->open_page ( ui::PAGE_RIGS, self->clock );
 		shoot ( *self, L"rigs-dark.png" );
 		self->view->open_page ( ui::PAGE_HELP, self->clock );

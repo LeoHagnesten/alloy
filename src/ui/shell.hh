@@ -55,6 +55,8 @@ namespace ui {
 		SETTING_RIG,
 		SETTING_DIFFICULTY,
 		SETTING_TAG,
+		SETTING_WATTS,
+		SETTING_POWER_PRICE,
 		SETTING_CPU,
 		SETTING_THREADS,
 		SETTING_CPU_LIMIT,
@@ -111,6 +113,7 @@ namespace ui {
 		SETTING_SCRYPT_KERNEL,
 		SETTING_RANDOMX_CODE,
 		SETTING_RATE_WINDOW,
+		SETTING_POOL_FEE,
 		SETTING_COUNT,
 
 	};
@@ -138,7 +141,7 @@ namespace ui {
 
 	};
 
-	static constexpr int32_t field_count = 9;
+	static constexpr int32_t field_count = 11;
 	static constexpr int32_t pool_fields = 4;
 
 	struct text_field {

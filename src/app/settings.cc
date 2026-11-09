@@ -344,6 +344,12 @@ namespace app {
 					base::widen ( out.coinbase_tag, base::count_of ( out.coinbase_tag ), value );
 				else if ( base::same_text ( key, "hashrate_window" ) )
 					out.rate_window = pick ( window_names, value, out.rate_window );
+				else if ( base::same_text ( key, "pool_fee" ) )
+					out.pool_fee = base::min ( static_cast < uint32_t > ( base::read_decimal ( value, base::length ( value ) ) * 10.0 + 0.5 ), 50u );
+				else if ( base::same_text ( key, "power_watts" ) )
+					base::widen ( out.power_watts, base::count_of ( out.power_watts ), value );
+				else if ( base::same_text ( key, "power_price" ) )
+					base::widen ( out.power_price, base::count_of ( out.power_price ), value );
 				else if ( base::same_text ( key, "pause_when_active" ) )
 					out.pause_active = yes ( value );
 				else if ( base::same_text ( key, "idle_minutes" ) )
@@ -546,6 +552,11 @@ namespace app {
 		base::narrow ( text, sizeof ( text ), copy->coinbase_tag );
 		out.add ( "coinbase_message=" ).add ( text ).add ( "\r\n" );
 		out.add ( "hashrate_window=" ).add ( window_names [ copy->rate_window % 4 ] ).add ( "\r\n" );
+		out.add ( "pool_fee=" ).number ( copy->pool_fee / 10 ).put ( '.' ).number ( copy->pool_fee % 10 ).add ( "\r\n" );
+		base::narrow ( text, sizeof ( text ), copy->power_watts );
+		out.add ( "power_watts=" ).add ( text ).add ( "\r\n" );
+		base::narrow ( text, sizeof ( text ), copy->power_price );
+		out.add ( "power_price=" ).add ( text ).add ( "\r\n" );
 		out.add ( "pause_when_active=" ).add ( copy->pause_active ? "yes" : "no" ).add ( "\r\n" );
 		out.add ( "idle_minutes=" ).number ( copy->idle_minutes ).add ( "\r\n" );
 		out.add ( "pause_on_battery=" ).add ( copy->pause_battery ? "yes" : "no" ).add ( "\r\n" );

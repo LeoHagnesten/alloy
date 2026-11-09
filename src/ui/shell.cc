@@ -1015,6 +1015,11 @@ namespace ui {
 			target = &settings.intensity;
 			value = 16 + static_cast < uint32_t > ( base::round ( fraction * 10.0f ) );
 
+		} else if ( which == SETTING_POOL_FEE ) {
+
+			target = &settings.pool_fee;
+			value = static_cast < uint32_t > ( base::round ( fraction * 50.0f ) );
+
 		} else if ( which == SETTING_DATASET ) {
 
 			target = &settings.dataset_megabytes;
@@ -1114,7 +1119,7 @@ namespace ui {
 		int32_t room = 0;
 		wchar_t* target = field_target ( focus, room );
 		bool changed = !base::same_text ( target, fields [ focus ].text );
-		bool stored = focus < pool_fields || focus == SETTING_APPS || focus == SETTING_DIFFICULTY || focus == SETTING_TAG;
+		bool stored = focus < pool_fields || focus == SETTING_APPS || focus == SETTING_DIFFICULTY || focus == SETTING_TAG || focus == SETTING_WATTS || focus == SETTING_POWER_PRICE;
 
 		if ( changed && stored ) {
 
@@ -1178,6 +1183,14 @@ namespace ui {
 			case SETTING_TAG:
 				room = base::count_of ( settings.coinbase_tag );
 				return settings.coinbase_tag;
+
+			case SETTING_WATTS:
+				room = base::count_of ( settings.power_watts );
+				return settings.power_watts;
+
+			case SETTING_POWER_PRICE:
+				room = base::count_of ( settings.power_price );
+				return settings.power_price;
 
 			default:
 				room = base::count_of ( rig_entry );
@@ -1478,6 +1491,9 @@ namespace ui {
 
 			case SETTING_DATASET:
 				return bump ( settings.dataset_megabytes, 160, 0, dataset_full );
+
+			case SETTING_POOL_FEE:
+				return bump ( settings.pool_fee, 1, 0, 50 );
 
 			case SETTING_HEAT:
 				if ( !settings.gpu_heat && direction > 0 ) {

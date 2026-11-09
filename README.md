@@ -42,7 +42,7 @@ Alloy mines Bitcoin-style SHA-256d, Litecoin-style scrypt, Monero's RandomX and 
 **When and how hard to mine**
 
 - Threads, a processor usage limit, priority, kernel choice, GPU intensity, a GPU usage limit and a temperature limit, for all cards or each card on its own.
-- An Advanced settings switch for experienced miners: a start difficulty sent as mining.suggest_difficulty, tries before the backup pool, time until going back, connection and silence timeouts, the longest retry wait, exact cores to run on, scrypt and RandomX kernel choices, the solo coinbase message and the hashrate averaging window. Off, the page stays simple.
+- An Advanced settings switch for experienced miners: a start difficulty sent as mining.suggest_difficulty, tries before the backup pool, time until going back, connection and silence timeouts, the longest retry wait, exact cores to run on, scrypt and RandomX kernel choices, the solo coinbase message, the hashrate averaging window, the pool fee and the power draw and price, which put power cost and profit per day on Earnings. Off, the page stays simple.
 - Pausing while the computer is in use, on battery, for full-screen apps, for chosen programs, or outside a weekly schedule, and Ctrl+Alt+M to pause from anywhere.
 - Profiles that hold every setting, `--profile` and `--set key=value` on the command line, and Tune, which measures thread counts and batch sizes and keeps the fastest.
 - A first-run page that asks for the coin, the wallet and the pool.
