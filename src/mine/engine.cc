@@ -477,7 +477,31 @@ namespace mine {
 
 		base::guard hold ( eth_lock );
 
-		return ethash_ready ( work ) && device.build_dag ( *eth_cache, &self.dag_progress, &quit );
+		if ( !ethash_ready ( work ) || !device.build_dag ( *eth_cache, &self.dag_progress, &quit ) )
+			return false;
+
+		uint32_t items = static_cast < uint32_t > ( eth_cache->dataset_bytes ( ) / 64 );
+		uint32_t probes [ 4 ] = { 0, items / 3, items / 3 * 2 + 1, items - 1 };
+
+		for ( uint32_t index : probes ) {
+
+			uint32_t from_card [ 16 ] = { };
+			uint32_t from_cpu [ 16 ] = { };
+
+			eth_cache->item ( index, from_cpu );
+
+			if ( !device.dag_item ( index, from_card ) || !base::same ( from_card, from_cpu, 64 ) ) {
+
+				base::atomic_add ( self.faults, 1u );
+				device.drop_dag ( );
+
+				return false;
+
+			}
+
+		}
+
+		return true;
 
 	}
 
