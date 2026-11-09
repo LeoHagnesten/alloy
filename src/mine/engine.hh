@@ -12,7 +12,15 @@ namespace randomx {
 
 }
 
+namespace hash {
+
+	class ethash_cache;
+
+}
+
 namespace mine {
+
+	class gpu_device;
 
 	static constexpr uint32_t max_lanes = 256;
 	static constexpr uint32_t max_gpus = 8;
@@ -111,6 +119,7 @@ namespace mine {
 		GPU_FAILED,
 		GPU_UNSUPPORTED,
 		GPU_COOLING,
+		GPU_BUILDING,
 
 	};
 
@@ -241,6 +250,24 @@ namespace mine {
 
 		}
 
+		uint32_t gpu_dag_progress ( uint32_t index ) const {
+
+			return base::atomic_load ( gpus [ index ].dag_progress );
+
+		}
+
+		uint32_t gpu_dag_epoch ( uint32_t index ) const {
+
+			return base::atomic_load ( gpus [ index ].dag_epoch );
+
+		}
+
+		double gpu_dag_seconds ( uint32_t index ) const {
+
+			return static_cast < double > ( base::atomic_load ( gpus [ index ].dag_tenths ) ) / 10.0;
+
+		}
+
 		uint32_t gpu_trimmed ( uint32_t index ) const {
 
 			return base::atomic_load ( gpus [ index ].trimmed );
@@ -323,6 +350,9 @@ namespace mine {
 			volatile uint32_t share = 100;
 			volatile uint32_t power = 22;
 			volatile uint32_t heat_limit = 0;
+			volatile uint32_t dag_progress = 0;
+			volatile uint32_t dag_epoch = 0;
+			volatile uint32_t dag_tenths = 0;
 			wchar_t label [ 128 ] = { };
 
 		};
@@ -354,6 +384,12 @@ namespace mine {
 
 		void build_dataset ( const uint8_t* seed, uint8_t kind );
 
+		bool ethash_ready ( const unit& work );
+
+		bool ethash_light ( const unit& work, uint32_t nonce, uint8_t* digest );
+
+		bool ethash_dag ( gpu_device& device, const unit& work, gpu_slot& self );
+
 		feeder* source = nullptr;
 		hash::compressor compress = hash::sha256_block;
 		lane* lane_list = nullptr;
@@ -383,6 +419,9 @@ namespace mine {
 		volatile uint32_t gpu_heat_limit = 0;
 		volatile uint32_t sabotage = 0;
 		volatile uint64_t best_top = ~0ull;
+		base::lock eth_lock;
+		hash::ethash_cache* eth_cache = nullptr;
+		uint8_t eth_seed [ 32 ] = { };
 		randomx::cache* rx_cache = nullptr;
 		randomx::dataset* rx_dataset = nullptr;
 		uint8_t rx_seed [ 32 ] = { };

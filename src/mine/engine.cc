@@ -3,6 +3,7 @@
 #include "randomx/machine.hh"
 #include "hash/aes.hh"
 #include "hash/heavyhash.hh"
+#include "hash/ethash.hh"
 #include "hash/scrypt.hh"
 #include "chain/target.hh"
 #include "base/bits.hh"
@@ -41,6 +42,9 @@ namespace mine {
 
 		if ( algorithm == chain::ALGORITHM_KHEAVYHASH )
 			return 1ull << 14;
+
+		if ( algorithm == chain::ALGORITHM_ETHASH )
+			return 0;
 
 		return 1ull << 18;
 
@@ -231,8 +235,10 @@ namespace mine {
 
 		delete rx_dataset;
 		delete rx_cache;
+		delete eth_cache;
 		rx_dataset = nullptr;
 		rx_cache = nullptr;
+		eth_cache = nullptr;
 		rx_ready = 0;
 		rx_state = DATASET_NONE;
 		rx_progress = 0;
@@ -428,6 +434,50 @@ namespace mine {
 		build_dataset ( work.seed, work.variant );
 
 		return false;
+
+	}
+
+	bool engine::ethash_ready ( const unit& work ) {
+
+		if ( eth_cache && eth_cache->ready ( ) && eth_cache->epoch ( ) == work.epoch && base::same ( eth_seed, work.seed, 32 ) )
+			return true;
+
+		if ( !eth_cache )
+			eth_cache = new hash::ethash_cache;
+
+		if ( !eth_cache->build ( work.epoch, work.seed, &quit ) )
+			return false;
+
+		base::copy ( eth_seed, work.seed, 32 );
+
+		return true;
+
+	}
+
+	bool engine::ethash_light ( const unit& work, uint32_t nonce, uint8_t* digest ) {
+
+		base::guard hold ( eth_lock );
+
+		if ( !ethash_ready ( work ) )
+			return false;
+
+		uint8_t mix [ 32 ];
+		uint8_t result [ 32 ];
+
+		eth_cache->light ( work.blob, static_cast < uint64_t > ( work.nonce_high ) << 32 | nonce, mix, result );
+
+		for ( int32_t i = 0; i < 32; i++ )
+			digest [ i ] = result [ 31 - i ];
+
+		return true;
+
+	}
+
+	bool engine::ethash_dag ( gpu_device& device, const unit& work, gpu_slot& self ) {
+
+		base::guard hold ( eth_lock );
+
+		return ethash_ready ( work ) && device.build_dag ( *eth_cache, &self.dag_progress, &quit );
 
 	}
 
@@ -687,6 +737,7 @@ namespace mine {
 		uint32_t window_restarts = 0;
 		uint32_t trim = 0;
 		uint32_t settled = 0;
+		uint32_t dag_failed = ~0u;
 		bool cooling = false;
 		bool broken = false;
 		bool gave_up = false;
@@ -744,6 +795,7 @@ namespace mine {
 
 			bool scrypt = done.work.algorithm == chain::ALGORITHM_SCRYPT;
 			bool heavy = done.work.algorithm == chain::ALGORITHM_KHEAVYHASH;
+			bool ethash = done.work.algorithm == chain::ALGORITHM_ETHASH;
 			uint32_t threshold = base::load_little ( done.work.target + 28 );
 			chain::header header = done.work.header;
 
@@ -754,7 +806,7 @@ namespace mine {
 
 				heavy_check->prepare ( done.work.blob, done.work.timestamp );
 
-			} else if ( found_count && !scrypt )
+			} else if ( found_count && !scrypt && !ethash )
 				checker.prepare ( done.work.header, compress );
 
 			if ( found_count && scrypt && !scratch )
@@ -769,7 +821,12 @@ namespace mine {
 
 				} else if ( heavy )
 					heavy_check->hash ( static_cast < uint64_t > ( done.work.nonce_high ) << 32 | found [ i ], digest );
-				else
+				else if ( ethash ) {
+
+					if ( !ethash_light ( done.work, found [ i ], digest ) )
+						continue;
+
+				} else
 					checker.hash ( found [ i ], digest );
 
 				if ( base::load_little ( digest + 28 ) > threshold ) {
@@ -873,7 +930,8 @@ namespace mine {
 				uint32_t power = base::max ( base::atomic_load ( self.power ) - base::min ( trim, base::atomic_load ( self.power ) - 16u ), 16u );
 				uint32_t scrypt_room = kind == chain::ALGORITHM_SCRYPT ? base::max ( device->capacity ( kind ) >> trim, 256u ) : 0u;
 				uint32_t heavy_room = kind == chain::ALGORITHM_KHEAVYHASH && device->capacity ( kind ) ? 1u << ( power - 2 ) : 0u;
-				uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << power, scrypt_room, 0u, heavy_room };
+				uint32_t ethash_room = kind == chain::ALGORITHM_ETHASH && device->capacity ( kind ) ? 1u << ( power - 2 ) : 0u;
+				uint32_t rooms [ chain::ALGORITHM_COUNT ] = { 1u << power, scrypt_room, 0u, heavy_room, ethash_room };
 				uint32_t share = base::atomic_load ( self.share );
 				bool overlap = share >= 100;
 
@@ -901,6 +959,40 @@ namespace mine {
 
 						heavy_send->prepare ( next->work.blob, next->work.timestamp );
 						sent = device->submit_heavy ( *heavy_send, next->work.nonce_high, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot );
+
+					} else if ( next->work.algorithm == chain::ALGORITHM_ETHASH ) {
+
+						if ( !device->dag_ready ( next->work.epoch ) && dag_failed != next->work.epoch ) {
+
+							if ( waiting->live )
+								settle ( *waiting );
+
+							double began = base::seconds ( );
+
+							base::atomic_store ( self.dag_progress, 0u );
+							base::atomic_store ( self.dag_epoch, next->work.epoch );
+							base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_BUILDING ) );
+
+							if ( ethash_dag ( *device, next->work, self ) ) {
+
+								base::atomic_store ( self.dag_tenths, static_cast < uint32_t > ( ( base::seconds ( ) - began ) * 10.0 ) );
+								base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_RUNNING ) );
+
+							} else if ( !base::atomic_load ( quit ) )
+								dag_failed = next->work.epoch;
+
+						}
+
+						if ( device->dag_ready ( next->work.epoch ) )
+							sent = device->submit_ethash ( next->work.blob, next->work.nonce_high, static_cast < uint32_t > ( next->from ), count, base::load_little64 ( next->work.target + 24 ), next->slot );
+						else {
+
+							next->live = false;
+							sent = true;
+							base::atomic_store ( self.phase, static_cast < uint32_t > ( GPU_UNSUPPORTED ) );
+							base::sleep ( 100 );
+
+						}
 
 					} else
 						sent = device->submit ( next->work.algorithm, next->work.header, static_cast < uint32_t > ( next->from ), count, base::load_little ( next->work.target + 28 ), next->slot );

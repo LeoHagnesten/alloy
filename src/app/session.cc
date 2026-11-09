@@ -155,7 +155,7 @@ namespace app {
 
 	static uint8_t gpu_phase_of ( mine::gpu_state state ) {
 
-		if ( state == mine::GPU_STARTING )
+		if ( state == mine::GPU_STARTING || state == mine::GPU_BUILDING )
 			return ui::GPU_STARTING;
 
 		if ( state == mine::GPU_RUNNING )

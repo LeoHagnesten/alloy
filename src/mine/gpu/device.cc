@@ -813,6 +813,9 @@ namespace mine {
 		if ( algorithm == chain::ALGORITHM_KHEAVYHASH )
 			return prepare_heavy ( ) ? 1u << 26 : 0;
 
+		if ( algorithm == chain::ALGORITHM_ETHASH )
+			return prepare_ethash ( ) ? 1u << 24 : 0;
+
 		return algorithm == chain::ALGORITHM_SHA256D && device ? 1u << 28 : 0;
 
 	}
