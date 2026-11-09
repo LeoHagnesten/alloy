@@ -303,7 +303,7 @@ namespace tests {
 
 	}
 
-	static void live_pool ( uint8_t algorithm, const wchar_t* address, const wchar_t* worker, const wchar_t* what, double limit, bool gpu ) {
+	static void live_pool ( uint8_t algorithm, const wchar_t* address, const wchar_t* worker, const wchar_t* what, double limit, bool gpu, uint8_t coin = chain::COIN_COUNT ) {
 
 		app::session* run = new app::session;
 		ui::preferences settings;
@@ -311,6 +311,10 @@ namespace tests {
 		bool jobs = false;
 
 		settings.algorithm = algorithm;
+
+		if ( coin < chain::COIN_COUNT )
+			settings.choose_coin ( coin );
+
 		settings.mode = ui::MODE_POOL;
 		settings.threads = 2;
 		settings.gpu = gpu;
@@ -352,8 +356,10 @@ namespace tests {
 
 		}
 
+		bool hashing = !gpu || view.rate > 0.0;
+
 		run->stop ( );
-		check ( jobs && view.rejected == 0, note.get ( ) );
+		check ( jobs && view.rejected == 0 && hashing, note.get ( ) );
 		delete run;
 
 	}
@@ -362,13 +368,16 @@ namespace tests {
 
 		section ( L"etc" );
 		etc_live_block ( );
+		live_pool ( chain::ALGORITHM_ETHASH, L"etc.2miners.com:1010", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"2Miners' Ethereum Classic pool", 60.0, true, chain::COIN_ETHEREUM_CLASSIC );
+		live_pool ( chain::ALGORITHM_ETHASH, L"etc.herominers.com:1150", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"HeroMiners' Ethereum Classic pool", 60.0, true, chain::COIN_ETHEREUM_CLASSIC );
+		live_pool ( chain::ALGORITHM_ETHASH, L"ethw.2miners.com:2020", L"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.alloy", L"2Miners' EthereumPoW pool", 75.0, true, chain::COIN_ETHEREUM_POW );
 
 	}
 
 	void online_tests ( ) {
 
 		section ( L"online" );
-		etc_live_block ( );
+		etc_live_tests ( );
 		kaspa_live_block ( );
 		live_pool ( chain::ALGORITHM_KHEAVYHASH, L"kas.2miners.com:2020", L"kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98.alloy", L"2Miners' Kaspa pool", 30.0, true );
 		live_pool ( chain::ALGORITHM_KHEAVYHASH, L"kaspa.herominers.com:1206", L"kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98.alloy", L"HeroMiners' Kaspa pool", 120.0, true );
