@@ -40,6 +40,11 @@ namespace tests {
 		{ chain::COIN_KASPA, "kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98", chain::ADDRESS_VALID, L"Kaspa" },
 		{ chain::COIN_KASPA, "kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc99", chain::ADDRESS_BROKEN, L"" },
 		{ chain::COIN_MONERO, "kaspa:precqv0krj3r6uyyfa36ga7s0u9jct0v4wg8ctsfde2gkrsgwgw8jgxfzfc98", chain::ADDRESS_OTHER_COIN, L"Kaspa" },
+		{ chain::COIN_ETHEREUM_CLASSIC, "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", chain::ADDRESS_VALID, L"Ethereum Classic" },
+		{ chain::COIN_ETHEREUM_POW, "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359", chain::ADDRESS_VALID, L"EthereumPoW" },
+		{ chain::COIN_ETHEREUM_CLASSIC, "0xdbf03b407c01e7cd3cbea99509d93f8dddc8c6fb", chain::ADDRESS_VALID, L"Ethereum Classic" },
+		{ chain::COIN_ETHEREUM_CLASSIC, "0x5aaeb6053F3E94C9b9A09f33669435E7Ef1BeAed", chain::ADDRESS_BROKEN, L"" },
+		{ chain::COIN_MONERO, "0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb", chain::ADDRESS_OTHER_COIN, L"Ethereum Classic" },
 		{ chain::COIN_BITCOIN, "alloy", chain::ADDRESS_NONE, L"" },
 
 	};
@@ -76,7 +81,7 @@ namespace tests {
 
 		base::text note;
 
-		note.add ( L"Bitcoin, segwit, taproot, Bitcoin Cash in both forms, Bitcoin SV, Litecoin, Dogecoin, DigiByte, Monero and Kaspa addresses check out against the chosen coin (" ).number ( static_cast < uint64_t > ( right ) ).add ( L" of " ).number ( static_cast < uint64_t > ( base::count_of ( address_cases ) ) ).put ( L')' );
+		note.add ( L"Bitcoin, segwit, taproot, Bitcoin Cash in both forms, Bitcoin SV, Litecoin, Dogecoin, DigiByte, Monero, Kaspa and Ethereum-style addresses with their EIP-55 checksum check out against the chosen coin (" ).number ( static_cast < uint64_t > ( right ) ).add ( L" of " ).number ( static_cast < uint64_t > ( base::count_of ( address_cases ) ) ).put ( L')' );
 		check ( right == base::count_of ( address_cases ), note.get ( ) );
 
 		chain::address_check worker = chain::check_worker ( chain::COIN_MONERO, L"44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A.rig" );

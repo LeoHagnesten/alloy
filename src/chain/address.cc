@@ -539,6 +539,57 @@ namespace chain {
 
 	}
 
+	static bool ethereum_match ( const char* text, bool& attempted ) {
+
+		attempted = text [ 0 ] == '0' && ( text [ 1 ] == 'x' || text [ 1 ] == 'X' ) && base::length ( text ) == 42;
+
+		if ( !attempted )
+			return false;
+
+		const char* body = text + 2;
+		char folded [ 40 ];
+		bool upper = false;
+		bool lowered = false;
+
+		for ( int32_t i = 0; i < 40; i++ ) {
+
+			char c = body [ i ];
+
+			if ( c >= 'A' && c <= 'F' )
+				upper = true;
+			else if ( c >= 'a' && c <= 'f' )
+				lowered = true;
+			else if ( c < '0' || c > '9' )
+				return false;
+
+			folded [ i ] = lower ( c );
+
+		}
+
+		if ( !upper || !lowered )
+			return true;
+
+		uint8_t digest [ 32 ];
+
+		hash::keccak_256 ( folded, 40, digest );
+
+		for ( int32_t i = 0; i < 40; i++ ) {
+
+			uint8_t nibble = i % 2 ? digest [ i / 2 ] & 0x0F : digest [ i / 2 ] >> 4;
+			char c = body [ i ];
+
+			if ( c >= 'a' && c <= 'f' && nibble >= 8 )
+				return false;
+
+			if ( c >= 'A' && c <= 'F' && nibble < 8 )
+				return false;
+
+		}
+
+		return true;
+
+	}
+
 	address_check check_address ( uint8_t coin, const char* text ) {
 
 		address_check out;
@@ -557,6 +608,15 @@ namespace chain {
 
 			found.add ( COIN_MONERO, L"Monero", false );
 			found.add ( COIN_MONERO_V2, L"Monero", false );
+
+		}
+
+		found.attempted = found.attempted || attempted;
+
+		if ( ethereum_match ( text, attempted ) ) {
+
+			found.add ( COIN_ETHEREUM_CLASSIC, L"Ethereum Classic", false );
+			found.add ( COIN_ETHEREUM_POW, L"EthereumPoW", false );
 
 		}
 
