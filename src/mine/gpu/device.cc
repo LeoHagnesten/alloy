@@ -1,5 +1,8 @@
 #include "mine/gpu/device.hh"
 #include "hash/heavyhash.hh"
+#include "hash/ethash.hh"
+#include "base/system/clock.hh"
+#include "base/system/threads.hh"
 #include "base/bits.hh"
 #include "base/system/com.hh"
 #include "base/memory.hh"
@@ -14,6 +17,8 @@
 #include "scrypt_mix.h"
 #include "scrypt_finish.h"
 #include "kheavyhash.h"
+#include "ethash_dag.h"
+#include "ethash_search.h"
 
 namespace mine {
 
@@ -35,6 +40,21 @@ namespace mine {
 		uint64_t finish [ 26 ];
 		uint32_t limits [ 4 ];
 		uint32_t rows [ 512 ];
+
+	};
+
+	struct dag_layout {
+
+		uint32_t limits [ 4 ];
+		uint32_t place [ 4 ];
+
+	};
+
+	struct search_layout {
+
+		uint32_t header [ 8 ];
+		uint32_t limits [ 4 ];
+		uint32_t more [ 4 ];
 
 	};
 
@@ -218,6 +238,12 @@ namespace mine {
 
 		}
 
+		drop_dag ( );
+		drop ( idle_query );
+		drop ( search_constants );
+		drop ( dag_constants );
+		drop ( search_shader );
+		drop ( dag_shader );
 		drop ( constants );
 		drop ( heavy_constants );
 		drop ( heavy_shader );
@@ -243,6 +269,7 @@ namespace mine {
 		scrypt_room = 0;
 		scrypt_failed = false;
 		heavy_failed = false;
+		ethash_failed = false;
 		next_slot = 0;
 
 	}
@@ -434,6 +461,347 @@ namespace mine {
 		next_slot ^= 1;
 
 		return count && dispatch_heavy ( prepared, nonce_high, first, count, 0xFFFFFFFFu, slot, count ) && read ( slot, tops, count );
+
+	}
+
+	bool gpu_device::prepare_ethash ( ) {
+
+		if ( dag_shader && search_shader && dag_constants && search_constants && idle_query )
+			return true;
+
+		if ( ethash_failed || !device )
+			return false;
+
+		D3D11_BUFFER_DESC layout = { };
+		D3D11_QUERY_DESC asking = { };
+
+		layout.Usage = D3D11_USAGE_DYNAMIC;
+		layout.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		layout.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		layout.ByteWidth = sizeof ( dag_layout );
+		asking.Query = D3D11_QUERY_EVENT;
+
+		bool ok = SUCCEEDED ( device->CreateComputeShader ( ethash_dag_code, sizeof ( ethash_dag_code ), nullptr, &dag_shader ) );
+
+		ok = ok && SUCCEEDED ( device->CreateComputeShader ( ethash_search_code, sizeof ( ethash_search_code ), nullptr, &search_shader ) );
+		ok = ok && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &dag_constants ) );
+		layout.ByteWidth = sizeof ( search_layout );
+		ok = ok && SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &search_constants ) );
+		ok = ok && SUCCEEDED ( device->CreateQuery ( &asking, &idle_query ) );
+
+		if ( !ok ) {
+
+			drop ( idle_query );
+			drop ( search_constants );
+			drop ( dag_constants );
+			drop ( search_shader );
+			drop ( dag_shader );
+			ethash_failed = true;
+
+		}
+
+		return ok;
+
+	}
+
+	bool gpu_device::finish_queue ( ) {
+
+		if ( !idle_query )
+			return false;
+
+		context->End ( idle_query );
+
+		BOOL done = FALSE;
+
+		while ( true ) {
+
+			HRESULT state = context->GetData ( idle_query, &done, sizeof ( done ), 0 );
+
+			if ( FAILED ( state ) )
+				return false;
+
+			if ( state == S_OK && done )
+				return true;
+
+			base::sleep ( 1 );
+
+		}
+
+	}
+
+	void gpu_device::drop_dag ( ) {
+
+		if ( context ) {
+
+			ID3D11ShaderResourceView* empty [ dag_part_room ] = { };
+
+			context->CSSetShaderResources ( 0, dag_part_room, empty );
+
+		}
+
+		for ( uint32_t i = 0; i < dag_part_room; i++ ) {
+
+			drop ( dag_views [ i ] );
+			drop ( dag_parts [ i ] );
+
+		}
+
+		dag_part_count = 0;
+		dag_rows = 0;
+		dag_part_rows = 0;
+		dag_epoch = 0;
+
+	}
+
+	bool gpu_device::build_dag ( const hash::ethash_cache& cache, volatile uint32_t* progress, volatile uint32_t* stop ) {
+
+		if ( dag_ready ( cache.epoch ( ) ) )
+			return true;
+
+		drop_dag ( );
+
+		if ( !cache.ready ( ) || !prepare_ethash ( ) )
+			return false;
+
+		uint64_t limit_bytes = base::min ( base::max ( video_memory / 4, 128ull << 20 ), 2048ull << 20 );
+		uint64_t rows = cache.dataset_bytes ( ) / 128;
+
+		dag_part_rows = static_cast < uint32_t > ( limit_bytes / 128 );
+		dag_rows = static_cast < uint32_t > ( rows );
+		dag_part_count = static_cast < uint32_t > ( ( rows + dag_part_rows - 1 ) / dag_part_rows );
+
+		if ( dag_part_count > dag_part_room ) {
+
+			dag_part_count = 0;
+
+			return false;
+
+		}
+
+		D3D11_BUFFER_DESC layout = { };
+		D3D11_SUBRESOURCE_DATA initial = { };
+		ID3D11Buffer* cache_buffer = nullptr;
+		ID3D11ShaderResourceView* cache_view = nullptr;
+		D3D11_SHADER_RESOURCE_VIEW_DESC reading = { };
+
+		layout.ByteWidth = static_cast < UINT > ( cache.bytes ( ) );
+		layout.Usage = D3D11_USAGE_IMMUTABLE;
+		layout.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+		initial.pSysMem = cache.words ( );
+		reading.Format = DXGI_FORMAT_R32_TYPELESS;
+		reading.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+		reading.BufferEx.NumElements = static_cast < UINT > ( cache.bytes ( ) / 4 );
+		reading.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+
+		bool ok = SUCCEEDED ( device->CreateBuffer ( &layout, &initial, &cache_buffer ) ) && SUCCEEDED ( device->CreateShaderResourceView ( cache_buffer, &reading, &cache_view ) );
+		uint64_t items_total = rows * 2;
+		uint64_t items_done = 0;
+
+		for ( uint32_t part = 0; part < dag_part_count && ok; part++ ) {
+
+			uint64_t first_row = static_cast < uint64_t > ( part ) * dag_part_rows;
+			uint64_t part_rows = base::min ( static_cast < uint64_t > ( dag_part_rows ), rows - first_row );
+			ID3D11UnorderedAccessView* writing = nullptr;
+			D3D11_UNORDERED_ACCESS_VIEW_DESC shape = { };
+
+			layout = { };
+			layout.ByteWidth = static_cast < UINT > ( part_rows * 128 );
+			layout.Usage = D3D11_USAGE_DEFAULT;
+			layout.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+			layout.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+			shape.Format = DXGI_FORMAT_R32_TYPELESS;
+			shape.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+			shape.Buffer.NumElements = static_cast < UINT > ( part_rows * 32 );
+			shape.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+			reading.BufferEx.NumElements = static_cast < UINT > ( part_rows * 32 );
+			ok = SUCCEEDED ( device->CreateBuffer ( &layout, nullptr, &dag_parts [ part ] ) ) && SUCCEEDED ( device->CreateUnorderedAccessView ( dag_parts [ part ], &shape, &writing ) ) && SUCCEEDED ( device->CreateShaderResourceView ( dag_parts [ part ], &reading, &dag_views [ part ] ) );
+
+			uint64_t first_item = first_row * 2;
+			uint64_t last_item = first_item + part_rows * 2;
+
+			for ( uint64_t at = first_item; at < last_item && ok; at += 1u << 18 ) {
+
+				if ( stop && base::atomic_load ( *stop ) ) {
+
+					ok = false;
+
+					break;
+
+				}
+
+				uint32_t count = static_cast < uint32_t > ( base::min ( 1ull << 18, last_item - at ) );
+				uint32_t groups = ( count + 63 ) / 64;
+				uint32_t across = base::min ( groups, 4096u );
+				uint32_t down = ( groups + across - 1 ) / across;
+				dag_layout values = { };
+				D3D11_MAPPED_SUBRESOURCE mapped;
+
+				values.limits [ 0 ] = static_cast < uint32_t > ( at );
+				values.limits [ 1 ] = count;
+				values.limits [ 2 ] = static_cast < uint32_t > ( cache.bytes ( ) / 64 );
+				values.limits [ 3 ] = across * 64;
+				values.place [ 0 ] = static_cast < uint32_t > ( first_item );
+
+				if ( FAILED ( context->Map ( dag_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped ) ) ) {
+
+					ok = false;
+
+					break;
+
+				}
+
+				base::copy ( mapped.pData, &values, sizeof ( values ) );
+				context->Unmap ( dag_constants, 0 );
+				context->CSSetConstantBuffers ( 0, 1, &dag_constants );
+				context->CSSetShaderResources ( 0, 1, &cache_view );
+				context->CSSetUnorderedAccessViews ( 0, 1, &writing, nullptr );
+				context->CSSetShader ( dag_shader, nullptr, 0 );
+				context->Dispatch ( across, down, 1 );
+				ok = finish_queue ( );
+				items_done += count;
+
+				if ( progress )
+					base::atomic_store ( *progress, static_cast < uint32_t > ( base::min ( items_done * 1000 / items_total, 999ull ) ) );
+
+			}
+
+			ID3D11UnorderedAccessView* none = nullptr;
+
+			context->CSSetUnorderedAccessViews ( 0, 1, &none, nullptr );
+			drop ( writing );
+
+		}
+
+		ID3D11ShaderResourceView* empty = nullptr;
+
+		context->CSSetShaderResources ( 0, 1, &empty );
+		drop ( cache_view );
+		drop ( cache_buffer );
+
+		if ( !ok ) {
+
+			drop_dag ( );
+
+			return false;
+
+		}
+
+		dag_epoch = cache.epoch ( );
+
+		if ( progress )
+			base::atomic_store ( *progress, 1000u );
+
+		return true;
+
+	}
+
+	bool gpu_device::dag_item ( uint32_t index, uint32_t* out ) {
+
+		if ( !dag_part_count || index / 2 >= dag_rows )
+			return false;
+
+		uint32_t part = index / 2 / dag_part_rows;
+		uint32_t offset = ( index - part * dag_part_rows * 2 ) * 64;
+		D3D11_BUFFER_DESC layout = { };
+		ID3D11Buffer* staging = nullptr;
+
+		if ( part >= dag_part_count )
+			return false;
+
+		layout.ByteWidth = 64;
+		layout.Usage = D3D11_USAGE_STAGING;
+		layout.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+		if ( FAILED ( device->CreateBuffer ( &layout, nullptr, &staging ) ) )
+			return false;
+
+		D3D11_BOX box = { offset, 0, 0, offset + 64, 1, 1 };
+		D3D11_MAPPED_SUBRESOURCE mapped;
+
+		context->CopySubresourceRegion ( staging, 0, 0, 0, 0, dag_parts [ part ], 0, &box );
+
+		bool ok = SUCCEEDED ( context->Map ( staging, 0, D3D11_MAP_READ, 0, &mapped ) );
+
+		if ( ok ) {
+
+			base::copy ( out, mapped.pData, 64 );
+			context->Unmap ( staging, 0 );
+
+		}
+
+		drop ( staging );
+
+		return ok;
+
+	}
+
+	bool gpu_device::dispatch_ethash ( const uint8_t* header, uint32_t nonce_high, uint32_t first, uint32_t count, uint64_t threshold, bool sampling, int32_t slot ) {
+
+		if ( !dag_part_count || !prepare_ethash ( ) )
+			return false;
+
+		uint32_t groups = base::max ( ( count + 127 ) / 128, 1u );
+		uint32_t across = base::min ( groups, 4096u );
+		uint32_t down = ( groups + across - 1 ) / across;
+		search_layout values = { };
+		D3D11_MAPPED_SUBRESOURCE mapped;
+
+		for ( int32_t i = 0; i < 8; i++ )
+			values.header [ i ] = base::load_little ( header + i * 4 );
+
+		values.limits [ 0 ] = static_cast < uint32_t > ( threshold >> 32 );
+		values.limits [ 1 ] = static_cast < uint32_t > ( threshold );
+		values.limits [ 2 ] = across * 128;
+		values.limits [ 3 ] = first;
+		values.more [ 0 ] = nonce_high;
+		values.more [ 1 ] = dag_rows;
+		values.more [ 2 ] = dag_part_rows;
+		values.more [ 3 ] = sampling ? 1 : 0;
+
+		if ( FAILED ( context->Map ( search_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped ) ) )
+			return false;
+
+		base::copy ( mapped.pData, &values, sizeof ( values ) );
+		context->Unmap ( search_constants, 0 );
+
+		static const UINT zeros [ 4 ] = { };
+
+		context->ClearUnorderedAccessViewUint ( views [ slot ], zeros );
+		context->CSSetConstantBuffers ( 0, 1, &search_constants );
+		context->CSSetShaderResources ( 0, dag_part_count, dag_views );
+		context->CSSetUnorderedAccessViews ( 0, 1, &views [ slot ], nullptr );
+		context->CSSetShader ( search_shader, nullptr, 0 );
+		context->Dispatch ( across, down, 1 );
+
+		uint32_t words = sampling ? base::min ( count, sample_room ) : 32;
+		D3D11_BOX box = { 0, 0, 0, words * 4, 1, 1 };
+
+		context->CopySubresourceRegion ( readback [ slot ], 0, 0, 0, 0, results [ slot ], 0, &box );
+		context->Flush ( );
+
+		return true;
+
+	}
+
+	bool gpu_device::submit_ethash ( const uint8_t* header, uint32_t nonce_high, uint32_t first, uint32_t count, uint64_t threshold, int32_t& slot ) {
+
+		slot = next_slot;
+		next_slot ^= 1;
+
+		return dispatch_ethash ( header, nonce_high, first, count, threshold, false, slot );
+
+	}
+
+	bool gpu_device::sample_ethash ( const uint8_t* header, uint32_t nonce_high, uint32_t first, uint32_t count, uint32_t* tops ) {
+
+		count = base::min ( count, sample_room );
+
+		int32_t slot = next_slot;
+
+		next_slot ^= 1;
+
+		return count && dispatch_ethash ( header, nonce_high, first, count, ~0ull, true, slot ) && read ( slot, tops, count );
 
 	}
 
