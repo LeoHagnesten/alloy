@@ -398,7 +398,7 @@ namespace ui {
 			segmented ( surface, row ( L"Card", L"Pick a card to give it its own settings. Cards you leave alone follow the shared settings below.", 420.0f, 30.0f ), names, shown, card_view, CONTROL_CHOICE, SETTING_CARD * 16, card_works, now );
 			toggle ( surface, row ( L"Mine on this card", L"Turn one card off and the others keep mining.", 36.0f, 20.0f ), SETTING_CARD_ON, !card.custom || card.on, card_works, now );
 
-			if ( kind == chain::ALGORITHM_SHA256D || kind == chain::ALGORITHM_KHEAVYHASH ) {
+			if ( kind == chain::ALGORITHM_SHA256D || kind == chain::ALGORITHM_KHEAVYHASH || kind == chain::ALGORITHM_ETHASH ) {
 
 				value.clear ( );
 				value.number ( intensity );
