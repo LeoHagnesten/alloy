@@ -100,6 +100,18 @@ namespace app {
 
 	}
 
+	static double loose_number ( const base::json& parsed, int32_t node ) {
+
+		if ( node < 0 )
+			return 0.0;
+
+		if ( parsed.kind ( node ) == base::JSON_STRING )
+			return base::read_decimal ( parsed.raw ( node ), parsed.raw_size ( node ) );
+
+		return parsed.number ( node );
+
+	}
+
 	static bool ethereum_tip ( uint8_t coin, base::json& parsed, net::http_reply& reply, lookup_result& out ) {
 
 		static const char request [ ] = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBlockByNumber\",\"params\":[\"latest\",false]}";
@@ -147,10 +159,46 @@ namespace app {
 		for ( int32_t i = 0; pool [ i ]; i++ )
 			pool [ i ] = pool [ i ] >= 'A' && pool [ i ] <= 'Z' ? static_cast < char > ( pool [ i ] + 32 ) : pool [ i ];
 
+		char account [ 128 ];
+		char host [ 128 ] = { };
+		int32_t account_length = 0;
+		int32_t host_length = 0;
+		const char* after = pool;
+
+		while ( wallet [ account_length ] && wallet [ account_length ] != '.' && wallet [ account_length ] != '+' ) {
+
+			account [ account_length ] = wallet [ account_length ];
+			account_length++;
+
+		}
+
+		account [ account_length ] = 0;
+
 		while ( wallet [ length ] && wallet [ length ] != '.' && wallet [ length ] != '+' && wallet [ length ] != ':' )
 			length++;
 
 		wallet [ length ] = 0;
+
+		for ( int32_t i = 0; pool [ i ] && pool [ i + 1 ] && pool [ i + 2 ]; i++ ) {
+
+			if ( pool [ i ] == ':' && pool [ i + 1 ] == '/' && pool [ i + 2 ] == '/' ) {
+
+				after = pool + i + 3;
+
+				break;
+
+			}
+
+		}
+
+		while ( after [ host_length ] && after [ host_length ] != ':' && after [ host_length ] != '/' && host_length < static_cast < int32_t > ( sizeof ( host ) ) - 1 ) {
+
+			host [ host_length ] = after [ host_length ];
+			host_length++;
+
+		}
+
+		host [ host_length ] = 0;
 
 		bool monero = wanted.algorithm == chain::ALGORITHM_RANDOMX && wanted.variant <= 1;
 		auto mentions = [ & ] ( const char* name ) {
@@ -221,6 +269,75 @@ namespace app {
 
 			} else
 				base::copy_text ( out.note, base::count_of ( out.note ), L"CKPool hasn't seen a share from this address yet" );
+
+		} else if ( wanted.balances && account_length > 20 && mentions ( "herominers.com" ) ) {
+
+			const char* api = host;
+
+			for ( int32_t i = 0; host [ i ]; i++ ) {
+
+				if ( host [ i ] == '.' && base::starts_with ( host + i + 1, "herominers.com" ) ) {
+
+					for ( int32_t k = i - 1; k >= 0; k-- ) {
+
+						if ( host [ k ] == '.' ) {
+
+							api = host + k + 1;
+
+							break;
+
+						}
+
+					}
+
+					break;
+
+				}
+
+			}
+
+			double units = chain::coin_of ( wanted.coin ).units;
+
+			url.clear ( );
+			url.add ( "https://" ).add ( api ).add ( "/api/stats_address?address=" ).add ( account ).add ( "&longpoll=false" );
+
+			int32_t stats = fetch ( url.get ( ), *parsed, *reply ) ? parsed->member ( 0, "stats" ) : -1;
+
+			if ( stats >= 0 ) {
+
+				out.balance = true;
+				out.due = loose_number ( *parsed, parsed->member ( stats, "balance" ) ) / units;
+				out.paid = loose_number ( *parsed, parsed->member ( stats, "paid" ) ) / units;
+				out.pool_rate = loose_number ( *parsed, parsed->member ( stats, "hashrate" ) );
+				out.pool_shares = static_cast < uint64_t > ( loose_number ( *parsed, parsed->member ( stats, "shares_good" ) ) );
+				out.best = 0.0;
+				base::copy_text ( out.source, base::count_of ( out.source ), L"HeroMiners" );
+
+			} else
+				base::copy_text ( out.note, base::count_of ( out.note ), L"HeroMiners hasn't seen a share from this address yet" );
+
+		} else if ( wanted.balances && account_length > 20 && wanted.algorithm == chain::ALGORITHM_ETHASH && mentions ( "2miners.com" ) ) {
+
+			for ( int32_t i = 0; account [ i ]; i++ )
+				account [ i ] = account [ i ] >= 'A' && account [ i ] <= 'Z' ? static_cast < char > ( account [ i ] + 32 ) : account [ i ];
+
+			url.clear ( );
+			url.add ( "https://" ).add ( host ).add ( "/api/accounts/" ).add ( account );
+
+			int32_t stats = fetch ( url.get ( ), *parsed, *reply ) ? parsed->member ( 0, "stats" ) : -1;
+
+			if ( stats >= 0 ) {
+
+				out.balance = true;
+				out.due = loose_number ( *parsed, parsed->member ( stats, "balance" ) ) / 1e9;
+				out.paid = loose_number ( *parsed, parsed->member ( stats, "paid" ) ) / 1e9;
+				out.pool_rate = loose_number ( *parsed, parsed->member ( 0, "currentHashrate" ) );
+				out.pool_shares = static_cast < uint64_t > ( loose_number ( *parsed, parsed->member ( 0, "sharesValid" ) ) );
+				out.best = 0.0;
+				base::copy_text ( out.source, base::count_of ( out.source ), L"2Miners" );
+
+			} else
+				base::copy_text ( out.note, base::count_of ( out.note ), L"2Miners hasn't seen a share from this address yet" );
 
 		} else if ( wanted.balances && wallet [ 0 ] )
 			base::copy_text ( out.note, base::count_of ( out.note ), L"This pool doesn't publish balances Alloy can read, so the figures are Alloy's own estimate" );
